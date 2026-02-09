@@ -9,6 +9,9 @@ node_modules/
 .vscode/
 .idea/
 
+# Data / Docs (large files, local only)
+docs/
+
 # Environment
 .env
 .env.local
