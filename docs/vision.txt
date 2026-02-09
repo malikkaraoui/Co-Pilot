@@ -1,0 +1,149 @@
+
+COPILOTE D’ACHAT AUTOMOBILE
+Document MVP – Vision, périmètre et architecture
+
+1. Objectif du MVP
+Le MVP du Copilote d’achat automobile a pour objectif de démontrer la faisabilité technique, la pertinence métier et la valeur ajoutée réelle d’un assistant intelligent d’aide à l’achat de véhicules d’occasion.
+⚠️ Le MVP ne vise pas :
+	•	un diagnostic mécanique,
+	•	une prédiction garantie de pannes futures,
+	•	un accès à des bases constructeurs propriétaires.
+✅ Il vise :
+	•	une évaluation de risque contextualisée,
+	•	fondée sur des connaissances publiques, vérifiables et structurées,
+	•	restituée de manière claire, pédagogique et actionnable.
+
+2. Périmètre fonctionnel du MVP
+Le MVP repose sur une chaîne complète, de la préparation de la donnée jusqu’à la restitution utilisateur, mais avec un périmètre volontairement maîtrisé.
+Il est structuré autour de 6 piliers techniques et fonctionnels.
+
+3. Architecture globale (vue macro)
+Sources de données
+   ↓
+Pipeline Python (ingestion / nettoyage / structuration)
+   ↓
+Référentiel véhicules (socle central)
+   ↓
+LLM spécialisé automobile (RAG)
+   ↓
+Analyse d’annonce (texte + images)
+   ↓
+Checklist & rapport utilisateur
+L’extension Chrome n’est qu’un point d’entrée. Le cœur du MVP est backend et data-driven.
+
+4. PILIER 1 — Ingestion et préparation des données (amont)
+Objectif
+Construire une base de connaissances automobiles à partir de sources ouvertes et non structurées.
+Sources intégrées au MVP
+	•	Vidéos YouTube (essais, retours mécaniques)
+	•	Articles presse automobile
+	•	Forums automobiles
+	•	Pages officielles de rappels (constructeurs / autorités)
+Traitements réalisés
+	•	Extraction texte (scraping, transcription)
+	•	Nettoyage et normalisation
+	•	Indexation sémantique (RAG)
+	•	Synthèse par LLM (signaux positifs / négatifs)
+Technologie
+	•	Python
+	◦	orchestration des flux
+	◦	NLP / embeddings
+	◦	stockage structuré
+👉 Ce pilier justifie à lui seul l’usage de Python.
+
+5. PILIER 2 — Référentiel véhicules (colonne vertébrale)
+Objectif
+Créer un socle structurant représentant le parc automobile français (2010–2025).
+Structure
+Chaque entrée correspond à :
+	•	une marque
+	•	un modèle
+	•	une génération
+	•	une motorisation
+	•	une année précise
+👉 Une entrée = un véhicule unique, sans ambiguïté.
+Sources
+	•	Open data
+	•	Bases existantes
+	•	Repositories ouverts
+Rôle dans le MVP
+	•	Point d’ancrage de toutes les analyses
+	•	Support de requêtes internes du type : « Mini Cooper 1.6L – 2002 : quels risques connus ? »
+
+6. PILIER 3 — LLM spécialisé automobile
+Objectif
+Créer un LLM restreint au domaine automobile, entraîné et interrogé via Python.
+Fonctions du LLM
+	•	Synthèse de connaissances
+	•	Génération de phrases d’alerte
+	•	Reformulation pédagogique
+	•	Préparation de messages type (ex : e-mail au vendeur)
+Positionnement
+⚠️ Le LLM :
+	•	n’invente pas
+	•	n’affirme pas
+	•	explique et qualifie des risques
+
+7. PILIER 4 — Analyse d’une annonce réelle
+Entrée
+Annonce issue d’un site (ex : Leboncoin) :
+	•	texte
+	•	métadonnées (JSON)
+	•	images
+Traitement MVP
+	•	Vérification de cohérence :
+	◦	modèle / année / motorisation
+	◦	existence réelle dans la base
+	•	Détection d’incohérences évidentes
+	•	Signalement d’annonces suspectes ou imprécises
+Répartition des rôles
+	•	Extension Chrome : extraction
+	•	Backend Python : analyse
+
+8. PILIER 5 — Analyse visuelle (images)
+Objectif MVP
+Détecter les incohérences visuelles simples :
+	•	photos ne correspondant pas au modèle annoncé
+	•	phase / génération incorrecte
+	•	visuels génériques ou trompeurs
+Approche MVP
+	•	Base d’images de référence par modèle
+	•	Comparaison visuelle basique
+	•	Génération de red flags
+
+9. PILIER 6 — Checklist intelligente et restitution
+Objectif
+Produire une checklist contextualisée, non statique.
+Caractéristiques
+	•	50 à 200 points potentiels
+	•	Pondération par gravité
+	•	Explicabilité de chaque alerte
+Sortie MVP
+	•	Résumé clair
+	•	Niveau de risque global
+	•	Points de vigilance
+	•	Rapport PDF simple :
+	◦	Achat recommandé
+	◦	Achat à risque
+
+10. Pourquoi Python est pertinent dans le MVP
+Python est utilisé car il permet :
+	•	ingestion et nettoyage massif de données
+	•	structuration d’un référentiel complexe
+	•	orchestration RAG + LLM
+	•	génération de rapports
+	•	moteur de règles explicite et traçable
+⚠️ Python n’est pas utilisé pour le front ⚠️ Python n’est pas l’unique technologie
+👉 Python est le moteur intellectuel du projet.
+
+11. Conclusion MVP
+Ce MVP démontre :
+	•	une chaîne complète et crédible
+	•	un usage justifié et non cosmétique de Python
+	•	une promesse réaliste : évaluation de risque, pas diagnostic
+	•	un projet techniquement ambitieux mais borné
+Le Copilote d’achat automobile est ainsi :
+	•	faisable
+	•	différenciant
+	•	aligné avec les contraintes réelles du marché
+
