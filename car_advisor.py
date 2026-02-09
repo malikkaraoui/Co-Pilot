@@ -5,7 +5,6 @@ A tool to help buyers make informed decisions about used car purchases
 based on their usage, budget, and known model weaknesses.
 """
 
-import json
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
 from enum import Enum

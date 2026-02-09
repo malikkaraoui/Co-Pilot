@@ -191,6 +191,9 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\nExiting... Good luck with your car search!")
+    except ValueError as e:
+        print(f"\nInput error: {e}")
+        print("Please try again with valid inputs.")
     except Exception as e:
-        print(f"\nAn error occurred: {e}")
+        print(f"\nAn unexpected error occurred: {e}")
         print("Please try again or report this issue on GitHub.")
