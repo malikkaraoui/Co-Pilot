@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Co-Pilot - Analyse Leboncoin",
+  "version": "1.0.0",
+  "description": "Analyse les annonces auto Leboncoin et donne un score de confiance de 0 a 100.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.leboncoin.fr/*",
+    "http://localhost:5001/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.leboncoin.fr/ad/*", "https://www.leboncoin.fr/voitures/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

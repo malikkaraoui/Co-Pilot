@@ -1,9 +1,8 @@
 """Classes de configuration pour l'application Co-Pilot."""
 
 import os
+import tempfile
 from pathlib import Path
-
-from sqlalchemy.pool import StaticPool
 
 basedir = Path(__file__).resolve().parent
 
@@ -43,12 +42,13 @@ class TestConfig(Config):
     """Configuration de test."""
 
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
-    # StaticPool partage une connexion unique entre les threads
-    # (necessaire car FilterEngine utilise ThreadPoolExecutor)
+    # Fichier temporaire au lieu de :memory: car FilterEngine utilise
+    # ThreadPoolExecutor et SQLite in-memory ne supporte pas les acces
+    # concurrents meme avec StaticPool.
+    _test_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{_test_db.name}"
     SQLALCHEMY_ENGINE_OPTIONS = {
         "connect_args": {"check_same_thread": False},
-        "poolclass": StaticPool,
     }
     WTF_CSRF_ENABLED = False
     LOG_LEVEL = "DEBUG"

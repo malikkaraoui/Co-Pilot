@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Co-Pilot</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 320px;
+      background: #fff;
+      color: #111827;
+    }
+
+    .popup-header {
+      padding: 20px;
+      text-align: center;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .popup-logo {
+      font-size: 20px;
+      font-weight: 800;
+      color: #2563eb;
+    }
+
+    .popup-version {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+
+    .popup-body {
+      padding: 20px;
+    }
+
+    .popup-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: #f0fdf4;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .popup-status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+
+    .popup-status-text {
+      font-size: 13px;
+      color: #166534;
+    }
+
+    .popup-instructions {
+      font-size: 13px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+
+    .popup-instructions strong {
+      color: #111827;
+    }
+
+    .popup-instructions ol {
+      padding-left: 18px;
+      margin-top: 8px;
+    }
+
+    .popup-instructions li {
+      margin-bottom: 6px;
+    }
+
+    .popup-footer {
+      padding: 12px 20px;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+    }
+
+    .popup-footer a {
+      font-size: 11px;
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .popup-footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-header">
+    <div class="popup-logo">Co-Pilot</div>
+    <div class="popup-version">v1.0.0 - Analyse Leboncoin</div>
+  </div>
+
+  <div class="popup-body">
+    <div class="popup-status">
+      <div class="popup-status-dot"></div>
+      <span class="popup-status-text">Extension active</span>
+    </div>
+
+    <div class="popup-instructions">
+      <strong>Comment utiliser Co-Pilot :</strong>
+      <ol>
+        <li>Rendez-vous sur une annonce auto <strong>leboncoin.fr</strong></li>
+        <li>Cliquez sur le bouton <strong>"Analyser avec Co-Pilot"</strong></li>
+        <li>Consultez le score et les détails de l'analyse</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="popup-footer">
+    <a href="https://github.com/malikkaraoui/Co-Pilot" target="_blank">GitHub</a>
+  </div>
+</body>
+</html>

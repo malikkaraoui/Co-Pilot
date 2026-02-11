@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Co-Pilot - Page de démonstration</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+    .demo-banner {
+      background: #2563eb;
+      color: #fff;
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .demo-banner strong { font-weight: 700; }
+    .ad-container {
+      max-width: 800px;
+      margin: 30px auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .ad-image {
+      width: 100%;
+      height: 300px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .ad-body { padding: 24px; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    .ad-price {
+      font-size: 28px;
+      font-weight: 800;
+      color: #e74c3c;
+      margin-bottom: 16px;
+    }
+    .ad-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .ad-detail {
+      padding: 10px;
+      background: #f9fafb;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .ad-detail strong {
+      display: block;
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 2px;
+    }
+    .ad-description {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #555;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 16px;
+    }
+    .demo-instructions {
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #fffbeb;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .demo-instructions h2 {
+      font-size: 15px;
+      color: #92400e;
+      margin-bottom: 8px;
+    }
+    .demo-instructions code {
+      background: #fef3c7;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .demo-instructions ol { padding-left: 20px; }
+    .demo-instructions li { margin-bottom: 6px; }
+
+    /* Bouton de test direct (simule le clic sur le bouton Co-Pilot) */
+    .demo-test-btn {
+      display: block;
+      margin: 20px auto;
+      padding: 12px 24px;
+      background: #22c55e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .demo-test-btn:hover { background: #16a34a; }
+  </style>
+</head>
+<body>
+
+  <div class="demo-banner">
+    <strong>Page de démonstration Co-Pilot</strong> — Cette page simule une annonce Leboncoin pour tester l'extension.
+  </div>
+
+  <div class="demo-instructions">
+    <h2>Comment tester l'extension :</h2>
+    <ol>
+      <li>Ouvrir Chrome → <code>chrome://extensions</code></li>
+      <li>Activer le <strong>Mode développeur</strong> (en haut à droite)</li>
+      <li>Cliquer sur <strong>« Charger l'extension non empaquetée »</strong></li>
+      <li>Sélectionner le dossier <code>extension/</code> du projet</li>
+      <li>Lancer le serveur Flask : <code>flask run</code> (ou <code>python wsgi.py</code>)</li>
+      <li>Cliquer sur le bouton <strong>« Tester l'analyse »</strong> ci-dessous</li>
+    </ol>
+  </div>
+
+  <div class="ad-container">
+    <div class="ad-image">Peugeot 3008 II</div>
+    <div class="ad-body">
+      <h1 data-qa-id="adview_title">Peugeot 3008 GT Line 1.5 BlueHDi 130 EAT8</h1>
+      <div class="ad-price" data-qa-id="adview_price">18 500 €</div>
+
+      <div class="ad-details">
+        <div class="ad-detail"><strong>Année</strong> 2019</div>
+        <div class="ad-detail"><strong>Kilométrage</strong> 67 000 km</div>
+        <div class="ad-detail"><strong>Énergie</strong> Diesel</div>
+        <div class="ad-detail"><strong>Boîte</strong> Automatique</div>
+        <div class="ad-detail"><strong>Puissance</strong> 130 ch</div>
+        <div class="ad-detail"><strong>Couleur</strong> Gris</div>
+      </div>
+
+      <div class="ad-description">
+        Peugeot 3008 GT Line en excellent état, suivi exclusivement chez Peugeot.
+        Carnet d'entretien à jour, toutes les révisions faites dans les temps.
+        Équipements : GPS, caméra de recul, toit panoramique, sièges chauffants.
+        Première main, non fumeur, jamais accidenté.
+        Contrôle technique OK, valable jusqu'en 2027.
+        Possibilité de financement, reprise possible.
+        Contact : 06 12 34 56 78.
+      </div>
+
+      <!-- Le bouton Co-Pilot sera injecté ici par le content script -->
+    </div>
+  </div>
+
+  <button class="demo-test-btn" id="demo-test-btn">
+    Tester l'analyse (appelle l'API directement)
+  </button>
+
+  <!-- Simulation du __NEXT_DATA__ de Leboncoin -->
+  <script id="__NEXT_DATA__" type="application/json">
+  {
+    "props": {
+      "pageProps": {
+        "ad": {
+          "subject": "Peugeot 3008 GT Line 1.5 BlueHDi 130 EAT8",
+          "body": "Peugeot 3008 GT Line en excellent état, suivi exclusivement chez Peugeot. Carnet d'entretien à jour, toutes les révisions faites dans les temps. Équipements : GPS, caméra de recul, toit panoramique, sièges chauffants. Première main, non fumeur, jamais accidenté. Contrôle technique OK. Contact : 06 12 34 56 78.",
+          "price": [18500],
+          "attributes": [
+            {"key": "Marque", "value": "Peugeot"},
+            {"key": "Modèle", "value": "3008"},
+            {"key": "Année modèle", "value": "2019"},
+            {"key": "Kilométrage", "value": "67000"},
+            {"key": "Énergie", "value": "Diesel"},
+            {"key": "Boîte de vitesse", "value": "Automatique"},
+            {"key": "Couleur", "value": "Gris"},
+            {"key": "Nombre de portes", "value": "5"},
+            {"key": "Nombre de places", "value": "5"},
+            {"key": "Puissance fiscale", "value": "8"},
+            {"key": "Puissance DIN", "value": "130"}
+          ],
+          "location": {
+            "city": "Lyon",
+            "zipcode": "69003",
+            "department_name": "Rhône",
+            "region_name": "Auvergne-Rhone-Alpes",
+            "lat": 45.76,
+            "lng": 4.85
+          },
+          "owner": {
+            "type": "private",
+            "name": "Jean D."
+          },
+          "phone": "06 12 34 56 78"
+        }
+      }
+    }
+  }
+  </script>
+
+  <script>
+    // Bouton de test direct : envoie le __NEXT_DATA__ à l'API sans passer par le content script
+    document.getElementById("demo-test-btn").addEventListener("click", async function() {
+      const btn = this;
+      btn.textContent = "Analyse en cours...";
+      btn.disabled = true;
+
+      const script = document.getElementById("__NEXT_DATA__");
+      const nextData = JSON.parse(script.textContent);
+
+      try {
+        const resp = await fetch("http://localhost:5001/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ next_data: nextData }),
+        });
+        const result = await resp.json();
+        console.log("[Demo] Résultat :", result);
+
+        if (result.success) {
+          btn.textContent = `Score : ${result.data.score}/100 ${result.data.is_partial ? "(partiel)" : ""} — voir la console (F12)`;
+          btn.style.background = result.data.score >= 70 ? "#22c55e" : result.data.score >= 40 ? "#f59e0b" : "#ef4444";
+        } else {
+          btn.textContent = `Erreur : ${result.message}`;
+          btn.style.background = "#ef4444";
+        }
+      } catch (err) {
+        console.error("[Demo] Erreur :", err);
+        btn.textContent = "Erreur — le serveur Flask tourne-t-il ? (flask run)";
+        btn.style.background = "#ef4444";
+      }
+
+      setTimeout(() => {
+        btn.textContent = "Tester l'analyse (appelle l'API directement)";
+        btn.style.background = "#22c55e";
+        btn.disabled = false;
+      }, 5000);
+    });
+  </script>
+
+</body>
+</html>
