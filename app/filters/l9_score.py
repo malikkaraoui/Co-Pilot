@@ -1,0 +1,82 @@
+"""Filtre L9 Evaluation Globale -- evalue les signaux de confiance transversaux."""
+
+import logging
+from typing import Any
+
+from app.filters.base import BaseFilter, FilterResult
+
+logger = logging.getLogger(__name__)
+
+MIN_DESCRIPTION_LENGTH = 50
+
+
+class L9GlobalAssessmentFilter(BaseFilter):
+    """Evalue les signaux de confiance globaux : qualite de description, type de vendeur, completude de l'annonce."""
+
+    filter_id = "L9"
+
+    def run(self, data: dict[str, Any]) -> FilterResult:
+        points_forts = []
+        points_faibles = []
+
+        # Qualite de la description
+        description = data.get("description") or ""
+        desc_len = len(description.strip())
+        if desc_len >= 200:
+            points_forts.append("Description detaillee")
+        elif desc_len >= MIN_DESCRIPTION_LENGTH:
+            pass  # neutral
+        elif desc_len > 0:
+            points_faibles.append("Description tres courte")
+        else:
+            points_faibles.append("Pas de description")
+
+        # Type de vendeur
+        owner_type = data.get("owner_type")
+        if owner_type == "pro":
+            points_forts.append("Vendeur professionnel")
+        elif owner_type == "private":
+            pass  # neutral
+
+        # Les photos/images seront ajoutees ici a l'avenir
+
+        # Telephone disponible
+        if data.get("phone"):
+            points_forts.append("Numero de telephone visible")
+        else:
+            points_faibles.append("Pas de numero de telephone")
+
+        # Localisation disponible
+        location = data.get("location") or {}
+        if location.get("city"):
+            points_forts.append("Localisation precise")
+        else:
+            points_faibles.append("Localisation non precisee")
+
+        # Calcul du score
+        total = len(points_forts) + len(points_faibles)
+        if total == 0:
+            score = 0.5
+        else:
+            score = len(points_forts) / total
+
+        if not points_faibles:
+            status = "pass"
+            message = "Annonce complete et detaillee"
+        elif len(points_faibles) <= 1:
+            status = "warning"
+            message = points_faibles[0]
+        else:
+            status = "fail"
+            message = f"{len(points_faibles)} signaux faibles detectes"
+
+        return FilterResult(
+            filter_id=self.filter_id,
+            status=status,
+            score=round(score, 2),
+            message=message,
+            details={
+                "points_forts": points_forts,
+                "points_faibles": points_faibles,
+            },
+        )
