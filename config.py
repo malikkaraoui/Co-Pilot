@@ -36,6 +36,7 @@ class DevConfig(Config):
 
     DEBUG = True
     LOG_LEVEL = "DEBUG"
+    CORS_ORIGINS = ["*"]
 
 
 class TestConfig(Config):
