@@ -59,14 +59,16 @@
         <nav class="nav flex-column mt-3">
           <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
              href="{{ url_for('admin.dashboard') }}">Dashboard</a>
-          <a class="nav-link {% if request.endpoint == 'admin.vehicles' %}active{% endif %}"
-             href="{{ url_for('admin.vehicles') }}">Vehicules</a>
+          <a class="nav-link {% if request.endpoint == 'admin.car' %}active{% endif %}"
+             href="{{ url_for('admin.car') }}">Vehicules</a>
           <a class="nav-link {% if request.endpoint == 'admin.database' %}active{% endif %}"
              href="{{ url_for('admin.database') }}">Base Vehicules</a>
           <a class="nav-link {% if request.endpoint == 'admin.errors' %}active{% endif %}"
              href="{{ url_for('admin.errors') }}">Logs erreurs</a>
           <a class="nav-link {% if request.endpoint == 'admin.pipelines' %}active{% endif %}"
              href="{{ url_for('admin.pipelines') }}">Pipelines</a>
+          <a class="nav-link {% if request.endpoint == 'admin.filters' %}active{% endif %}"
+             href="{{ url_for('admin.filters') }}">Filtres</a>
           <hr class="border-secondary mx-3">
           <a class="nav-link text-danger" href="{{ url_for('admin.logout') }}">Deconnexion</a>
         </nav>

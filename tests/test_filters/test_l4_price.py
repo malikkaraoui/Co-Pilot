@@ -32,15 +32,18 @@ class TestL4PriceFilter:
     def test_price_in_range_passes(self):
         with (
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
             patch("app.services.argus.get_argus_price", return_value=self.argus),
         ):
             result = self.filt.run(self._base_data(18500))
         assert result.status == "pass"
         assert abs(result.details["delta_pct"]) <= 10
+        assert result.details["source"] == "argus_seed"
 
     def test_price_above_warns(self):
         with (
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
             patch("app.services.argus.get_argus_price", return_value=self.argus),
         ):
             result = self.filt.run(self._base_data(22000))
@@ -50,6 +53,7 @@ class TestL4PriceFilter:
     def test_price_way_below_fails(self):
         with (
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
             patch("app.services.argus.get_argus_price", return_value=self.argus),
         ):
             result = self.filt.run(self._base_data(10000))
@@ -68,7 +72,69 @@ class TestL4PriceFilter:
     def test_no_argus_skips(self):
         with (
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
             patch("app.services.argus.get_argus_price", return_value=None),
         ):
             result = self.filt.run(self._base_data())
         assert result.status == "skip"
+
+
+class TestL4MarketPriceFallback:
+    """Tests du fallback MarketPrice -> ArgusPrice dans L4."""
+
+    def setup_method(self):
+        self.filt = L4PriceFilter()
+        self.vehicle = Vehicle(id=1, brand="Peugeot", model="3008")
+
+    def _base_data(self, price=18500):
+        return {
+            "price_eur": price,
+            "make": "Peugeot",
+            "model": "3008",
+            "year_model": "2019",
+            "location": {"region": "Auvergne-Rhone-Alpes"},
+        }
+
+    def test_uses_market_price_when_available(self):
+        """L4 utilise MarketPrice quand disponible avec assez de samples."""
+        from unittest.mock import MagicMock
+
+        market = MagicMock()
+        market.price_median = 17500
+        market.sample_count = 10
+
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=market),
+        ):
+            result = self.filt.run(self._base_data(18000))
+
+        assert result.status == "pass"
+        assert result.details["source"] == "marche_leboncoin"
+        assert result.details["sample_count"] == 10
+
+    def test_falls_back_to_argus_when_market_insufficient(self):
+        """L4 retombe sur ArgusPrice quand MarketPrice a trop peu de samples."""
+        from unittest.mock import MagicMock
+
+        market = MagicMock()
+        market.sample_count = 2  # < 5, insuffisant
+
+        argus = ArgusPrice(
+            vehicle_id=1,
+            region="Auvergne-Rhone-Alpes",
+            year=2019,
+            price_low=15000,
+            price_mid=18000,
+            price_high=21000,
+        )
+
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=market),
+            patch("app.services.argus.get_argus_price", return_value=argus),
+        ):
+            result = self.filt.run(self._base_data(18500))
+
+        assert result.status == "pass"
+        assert result.details["source"] == "argus_seed"

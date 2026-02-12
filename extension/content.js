@@ -175,6 +175,9 @@
 
   // ── Construction de la popup ───────────────────────────────────
 
+  /** Filtres dont les donnees sont simulees (seed data, pas de source reelle). */
+  const SIMULATED_FILTERS = ["L4", "L5"];
+
   /** Construit le HTML de la liste des filtres. */
   function buildFiltersList(filters) {
     if (!filters || !filters.length) return "";
@@ -185,12 +188,15 @@
         const icon = statusIcon(f.status);
         const label = filterLabel(f.filter_id);
         const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
+        const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id)
+          ? '<span class="copilot-badge-simulated">Donnees simulees</span>'
+          : "";
 
         return `
           <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
             <div class="copilot-filter-header">
               <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
-              <span class="copilot-filter-label">${escapeHTML(label)}</span>
+              <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
               <span class="copilot-filter-score" style="color:${color}">${Math.round(f.score * 100)}%</span>
             </div>
             <p class="copilot-filter-message">${escapeHTML(f.message)}</p>
@@ -201,15 +207,64 @@
       .join("");
   }
 
+  /** Labels francais pour les cles de details courantes. */
+  const DETAIL_LABELS = {
+    fields_present: "Champs renseignés",
+    fields_total: "Champs totaux",
+    missing_critical: "Champs critiques manquants",
+    missing_secondary: "Champs secondaires manquants",
+    matched_model: "Modèle reconnu",
+    confidence: "Confiance",
+    km_per_year: "Km / an",
+    expected_range: "Fourchette attendue",
+    actual_km: "Kilométrage réel",
+    expected_km: "Kilométrage attendu",
+    price: "Prix annonce",
+    argus_price: "Prix Argus",
+    price_diff: "Écart de prix",
+    price_diff_pct: "Écart (%)",
+    mean_price: "Prix moyen",
+    std_dev: "Écart-type",
+    z_score: "Z-score",
+    phone_valid: "Téléphone valide",
+    phone: "Téléphone",
+    siret: "SIRET",
+    siret_valid: "SIRET valide",
+    company_name: "Raison sociale",
+    is_import: "Véhicule importé",
+    import_indicators: "Indicateurs import",
+    color: "Couleur",
+  };
+
+  /** Formate une valeur de detail pour l'affichage humain. */
+  function formatDetailValue(value) {
+    if (Array.isArray(value)) {
+      if (value.length === 0) return "Aucun";
+      return value.map((v) => escapeHTML(v)).join(", ");
+    }
+    if (typeof value === "boolean") return value ? "Oui" : "Non";
+    if (typeof value === "number") {
+      if (Number.isInteger(value)) return value.toLocaleString("fr-FR");
+      return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+    }
+    if (typeof value === "object" && value !== null) {
+      return Object.entries(value)
+        .map(([k, v]) => `${escapeHTML(DETAIL_LABELS[k] || k)}: ${formatDetailValue(v)}`)
+        .join(", ");
+    }
+    return escapeHTML(value);
+  }
+
   /** Construit le HTML des details d'un filtre (depliable). */
   function buildDetailsHTML(details) {
     const entries = Object.entries(details)
       .filter(([, v]) => v !== null && v !== undefined)
       .map(([k, v]) => {
-        const val = typeof v === "object" ? JSON.stringify(v) : v;
-        return `<span class="copilot-detail-key">${escapeHTML(k)}:</span> ${escapeHTML(val)}`;
+        const label = DETAIL_LABELS[k] || k;
+        const val = formatDetailValue(v);
+        return `<div class="copilot-detail-row"><span class="copilot-detail-key">${escapeHTML(label)}</span><span class="copilot-detail-value">${val}</span></div>`;
       })
-      .join("<br>");
+      .join("");
 
     if (!entries) return "";
 
@@ -401,10 +456,136 @@
       }
 
       showPopup(buildResultsPopup(result.data));
+
+      // Collecte des prix du marche en arriere-plan (fire-and-forget)
+      if (result.data.vehicle) {
+        maybeCollectMarketPrices(result.data.vehicle).catch(() => {});
+      }
     } catch (err) {
       // Erreur silencieuse -- affichee dans la popup
       showPopup(buildErrorPopup(getRandomErrorMessage()));
     }
+  }
+
+  // ── Collecte crowdsourcee des prix du marche ────────────────────
+
+  /** Mapping des regions LeBonCoin (valeurs du parametre locations). */
+  const LBC_REGIONS = {
+    "Ile-de-France": "r_12",
+    "Auvergne-Rhone-Alpes": "r_1",
+    "Provence-Alpes-Cote d'Azur": "r_21",
+    "Occitanie": "r_16",
+    "Nouvelle-Aquitaine": "r_54",
+    "Hauts-de-France": "r_22",
+    "Grand Est": "r_44",
+    "Bretagne": "r_6",
+    "Pays de la Loire": "r_18",
+    "Normandie": "r_28",
+    "Bourgogne-Franche-Comte": "r_27",
+    "Centre-Val de Loire": "r_7",
+    "Corse": "r_9",
+  };
+
+  /** Cooldown entre deux collectes (anti-ban). */
+  const COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+
+  /** Extrait la region depuis les donnees __NEXT_DATA__ de l'annonce courante. */
+  function extractRegionFromPage() {
+    const nextEl = document.getElementById("__NEXT_DATA__");
+    if (!nextEl) return "";
+    try {
+      const nd = JSON.parse(nextEl.textContent);
+      const loc = nd?.props?.pageProps?.ad?.location;
+      return loc?.region_name || loc?.region || "";
+    } catch {
+      return "";
+    }
+  }
+
+  /**
+   * Collecte intelligente : demande au serveur quel vehicule a besoin de
+   * mise a jour, puis collecte les prix sur LeBonCoin.
+   *
+   * Chaque user travaille pour la communaute :
+   * - Cooldown 24h (localStorage) pour eviter les bans
+   * - Le serveur assigne le vehicule le plus prioritaire a collecter
+   * - Si le vehicule courant est a jour, un autre modele est assigne
+   *
+   * Fire-and-forget : ne bloque pas l'affichage des resultats.
+   */
+  async function maybeCollectMarketPrices(vehicle) {
+    const { make, model, year } = vehicle;
+    if (!make || !model || !year) return;
+
+    // 1. Cooldown 24h (localStorage)
+    const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
+    if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) return;
+
+    // 2. Extraire la region de l'annonce courante
+    const region = extractRegionFromPage();
+    if (!region) return;
+
+    // 3. Demander au serveur quel vehicule collecter
+    const jobUrl = API_URL.replace("/analyze", "/market-prices/next-job")
+      + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}`
+      + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`;
+
+    let jobResp;
+    try {
+      jobResp = await fetch(jobUrl).then((r) => r.json());
+    } catch {
+      return; // serveur injoignable -- silencieux
+    }
+    if (!jobResp?.data?.collect) return;
+
+    const target = jobResp.data.vehicle;
+    const targetRegion = jobResp.data.region;
+
+    // 4. Chercher le vehicule cible sur LeBonCoin
+    const searchText = encodeURIComponent(`${target.make} ${target.model}`);
+    const regionParam = LBC_REGIONS[targetRegion] || "";
+    let searchUrl = `https://www.leboncoin.fr/recherche?category=2&text=${searchText}`;
+    if (regionParam) searchUrl += `&locations=${regionParam}`;
+
+    try {
+      const resp = await fetch(searchUrl, {
+        credentials: "same-origin",
+        headers: { "Accept": "text/html" },
+      });
+      const html = await resp.text();
+
+      const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (!match) return;
+
+      const data = JSON.parse(match[1]);
+      const ads = data?.props?.pageProps?.searchData?.ads
+                || data?.props?.pageProps?.initialProps?.searchData?.ads
+                || [];
+
+      const prices = ads
+        .filter((ad) => ad.price && ad.price[0] > 500)
+        .map((ad) => ad.price[0]);
+
+      if (prices.length >= 3) {
+        const marketUrl = API_URL.replace("/analyze", "/market-prices");
+        await fetch(marketUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            make: target.make,
+            model: target.model,
+            year: parseInt(target.year, 10),
+            region: targetRegion,
+            prices: prices,
+          }),
+        });
+      }
+    } catch {
+      // Silencieux -- ne pas perturber l'experience utilisateur
+    }
+
+    // 5. Sauvegarder le timestamp (meme si pas assez de prix)
+    localStorage.setItem("copilot_last_collect", String(Date.now()));
   }
 
   // ── Point d'entree ─────────────────────────────────────────────

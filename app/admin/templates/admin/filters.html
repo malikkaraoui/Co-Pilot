@@ -1,0 +1,146 @@
+{% extends "admin/base.html" %}
+{% block title %}Filtres - Co-Pilot Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .filter-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    height: 100%;
+  }
+  .filter-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .filter-id {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+  }
+  .badge-real { background: #22c55e; color: #fff; }
+  .badge-simulated { background: #8b5cf6; color: #fff; }
+  .maturity-bar {
+    height: 8px;
+    border-radius: 4px;
+    background: #e5e7eb;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .maturity-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+  .stats-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .stat-pill {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Filtres d'analyse</h2>
+
+<!-- Cartes resume -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_filters }}</div>
+      <div class="stat-label">Filtres actifs</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #22c55e;">{{ real_count }}</div>
+      <div class="stat-label">Donnees reelles</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #8b5cf6;">{{ simulated_count }}</div>
+      <div class="stat-label">Donnees simulees</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ avg_maturity }}%</div>
+      <div class="stat-label">Maturite moyenne</div>
+    </div>
+  </div>
+</div>
+
+<!-- Grille des 9 filtres -->
+<div class="row g-3">
+  {% for f in filter_meta %}
+  {% set stats = filter_stats.get(f.id, {}) %}
+  <div class="col-md-6 col-lg-4">
+    <div class="filter-card">
+      <div class="filter-card-header">
+        <div>
+          <span class="filter-id">{{ f.id }}</span>
+          <h5 class="mb-0 mt-1">{{ f.name }}</h5>
+        </div>
+        {% if f.data_source_type == 'simulated' %}
+          <span class="badge badge-simulated">Donnees simulees</span>
+        {% else %}
+          <span class="badge badge-real">OK</span>
+        {% endif %}
+      </div>
+
+      <p class="text-muted mb-2" style="font-size: 13px;">{{ f.description }}</p>
+
+      <div style="font-size: 12px;">
+        <strong>Source :</strong> {{ f.data_source }}
+      </div>
+
+      <!-- Barre de maturite -->
+      <div class="d-flex justify-content-between align-items-center mt-2" style="font-size: 12px;">
+        <span>Maturite</span>
+        <strong>{{ f.maturity }}%</strong>
+      </div>
+      <div class="maturity-bar">
+        <div class="maturity-fill" style="width: {{ f.maturity }}%; background:
+          {% if f.maturity >= 80 %}#22c55e
+          {% elif f.maturity >= 50 %}#f59e0b
+          {% else %}#ef4444
+          {% endif %};"></div>
+      </div>
+      <div class="text-muted mt-1" style="font-size: 11px;">{{ f.maturity_note }}</div>
+
+      <!-- Stats d'execution -->
+      {% if stats %}
+      <div class="stats-row">
+        {% if stats.get('pass', 0) > 0 %}
+          <span class="stat-pill" style="background: rgba(34,197,94,0.1); color: #22c55e;">{{ stats.pass }} pass</span>
+        {% endif %}
+        {% if stats.get('warning', 0) > 0 %}
+          <span class="stat-pill" style="background: rgba(245,158,11,0.1); color: #f59e0b;">{{ stats.warning }} warn</span>
+        {% endif %}
+        {% if stats.get('fail', 0) > 0 %}
+          <span class="stat-pill" style="background: rgba(239,68,68,0.1); color: #ef4444;">{{ stats.fail }} fail</span>
+        {% endif %}
+        {% if stats.get('skip', 0) > 0 %}
+          <span class="stat-pill" style="background: rgba(156,163,175,0.1); color: #9ca3af;">{{ stats.skip }} skip</span>
+        {% endif %}
+      </div>
+      <div class="text-muted mt-1" style="font-size: 11px;">{{ stats.total }} executions totales</div>
+      {% else %}
+      <div class="text-muted mt-2" style="font-size: 11px;">Aucune execution enregistree</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

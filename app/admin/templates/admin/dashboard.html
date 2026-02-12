@@ -32,6 +32,28 @@
   </div>
 </div>
 
+<!-- Cartes statistiques -- ligne 2 -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #ef4444;">{{ fail_rate }}%</div>
+      <div class="stat-label">Taux d'echec (scans avec fail)</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #f59e0b;">{{ warning_count }}</div>
+      <div class="stat-label">Avertissements filtres</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #dc2626;">{{ error_count }}</div>
+      <div class="stat-label">Erreurs applicatives</div>
+    </div>
+  </div>
+</div>
+
 <!-- Graphiques ligne 1 -->
 <div class="row g-3 mb-3">
   <div class="col-md-7">
@@ -74,6 +96,66 @@
       </table>
       {% else %}
       <p class="text-muted text-center py-5">Aucune donnee</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Argus maison (prix du marche crowdsources) -->
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value">{{ market_total }}</div>
+      <div class="stat-label">References prix (argus maison)</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #22c55e;">{{ market_fresh }}</div>
+      <div class="stat-label">Frais (< 24h)</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #8b5cf6;">{{ market_total_samples }}</div>
+      <div class="stat-label">Annonces collectees (total)</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="stat-card">
+      <h5>Argus maison -- derniers prix collectes</h5>
+      {% if recent_market %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr><th>Collecte</th><th>Vehicule</th><th>Region</th><th>Median</th><th>Min</th><th>Max</th><th>Annonces</th><th>Fraicheur</th></tr></thead>
+          <tbody>
+            {% for m in recent_market %}
+            {% set is_fresh = m.refresh_after > now %}
+            <tr>
+              <td style="font-size:12px; white-space:nowrap">{{ m.collected_at.strftime('%d/%m %H:%M') if m.collected_at else '-' }}</td>
+              <td><strong>{{ m.make }}</strong> {{ m.model }} {{ m.year }}</td>
+              <td>{{ m.region }}</td>
+              <td><strong>{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong></td>
+              <td style="font-size:12px">{{ "{:,}".format(m.price_min).replace(",", " ") }} &euro;</td>
+              <td style="font-size:12px">{{ "{:,}".format(m.price_max).replace(",", " ") }} &euro;</td>
+              <td><span class="badge bg-primary">{{ m.sample_count }}</span></td>
+              <td>
+                {% if is_fresh %}
+                  <span class="badge bg-success">Frais</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">A rafraichir</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted text-center py-4">Aucun prix collecte. Les prix seront collectes automatiquement par les utilisateurs de l'extension.</p>
       {% endif %}
     </div>
   </div>

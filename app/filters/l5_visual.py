@@ -15,6 +15,45 @@ class L5VisualFilter(BaseFilter):
 
     filter_id = "L5"
 
+    @staticmethod
+    def _collect_ref_prices(data: dict[str, Any], vehicle: Any) -> tuple[np.ndarray, str]:
+        """Collecte les prix de reference : MarketPrice d'abord, sinon ArgusPrice."""
+        from app.models.market_price import MarketPrice
+
+        make = data.get("make", "")
+        model = data.get("model", "")
+        year_str = data.get("year_model")
+        location = data.get("location") or {}
+        region = location.get("region")
+
+        # Essayer MarketPrice (prix reels crowdsources)
+        if make and model and year_str and region:
+            try:
+                year = int(year_str)
+            except (ValueError, TypeError):
+                year = None
+
+            if year is not None:
+                records = MarketPrice.query.filter(
+                    MarketPrice.make == make,
+                    MarketPrice.model == model,
+                    MarketPrice.sample_count >= 5,
+                ).all()
+                if records:
+                    prices = []
+                    for r in records:
+                        prices.extend([r.price_min, r.price_median, r.price_max])
+                    ref = np.array([p for p in prices if p], dtype=float)
+                    if len(ref) >= 3:
+                        return ref, "marche_leboncoin"
+
+        # Fallback : ArgusPrice (seed)
+        from app.models.argus import ArgusPrice
+
+        argus_records = ArgusPrice.query.filter_by(vehicle_id=vehicle.id).all()
+        ref = np.array([r.price_mid for r in argus_records if r.price_mid], dtype=float)
+        return ref, "argus_seed"
+
     def run(self, data: dict[str, Any]) -> FilterResult:
         price = data.get("price_eur")
         mileage = data.get("mileage_km")
@@ -35,16 +74,8 @@ class L5VisualFilter(BaseFilter):
         if not vehicle:
             return self.skip("Modele non reconnu -- analyse statistique impossible")
 
-        # Collecter les prix de reference depuis argus_prices pour ce vehicule
-        from app.models.argus import ArgusPrice
-
-        argus_records = ArgusPrice.query.filter_by(vehicle_id=vehicle.id).all()
-
-        if len(argus_records) < 3:
-            return self.skip("Pas assez de donnees de reference pour l'analyse statistique")
-
-        # Construction des tableaux de reference avec NumPy
-        ref_prices = np.array([r.price_mid for r in argus_records if r.price_mid], dtype=float)
+        # Source de prix : MarketPrice (crowdsource) en priorite, sinon ArgusPrice (seed)
+        ref_prices, source = self._collect_ref_prices(data, vehicle)
 
         if len(ref_prices) < 3:
             return self.skip("Pas assez de prix de reference")
@@ -72,6 +103,7 @@ class L5VisualFilter(BaseFilter):
             "ref_median": round(float(np.median(ref_prices))),
             "z_scores": z_scores,
             "anomalies": anomalies,
+            "source": source,
         }
 
         if not anomalies:

@@ -43,41 +43,58 @@ class L4PriceFilter(BaseFilter):
         if not region:
             return self.skip("Region non disponible dans l'annonce")
 
-        argus = get_argus_price(vehicle.id, region, year)
-        if not argus or not argus.price_mid:
-            return self.skip("Pas de donnees argus pour ce modele dans cette region")
+        # Source de prix : MarketPrice (crowdsource) en priorite, sinon ArgusPrice (seed)
+        from app.services.market_service import get_market_stats
+
+        ref_price = None
+        source = None
+        details: dict[str, Any] = {"price_annonce": price, "region": region}
+
+        market = get_market_stats(make, model, year, region)
+        if market and market.sample_count >= 5:
+            ref_price = market.price_median
+            source = "marche_leboncoin"
+            details["price_reference"] = market.price_median
+            details["sample_count"] = market.sample_count
+            details["source"] = source
+        else:
+            argus = get_argus_price(vehicle.id, region, year)
+            if argus and argus.price_mid:
+                ref_price = argus.price_mid
+                source = "argus_seed"
+                details["price_argus_mid"] = argus.price_mid
+                details["price_argus_low"] = argus.price_low
+                details["price_argus_high"] = argus.price_high
+                details["source"] = source
+
+        if ref_price is None:
+            return self.skip("Pas de donnees de reference pour ce modele dans cette region")
 
         # Comparaison
-        delta = price - argus.price_mid
-        delta_pct = (delta / argus.price_mid) * 100
+        delta = price - ref_price
+        delta_pct = (delta / ref_price) * 100
+        details["delta_eur"] = delta
+        details["delta_pct"] = round(delta_pct, 1)
 
         if abs(delta_pct) <= 10:
             status = "pass"
             score = 1.0
-            message = f"Prix en ligne avec l'argus ({delta_pct:+.0f}%)"
+            message = f"Prix en ligne avec la reference ({delta_pct:+.0f}%)"
         elif abs(delta_pct) <= 25:
             status = "warning"
             score = 0.5
             direction = "au-dessus" if delta_pct > 0 else "en dessous"
-            message = f"Prix {abs(delta_pct):.0f}% {direction} de l'argus local"
+            message = f"Prix {abs(delta_pct):.0f}% {direction} de la reference"
         else:
             status = "fail"
             score = 0.1
             direction = "au-dessus" if delta_pct > 0 else "en dessous"
-            message = f"Prix {abs(delta_pct):.0f}% {direction} de l'argus -- anomalie prix"
+            message = f"Prix {abs(delta_pct):.0f}% {direction} de la reference -- anomalie prix"
 
         return FilterResult(
             filter_id=self.filter_id,
             status=status,
             score=score,
             message=message,
-            details={
-                "price_annonce": price,
-                "price_argus_mid": argus.price_mid,
-                "price_argus_low": argus.price_low,
-                "price_argus_high": argus.price_high,
-                "delta_eur": delta,
-                "delta_pct": round(delta_pct, 1),
-                "region": region,
-            },
+            details=details,
         )

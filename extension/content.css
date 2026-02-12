@@ -135,6 +135,21 @@
   letter-spacing: 0.3px;
 }
 
+/* Badge donnees simulees (filtres L4/L5) */
+.copilot-badge-simulated {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 500;
+  font-style: italic;
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* ── Jauge circulaire ─────────────────────────────────────── */
 .copilot-popup-gauge {
   padding: 24px;
@@ -247,18 +262,40 @@
 
 .copilot-details-content {
   margin-top: 6px;
-  padding: 8px;
+  padding: 10px 12px;
   background: var(--copilot-bg);
   border-radius: 6px;
   font-size: 11px;
   color: var(--copilot-text-secondary);
-  line-height: 1.6;
+  line-height: 1.5;
   word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.copilot-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 2px 0;
+  border-bottom: 1px dashed var(--copilot-border);
+}
+
+.copilot-detail-row:last-child {
+  border-bottom: none;
 }
 
 .copilot-detail-key {
   font-weight: 600;
   color: var(--copilot-text);
+  flex-shrink: 0;
+}
+
+.copilot-detail-value {
+  text-align: right;
+  color: var(--copilot-text-secondary);
 }
 
 /* ── Section premium (paywall liquid glass) ───────────────── */

@@ -101,6 +101,46 @@ class TestDashboard:
         assert resp.status_code == 200
         assert b"75" in resp.data
 
+    def test_dashboard_shows_fail_rate(self, app, client, admin_user):
+        """Le dashboard affiche le taux d'echec."""
+        from app.extensions import db
+        from app.models.filter_result import FilterResultDB
+
+        with app.app_context():
+            scan = ScanLog(score=30, is_partial=False)
+            db.session.add(scan)
+            db.session.flush()
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan.id,
+                    filter_id="L1",
+                    status="fail",
+                    score=0.0,
+                    message="test fail",
+                )
+            )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/dashboard")
+        assert resp.status_code == 200
+        assert b"Taux d" in resp.data
+
+    def test_dashboard_shows_warning_and_error_counts(self, app, client, admin_user):
+        """Le dashboard affiche les compteurs warnings et erreurs."""
+        from app.extensions import db
+
+        with app.app_context():
+            log = AppLog(level="ERROR", module="test", message="Dashboard error test")
+            db.session.add(log)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/dashboard")
+        assert resp.status_code == 200
+        assert b"Avertissements filtres" in resp.data
+        assert b"Erreurs applicatives" in resp.data
+
 
 # ── Vehicules ───────────────────────────────────────────────────
 
@@ -108,17 +148,17 @@ class TestDashboard:
 class TestVehicles:
     """Tests de la page vehicules."""
 
-    def test_vehicles_page_loads(self, client, admin_user):
+    def test_car_page_loads(self, client, admin_user):
         """La page vehicules se charge."""
         _login(client)
-        resp = client.get("/admin/vehicles")
+        resp = client.get("/admin/car")
         assert resp.status_code == 200
         assert b"Vehicules" in resp.data
 
-    def test_vehicles_shows_referentiel(self, client, admin_user):
+    def test_car_shows_referentiel(self, client, admin_user):
         """La page affiche les vehicules du referentiel."""
         _login(client)
-        resp = client.get("/admin/vehicles")
+        resp = client.get("/admin/car")
         assert resp.status_code == 200
         assert b"Referentiel actuel" in resp.data
 
@@ -186,6 +226,53 @@ class TestPipelines:
         assert b"Referentiel vehicules" in resp.data
         assert b"Argus geolocalise" in resp.data
 
+    def test_pipelines_shows_last_run(self, app, client, admin_user):
+        """La page pipelines affiche la date du dernier run."""
+        from datetime import datetime, timezone
+
+        from app.extensions import db
+        from app.models.pipeline_run import PipelineRun
+
+        with app.app_context():
+            run = PipelineRun(
+                name="referentiel_vehicules",
+                status="success",
+                count=50,
+                started_at=datetime(2026, 2, 1, 10, 0, 0, tzinfo=timezone.utc),
+                finished_at=datetime(2026, 2, 1, 10, 5, 0, tzinfo=timezone.utc),
+            )
+            db.session.add(run)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/pipelines")
+        assert resp.status_code == 200
+        assert b"01/02/2026" in resp.data
+
+    def test_pipelines_shows_run_counts(self, app, client, admin_user):
+        """La page pipelines affiche les compteurs success/failure."""
+        from datetime import datetime, timezone
+
+        from app.extensions import db
+        from app.models.pipeline_run import PipelineRun
+
+        with app.app_context():
+            for status in ["success", "success", "failure"]:
+                run = PipelineRun(
+                    name="import_csv_specs",
+                    status=status,
+                    started_at=datetime.now(timezone.utc),
+                    finished_at=datetime.now(timezone.utc),
+                )
+                db.session.add(run)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/pipelines")
+        assert resp.status_code == 200
+        assert b"2 succes" in resp.data
+        assert b"1 echec" in resp.data
+
 
 # ── Base Vehicules ─────────────────────────────────────────────
 
@@ -205,12 +292,18 @@ class TestDatabase:
         from app.extensions import db
 
         with app.app_context():
-            v = Vehicle(brand="TestMarque", model="TestModele", generation="I",
-                        year_start=2020, year_end=2025)
+            v = Vehicle(
+                brand="TestMarque",
+                model="TestModele",
+                generation="I",
+                year_start=2020,
+                year_end=2025,
+            )
             db.session.add(v)
             db.session.flush()
-            spec = VehicleSpec(vehicle_id=v.id, fuel_type="Essence",
-                               engine="1.0 Test", power_hp=100)
+            spec = VehicleSpec(
+                vehicle_id=v.id, fuel_type="Essence", engine="1.0 Test", power_hp=100
+            )
             db.session.add(spec)
             db.session.commit()
 
@@ -256,3 +349,73 @@ class TestDatabase:
         resp = client.get("/admin/database?fuel=Electrique")
         assert resp.status_code == 200
         assert b"FuelTest" in resp.data
+
+
+# ── Filtres ────────────────────────────────────────────────────
+
+
+class TestFilters:
+    """Tests de la page filtres d'analyse."""
+
+    def test_filters_page_loads(self, client, admin_user):
+        """La page filtres se charge."""
+        _login(client)
+        resp = client.get("/admin/filters")
+        assert resp.status_code == 200
+        assert b"Filtres d" in resp.data
+
+    def test_filters_shows_all_nine(self, client, admin_user):
+        """La page affiche les 9 filtres."""
+        _login(client)
+        resp = client.get("/admin/filters")
+        assert resp.status_code == 200
+        for fid in [b"L1", b"L2", b"L3", b"L4", b"L5", b"L6", b"L7", b"L8", b"L9"]:
+            assert fid in resp.data
+
+    def test_filters_shows_simulated_badge(self, client, admin_user):
+        """Les filtres L4/L5 affichent le badge 'Donnees simulees'."""
+        _login(client)
+        resp = client.get("/admin/filters")
+        assert resp.status_code == 200
+        assert resp.data.count(b"Donnees simulees") >= 2
+
+    def test_filters_shows_maturity(self, client, admin_user):
+        """La page affiche les barres de maturite."""
+        _login(client)
+        resp = client.get("/admin/filters")
+        assert resp.status_code == 200
+        assert b"Maturite" in resp.data
+        assert b"100%" in resp.data
+        assert b"40%" in resp.data
+
+    def test_filters_shows_execution_stats(self, app, client, admin_user):
+        """La page affiche les stats d'execution quand il y a des donnees."""
+        from app.extensions import db
+        from app.models.filter_result import FilterResultDB
+
+        with app.app_context():
+            scan = ScanLog(score=75, is_partial=False)
+            db.session.add(scan)
+            db.session.flush()
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan.id,
+                    filter_id="L1",
+                    status="pass",
+                    score=1.0,
+                    message="Test",
+                )
+            )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/filters")
+        assert resp.status_code == 200
+        assert b"1 pass" in resp.data
+
+    def test_filters_requires_auth(self, client):
+        """La page filtres necessite une authentification."""
+        client.get("/admin/logout")
+        resp = client.get("/admin/filters")
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["Location"]

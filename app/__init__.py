@@ -44,6 +44,19 @@ def create_app(config_name: str | None = None) -> Flask:
     login_manager.login_view = "admin.login"
     cors.init_app(app, origins=app.config["CORS_ORIGINS"])
 
+    # DBHandler : persiste WARNING/ERROR dans app_logs (desactive en tests)
+    if not app.config.get("TESTING"):
+        from app.logging_db import DBHandler
+
+        db_handler = DBHandler(app=app, level=logging.WARNING)
+        db_handler.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s] %(levelname)s in %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        logging.getLogger().addHandler(db_handler)
+
     # User loader pour Flask-Login
     from app.models.user import User
 
