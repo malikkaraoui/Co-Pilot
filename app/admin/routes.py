@@ -60,7 +60,7 @@ def logout():
 @login_required
 def dashboard():
     """Page principale du tableau de bord avec statistiques et graphiques."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Statistiques generales
@@ -594,6 +594,81 @@ def filters():
         real_count=real_count,
         simulated_count=simulated_count,
         avg_maturity=avg_maturity,
+    )
+
+
+# ── Argus maison (prix crowdsources) ─────────────────────────────
+
+
+@admin_bp.route("/argus")
+@login_required
+def argus():
+    """Vue dediee de l'argus maison : tous les prix crowdsources par les extensions."""
+    from app.models.market_price import MarketPrice
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Filtres
+    make_filter = request.args.get("make", "").strip()
+    region_filter = request.args.get("region", "").strip()
+    page = request.args.get("page", 1, type=int)
+
+    # Stats resume
+    total_refs = db.session.query(db.func.count(MarketPrice.id)).scalar() or 0
+    fresh_refs = (
+        db.session.query(db.func.count(MarketPrice.id))
+        .filter(MarketPrice.refresh_after > now)
+        .scalar()
+        or 0
+    )
+    stale_refs = total_refs - fresh_refs
+    total_samples = db.session.query(db.func.sum(MarketPrice.sample_count)).scalar() or 0
+
+    # Couverture : nombre de marques et regions distinctes
+    distinct_makes = db.session.query(db.func.count(db.distinct(MarketPrice.make))).scalar() or 0
+    distinct_regions = (
+        db.session.query(db.func.count(db.distinct(MarketPrice.region))).scalar() or 0
+    )
+
+    # Listes pour les selects de filtre
+    all_makes = db.session.query(MarketPrice.make).distinct().order_by(MarketPrice.make).all()
+    make_list = [m.make for m in all_makes]
+
+    all_regions = db.session.query(MarketPrice.region).distinct().order_by(MarketPrice.region).all()
+    region_list = [r.region for r in all_regions]
+
+    # Query principale
+    query = MarketPrice.query.order_by(MarketPrice.collected_at.desc())
+
+    if make_filter:
+        query = query.filter(MarketPrice.make == make_filter)
+    if region_filter:
+        query = query.filter(MarketPrice.region == region_filter)
+
+    # Pagination
+    per_page = 30
+    total_results = query.count()
+    total_pages = max(1, (total_results + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    records = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return render_template(
+        "admin/argus.html",
+        total_refs=total_refs,
+        fresh_refs=fresh_refs,
+        stale_refs=stale_refs,
+        total_samples=total_samples,
+        distinct_makes=distinct_makes,
+        distinct_regions=distinct_regions,
+        make_list=make_list,
+        region_list=region_list,
+        make_filter=make_filter,
+        region_filter=region_filter,
+        records=records,
+        page=page,
+        total_pages=total_pages,
+        total_results=total_results,
+        now=now,
     )
 
 

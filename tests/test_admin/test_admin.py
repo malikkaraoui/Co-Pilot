@@ -419,3 +419,132 @@ class TestFilters:
         resp = client.get("/admin/filters")
         assert resp.status_code == 302
         assert "/admin/login" in resp.headers["Location"]
+
+
+# ── Argus maison ──────────────────────────────────────────────
+
+
+class TestArgus:
+    """Tests de la page argus maison."""
+
+    def test_argus_page_loads(self, client, admin_user):
+        """La page argus se charge."""
+        _login(client)
+        resp = client.get("/admin/argus")
+        assert resp.status_code == 200
+        assert b"Argus maison" in resp.data
+
+    def test_argus_shows_stats(self, app, client, admin_user):
+        """La page affiche les stats quand il y a des donnees."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.extensions import db
+        from app.models.market_price import MarketPrice
+
+        with app.app_context():
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            mp = MarketPrice(
+                make="Opel",
+                model="Corsa",
+                year=2020,
+                region="Normandie",
+                price_min=8000,
+                price_median=9500,
+                price_mean=9500,
+                price_max=11000,
+                price_std=1200.0,
+                sample_count=8,
+                collected_at=now,
+                refresh_after=now + timedelta(hours=24),
+            )
+            db.session.add(mp)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/argus")
+        assert resp.status_code == 200
+        assert b"Opel" in resp.data
+        assert b"Corsa" in resp.data
+        assert b"9 500" in resp.data  # price_median formate
+        assert b"Frais" in resp.data
+
+    def test_argus_filter_by_make(self, app, client, admin_user):
+        """Le filtre par marque fonctionne."""
+        _login(client)
+        resp = client.get("/admin/argus?make=Opel")
+        assert resp.status_code == 200
+        assert b"Opel" in resp.data
+
+    def test_argus_requires_auth(self, client):
+        """La page argus necessite une authentification."""
+        client.get("/admin/logout")
+        resp = client.get("/admin/argus")
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["Location"]
+
+
+# ── E2E : scan → collecte → visible dans argus ────────────────
+
+
+class TestArgusE2E:
+    """Test end-to-end : un scan + collecte prix → visible dans l'admin argus."""
+
+    def test_full_flow_scan_collect_argus(self, app, client, admin_user):
+        """Flux complet : POST market-prices → GET next-job → visible /admin/argus."""
+        import json
+
+        from app.models.market_price import MarketPrice
+
+        with app.app_context():
+            # 1. L'extension envoie des prix collectes
+            resp = client.post(
+                "/api/market-prices",
+                data=json.dumps(
+                    {
+                        "make": "Volkswagen",
+                        "model": "Golf",
+                        "year": 2020,
+                        "region": "Hauts-de-France",
+                        "prices": [15000, 16000, 17000, 18000, 19000, 20000],
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert data["success"] is True
+            assert data["data"]["sample_count"] == 6
+            assert data["data"]["price_median"] == 17500
+
+            # 2. Verifier que la donnee est en base
+            mp = MarketPrice.query.filter_by(
+                make="Volkswagen",
+                model="Golf",
+                year=2020,
+                region="Hauts-de-France",
+            ).first()
+            assert mp is not None
+            assert mp.sample_count == 6
+
+            # 3. next-job dit "pas besoin" pour ce vehicule (frais)
+            resp = client.get(
+                "/api/market-prices/next-job"
+                "?make=Volkswagen&model=Golf&year=2020&region=Hauts-de-France",
+            )
+            job = resp.get_json()
+            assert job["success"] is True
+            # Le vehicule est frais, le serveur ne le redemande pas
+            # (soit collect: false, soit redirige vers un autre)
+            if job["data"]["collect"]:
+                v = job["data"]["vehicle"]
+                assert not (v["make"] == "Volkswagen" and v["model"] == "Golf")
+
+            # 4. Connexion admin et verification dans la page argus
+            _login(client)
+            resp = client.get("/admin/argus")
+            assert resp.status_code == 200
+            assert b"Volkswagen" in resp.data
+            assert b"Golf" in resp.data
+            assert b"Hauts-de-France" in resp.data
+            assert b"17 500" in resp.data  # prix median formate
+            assert b"Frais" in resp.data

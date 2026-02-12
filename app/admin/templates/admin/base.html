@@ -69,6 +69,8 @@
              href="{{ url_for('admin.pipelines') }}">Pipelines</a>
           <a class="nav-link {% if request.endpoint == 'admin.filters' %}active{% endif %}"
              href="{{ url_for('admin.filters') }}">Filtres</a>
+          <a class="nav-link {% if request.endpoint == 'admin.argus' %}active{% endif %}"
+             href="{{ url_for('admin.argus') }}">Argus maison</a>
           <hr class="border-secondary mx-3">
           <a class="nav-link text-danger" href="{{ url_for('admin.logout') }}">Deconnexion</a>
         </nav>
