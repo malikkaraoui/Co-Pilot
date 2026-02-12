@@ -424,7 +424,33 @@
     showPopup(html);
   }
 
-  /** Lance l'analyse : extrait les donnees, appelle l'API, affiche les resultats. */
+  /**
+   * Extrait les infos vehicule (make, model, year) depuis __NEXT_DATA__
+   * pour pouvoir lancer la collecte AVANT l'analyse.
+   */
+  function extractVehicleFromNextData(nextData) {
+    const ad = nextData?.props?.pageProps?.ad;
+    if (!ad) return {};
+
+    const attrs = (ad.attributes || []).reduce((acc, a) => {
+      const key = a.key || a.key_label || a.label || a.name;
+      const val = a.value || a.value_label || a.text || a.value_text;
+      if (key) acc[key] = val;
+      return acc;
+    }, {});
+
+    return {
+      make: attrs["brand"] || attrs["Marque"] || "",
+      model: attrs["model"] || attrs["Modèle"] || attrs["modele"] || "",
+      year: attrs["regdate"] || attrs["Année modèle"] || attrs["Année"] || attrs["year"] || "",
+    };
+  }
+
+  /**
+   * Lance l'analyse : extrait les donnees, collecte les prix SI besoin
+   * (AVANT l'analyse pour que L4/L5 aient des donnees fraiches),
+   * puis appelle l'API et affiche les resultats.
+   */
   async function runAnalysis() {
     showLoading();
 
@@ -432,6 +458,13 @@
     if (!nextData) {
       showPopup(buildErrorPopup("Impossible de lire les données de cette page. Vérifiez que vous êtes sur une annonce Leboncoin."));
       return;
+    }
+
+    // Collecte des prix AVANT l'analyse (silencieuse, ~1-2s)
+    // Permet a L4/L5 d'avoir des donnees fraiches pour ce vehicule
+    const vehicle = extractVehicleFromNextData(nextData);
+    if (vehicle.make && vehicle.model && vehicle.year) {
+      await maybeCollectMarketPrices(vehicle).catch(() => {});
     }
 
     try {
@@ -456,11 +489,6 @@
       }
 
       showPopup(buildResultsPopup(result.data));
-
-      // Collecte des prix du marche en arriere-plan (fire-and-forget)
-      if (result.data.vehicle) {
-        maybeCollectMarketPrices(result.data.vehicle).catch(() => {});
-      }
     } catch (err) {
       // Erreur silencieuse -- affichee dans la popup
       showPopup(buildErrorPopup(getRandomErrorMessage()));
