@@ -46,6 +46,10 @@
       margin-bottom: 16px;
     }
 
+    .popup-status.error {
+      background: #fef2f2;
+    }
+
     .popup-status-dot {
       width: 10px;
       height: 10px;
@@ -54,9 +58,51 @@
       flex-shrink: 0;
     }
 
+    .popup-status.error .popup-status-dot {
+      background: #ef4444;
+    }
+
     .popup-status-text {
       font-size: 13px;
       color: #166534;
+    }
+
+    .popup-status.error .popup-status-text {
+      color: #991b1b;
+    }
+
+    /* Bouton Analyser */
+    .popup-analyze-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px 20px;
+      margin-bottom: 16px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    }
+
+    .popup-analyze-btn:hover {
+      background: #1d4ed8;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
+    }
+
+    .popup-analyze-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .popup-analyze-btn svg {
+      flex-shrink: 0;
     }
 
     .popup-instructions {
@@ -67,15 +113,6 @@
 
     .popup-instructions strong {
       color: #111827;
-    }
-
-    .popup-instructions ol {
-      padding-left: 18px;
-      margin-top: 8px;
-    }
-
-    .popup-instructions li {
-      margin-bottom: 6px;
     }
 
     .popup-footer {
@@ -98,27 +135,31 @@
 <body>
   <div class="popup-header">
     <div class="popup-logo">Co-Pilot</div>
-    <div class="popup-version">v1.0.0 - Analyse Leboncoin</div>
+    <div class="popup-version">v1.1.0 - Analyse Leboncoin</div>
   </div>
 
   <div class="popup-body">
-    <div class="popup-status">
+    <div class="popup-status" id="popup-status">
       <div class="popup-status-dot"></div>
-      <span class="popup-status-text">Extension active</span>
+      <span class="popup-status-text" id="popup-status-text">Extension active</span>
     </div>
 
+    <button class="popup-analyze-btn" id="analyze-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Analyser cette annonce
+    </button>
+
     <div class="popup-instructions">
-      <strong>Comment utiliser Co-Pilot :</strong>
-      <ol>
-        <li>Rendez-vous sur une annonce auto <strong>leboncoin.fr</strong></li>
-        <li>Cliquez sur le bouton <strong>"Analyser avec Co-Pilot"</strong></li>
-        <li>Consultez le score et les détails de l'analyse</li>
-      </ol>
+      <p>Rendez-vous sur une annonce auto <strong>leboncoin.fr</strong> puis cliquez sur le bouton ci-dessus.</p>
     </div>
   </div>
 
   <div class="popup-footer">
     <a href="https://github.com/malikkaraoui/Co-Pilot" target="_blank">GitHub</a>
   </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>

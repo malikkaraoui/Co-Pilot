@@ -1,0 +1,66 @@
+{% extends "admin/base.html" %}
+{% block title %}Pipelines - Co-Pilot Admin{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Pipelines d'enrichissement</h2>
+
+<div class="row g-3 mb-4">
+  {% for p in pipelines %}
+  <div class="col-md-6">
+    <div class="stat-card">
+      <div class="d-flex justify-content-between align-items-start mb-2">
+        <h5 class="mb-0">{{ p.name }}</h5>
+        {% if p.status == 'ok' %}
+          <span class="badge bg-success">OK</span>
+        {% elif p.status == 'vide' %}
+          <span class="badge bg-warning text-dark">Vide</span>
+        {% else %}
+          <span class="badge bg-secondary">{{ p.status }}</span>
+        {% endif %}
+      </div>
+      <p class="text-muted mb-2" style="font-size:13px">{{ p.description }}</p>
+      <div style="font-size:13px">
+        <strong>Elements :</strong> {{ p.count }}
+        {% if p.get('specs') %}
+          &middot; <strong>Specs :</strong> {{ p.specs }}
+        {% endif %}
+      </div>
+      {% if p.last_run %}
+        <div class="text-muted" style="font-size:12px">
+          Dernier run : {{ p.last_run.strftime('%d/%m/%Y %H:%M') }}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Info systeme -->
+<div class="stat-card">
+  <h5 class="mb-3">Activite recente</h5>
+  <table class="table table-sm mb-0">
+    <tr>
+      <td class="text-muted">Dernier scan</td>
+      <td>
+        {% if last_scan %}
+          {{ last_scan.created_at.strftime('%d/%m/%Y %H:%M:%S') }}
+          &middot; Score : {{ last_scan.score }}
+        {% else %}
+          Aucun scan effectue
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <td class="text-muted">Derniere erreur pipeline</td>
+      <td>
+        {% if last_pipeline_error %}
+          {{ last_pipeline_error.created_at.strftime('%d/%m/%Y %H:%M') }}
+          &middot; {{ last_pipeline_error.message[:100] }}
+        {% else %}
+          Aucune erreur
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+</div>
+{% endblock %}

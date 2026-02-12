@@ -1,7 +1,9 @@
 """Definitions des routes API."""
 
 import logging
+import traceback
 
+import httpx
 from flask import jsonify, request
 from pydantic import ValidationError as PydanticValidationError
 
@@ -29,6 +31,21 @@ def analyze():
     Attend un corps JSON avec un champ 'next_data' contenant le
     payload __NEXT_DATA__ de la page Leboncoin.
     """
+    # -- Catch-all pour logger toute erreur non prevue --
+    try:
+        return _do_analyze()
+    except (KeyError, ValueError, AttributeError, TypeError, OSError, httpx.HTTPError) as exc:
+        logger.error("Unhandled error in /analyze: %s\n%s", exc, traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "error": "INTERNAL_ERROR",
+            "message": "Erreur interne du serveur.",
+            "data": None,
+        }), 500
+
+
+def _do_analyze():
+    """Logique interne de l'endpoint analyze, encapsulee pour le catch-all."""
     # Validation de la requete
     json_data = request.get_json(silent=True)
     if not json_data:
@@ -64,7 +81,16 @@ def analyze():
 
     # Execution des filtres
     engine = _build_engine()
-    filter_results = engine.run_all(ad_data)
+    try:
+        filter_results = engine.run_all(ad_data)
+    except (KeyError, ValueError, AttributeError, TypeError, OSError) as exc:
+        logger.error("Engine crash: %s: %s", type(exc).__name__, exc)
+        return jsonify({
+            "success": False,
+            "error": "ENGINE_ERROR",
+            "message": "Erreur lors de l'analyse. Reessayez.",
+            "data": None,
+        }), 500
 
     # Calcul du score
     score, is_partial = calculate_score(filter_results)

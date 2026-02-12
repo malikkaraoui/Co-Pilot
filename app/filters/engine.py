@@ -6,6 +6,8 @@ from typing import Any
 
 from flask import current_app
 
+import httpx
+
 from app.errors import FilterError
 from app.filters.base import BaseFilter, FilterResult
 
@@ -64,6 +66,20 @@ class FilterEngine:
                 message="Analyse partielle -- ce filtre n'a pas pu s'executer",
                 details={"error": str(exc)},
             )
+        except (KeyError, ValueError, AttributeError, TypeError, OSError, httpx.HTTPError) as exc:
+            logger.error(
+                "Filter %s raised unexpected %s: %s",
+                filt.filter_id,
+                type(exc).__name__,
+                exc,
+            )
+            return FilterResult(
+                filter_id=filt.filter_id,
+                status="skip",
+                score=0.0,
+                message="Erreur inattendue -- ce filtre a ete ignore",
+                details={"error": type(exc).__name__, "detail": str(exc)},
+            )
 
     def run_all(self, data: dict[str, Any]) -> list[FilterResult]:
         """Execute tous les filtres en parallele (ThreadPoolExecutor).
@@ -93,7 +109,23 @@ class FilterEngine:
                 for filt in self._filters
             }
             for future in as_completed(future_to_filter):
-                results.append(future.result())
+                filt = future_to_filter[future]
+                try:
+                    results.append(future.result())
+                except (KeyError, ValueError, AttributeError, TypeError, OSError, httpx.HTTPError) as exc:
+                    logger.error(
+                        "Filter %s thread crashed: %s: %s",
+                        filt.filter_id,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    results.append(FilterResult(
+                        filter_id=filt.filter_id,
+                        status="skip",
+                        score=0.0,
+                        message="Erreur inattendue -- ce filtre a ete ignore",
+                        details={"error": type(exc).__name__},
+                    ))
 
         # Trier par filter_id pour un ordre constant
         results.sort(key=lambda r: r.filter_id)

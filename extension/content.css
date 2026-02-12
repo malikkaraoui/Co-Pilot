@@ -21,7 +21,7 @@
   --copilot-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* ── Bouton "Analyser avec Co-Pilot" ──────────────────────── */
+/* ── Boutons generiques ───────────────────────────────────── */
 .copilot-btn {
   font-family: var(--copilot-font);
   font-size: 14px;
@@ -30,31 +30,6 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
-}
-
-.copilot-btn-analyze {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  margin: 12px 0;
-  background: var(--copilot-primary);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-}
-
-.copilot-btn-analyze:hover {
-  background: var(--copilot-primary-hover);
-  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
-  transform: translateY(-1px);
-}
-
-.copilot-btn-analyze:active {
-  transform: translateY(0);
-}
-
-.copilot-btn-analyze svg {
-  flex-shrink: 0;
 }
 
 /* ── Overlay ──────────────────────────────────────────────── */

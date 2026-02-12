@@ -1,8 +1,9 @@
 /**
  * Co-Pilot Content Script
  *
- * Détecte les pages annonces Leboncoin, injecte le bouton d'analyse
- * et affiche les résultats dans une popup contextuelle.
+ * Injecte on-demand (via le popup de l'extension) et affiche
+ * les résultats d'analyse dans une popup contextuelle.
+ * Aucune action automatique -- zero bruit sur la page.
  */
 
 (function () {
@@ -10,8 +11,6 @@
 
   // ── Configuration ──────────────────────────────────────────────
   const API_URL = "http://localhost:5001/api/analyze";
-  const BUTTON_INJECT_DELAY = 500; // ms avant injection du bouton
-
   // Messages de dégradation UX (humour automobile)
   const ERROR_MESSAGES = [
     "Oh mince, on a crevé ! Réessayez dans un instant.",
@@ -28,8 +27,42 @@
     return ERROR_MESSAGES[Math.floor(Math.random() * ERROR_MESSAGES.length)];
   }
 
-  /** Extrait le JSON __NEXT_DATA__ du DOM. */
+  /**
+   * Extrait le JSON __NEXT_DATA__ a jour.
+   * Injecte un micro-script dans le contexte de la page pour lire
+   * window.__NEXT_DATA__ (mis a jour par Next.js lors des navigations SPA).
+   * Fallback sur le tag DOM si l'injection echoue.
+   */
   function extractNextData() {
+    // Essayer de lire window.__NEXT_DATA__ via injection dans le contexte page
+    try {
+      const bridge = document.createElement("script");
+      bridge.textContent = `
+        (function() {
+          var el = document.getElementById("__copilot_next_data__");
+          if (!el) {
+            el = document.createElement("div");
+            el.id = "__copilot_next_data__";
+            el.style.display = "none";
+            document.documentElement.appendChild(el);
+          }
+          el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
+        })();
+      `;
+      document.documentElement.appendChild(bridge);
+      bridge.remove();
+
+      const el = document.getElementById("__copilot_next_data__");
+      if (el && el.textContent) {
+        const data = JSON.parse(el.textContent);
+        el.remove();
+        if (data) return data;
+      }
+    } catch {
+      // Fallback ci-dessous
+    }
+
+    // Fallback : lire le tag script DOM (premiere page seulement)
     const script = document.getElementById("__NEXT_DATA__");
     if (!script) return null;
     try {
@@ -286,7 +319,7 @@
     const premiumBtn = document.getElementById("copilot-premium-btn");
     if (premiumBtn) {
       premiumBtn.addEventListener("click", () => {
-        console.log("[Co-Pilot] Premium CTA clicked -- Stripe integration Phase 2");
+        // Premium CTA -- Stripe integration Phase 2
         premiumBtn.textContent = "Bientôt disponible !";
         premiumBtn.disabled = true;
       });
@@ -340,56 +373,9 @@
 
       showPopup(buildResultsPopup(result.data));
     } catch (err) {
-      console.error("[Co-Pilot] Analysis error:", err);
+      // Erreur silencieuse -- affichee dans la popup
       showPopup(buildErrorPopup(getRandomErrorMessage()));
     }
-  }
-
-  // ── Injection du bouton ────────────────────────────────────────
-
-  /** Trouve le meilleur emplacement pour injecter le bouton. */
-  function findInjectionPoint() {
-    // Cible : près du prix de l'annonce
-    const selectors = [
-      '[data-qa-id="adview_price"]',
-      '[data-test-id="price"]',
-      'div[class*="Price"]',
-      'span[class*="price"]',
-      'div[class*="AdHeader"]',
-    ];
-
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) return el.parentElement || el;
-    }
-
-    // Fallback : premier h1 ou header de la page
-    const h1 = document.querySelector("h1");
-    if (h1) return h1.parentElement || h1;
-
-    return document.querySelector("main") || document.body;
-  }
-
-  /** Injecte le bouton Co-Pilot dans la page. */
-  function injectButton() {
-    // Ne pas injecter deux fois
-    if (document.getElementById("copilot-analyze-btn")) return;
-
-    const target = findInjectionPoint();
-
-    const btn = document.createElement("button");
-    btn.id = "copilot-analyze-btn";
-    btn.className = "copilot-btn copilot-btn-analyze";
-    btn.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-      Analyser avec Co-Pilot
-    `;
-    btn.addEventListener("click", runAnalysis);
-
-    target.insertAdjacentElement("afterend", btn);
-    console.log("[Co-Pilot] Bouton injecté avec succès");
   }
 
   // ── Point d'entree ─────────────────────────────────────────────
@@ -400,18 +386,22 @@
     return url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/");
   }
 
-  /** Initialisation du content script. */
+  /**
+   * Initialisation du content script.
+   * Injecte uniquement on-demand (via le popup de l'extension).
+   * Lance directement l'analyse sans attendre de clic supplementaire.
+   */
   function init() {
     if (!isAdPage()) return;
 
-    console.log("[Co-Pilot] Page annonce détectée, injection du bouton...");
-    setTimeout(injectButton, BUTTON_INJECT_DELAY);
+    // Eviter les doubles injections (popup deja visible ou analyse deja lancee)
+    if (document.getElementById("copilot-popup")) return;
+    if (window.__copilotRunning) return;
+    window.__copilotRunning = true;
+
+    // Lancer l'analyse directement (l'utilisateur a deja clique dans le popup)
+    runAnalysis().finally(() => { window.__copilotRunning = false; });
   }
 
-  // Démarrage
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  init();
 })();

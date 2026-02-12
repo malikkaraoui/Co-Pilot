@@ -1,0 +1,95 @@
+{% extends "admin/base.html" %}
+{% block title %}Dashboard - Co-Pilot Admin{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Dashboard</h2>
+
+<!-- Cartes statistiques -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_scans }}</div>
+      <div class="stat-label">Scans totaux</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ scans_today }}</div>
+      <div class="stat-label">Scans aujourd'hui</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ avg_score }}<small>/100</small></div>
+      <div class="stat-label">Score moyen</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ partial_rate }}%</div>
+      <div class="stat-label">Analyses partielles</div>
+    </div>
+  </div>
+</div>
+
+<!-- Graphiques -->
+<div class="row g-3">
+  <div class="col-md-7">
+    <div class="stat-card">
+      <h5>Scans par jour (30 derniers jours)</h5>
+      <div id="chart-daily"></div>
+    </div>
+  </div>
+  <div class="col-md-5">
+    <div class="stat-card">
+      <h5>Distribution des scores</h5>
+      <div id="chart-scores"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Graphique scans par jour
+  const days = {{ chart_days|safe }};
+  const counts = {{ chart_counts|safe }};
+
+  if (days.length > 0) {
+    Plotly.newPlot("chart-daily", [{
+      x: days,
+      y: counts,
+      type: "bar",
+      marker: { color: "#3b82f6" }
+    }], {
+      margin: { t: 10, r: 20, b: 40, l: 40 },
+      xaxis: { title: "" },
+      yaxis: { title: "Scans" },
+      height: 300
+    }, { responsive: true, displayModeBar: false });
+  } else {
+    document.getElementById("chart-daily").innerHTML =
+      '<p class="text-muted text-center py-5">Aucun scan enregistre</p>';
+  }
+
+  // Graphique distribution des scores
+  const scores = {{ score_values|safe }};
+
+  if (scores.length > 0) {
+    Plotly.newPlot("chart-scores", [{
+      x: scores,
+      type: "histogram",
+      xbins: { start: 0, end: 100, size: 10 },
+      marker: { color: "#22c55e" }
+    }], {
+      margin: { t: 10, r: 20, b: 40, l: 40 },
+      xaxis: { title: "Score", range: [0, 100] },
+      yaxis: { title: "Nombre" },
+      height: 300
+    }, { responsive: true, displayModeBar: false });
+  } else {
+    document.getElementById("chart-scores").innerHTML =
+      '<p class="text-muted text-center py-5">Aucun score disponible</p>';
+  }
+</script>
+{% endblock %}

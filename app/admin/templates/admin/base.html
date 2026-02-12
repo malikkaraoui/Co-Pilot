@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Co-Pilot Admin{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { background: #f8f9fa; }
+    .sidebar {
+      min-height: 100vh;
+      background: #1e293b;
+      color: #fff;
+      padding: 0;
+    }
+    .sidebar .nav-link {
+      color: #94a3b8;
+      padding: 12px 20px;
+      border-radius: 0;
+    }
+    .sidebar .nav-link:hover,
+    .sidebar .nav-link.active {
+      color: #fff;
+      background: #334155;
+    }
+    .sidebar .brand {
+      padding: 20px;
+      font-size: 18px;
+      font-weight: 700;
+      border-bottom: 1px solid #334155;
+    }
+    .stat-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .stat-card .stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      color: #1e293b;
+    }
+    .stat-card .stat-label {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .content-area { padding: 24px; }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row">
+      <!-- Sidebar -->
+      <div class="col-md-2 sidebar d-none d-md-block">
+        <div class="brand">Co-Pilot Admin</div>
+        <nav class="nav flex-column mt-3">
+          <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
+             href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+          <a class="nav-link {% if request.endpoint == 'admin.vehicles' %}active{% endif %}"
+             href="{{ url_for('admin.vehicles') }}">Vehicules</a>
+          <a class="nav-link {% if request.endpoint == 'admin.errors' %}active{% endif %}"
+             href="{{ url_for('admin.errors') }}">Logs erreurs</a>
+          <a class="nav-link {% if request.endpoint == 'admin.pipelines' %}active{% endif %}"
+             href="{{ url_for('admin.pipelines') }}">Pipelines</a>
+          <hr class="border-secondary mx-3">
+          <a class="nav-link text-danger" href="{{ url_for('admin.logout') }}">Deconnexion</a>
+        </nav>
+      </div>
+
+      <!-- Main content -->
+      <div class="col-md-10 content-area">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -174,19 +174,24 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
             attrs.get("Année modèle")
             or attrs.get("Année")
             or attrs.get("year")
+            or attrs.get("regdate")
         )) is not None else None,
         "mileage_km": _coerce_int(
-            attrs.get("Kilométrage") or attrs.get("kilometrage")
+            attrs.get("Kilométrage")
+            or attrs.get("kilometrage")
+            or attrs.get("mileage")
         ),
         "fuel": (
             attrs.get("Énergie")
             or attrs.get("Energie")
             or attrs.get("Carburant")
+            or attrs.get("fuel")
         ),
         "gearbox": (
             attrs.get("Boîte de vitesse")
             or attrs.get("Boite de vitesse")
             or attrs.get("Transmission")
+            or attrs.get("gearbox")
         ),
         "doors": _coerce_int(attrs.get("Nombre de portes")),
         "seats": _coerce_int(

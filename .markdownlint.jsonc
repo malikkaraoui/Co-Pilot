@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/markdownlint.jsonc",
+
+  // Beaucoup de docs contiennent des lignes longues (URLs, extraits de code, etc.).
+  "MD013": false,
+
+  // On préfère des fences avec langage (déjà le cas dans ce repo, mais on verrouille).
+  "MD040": true,
+
+  // Autoriser l'inline HTML si besoin (désactivé par défaut, mais pratique pour ancres/notes).
+  "MD033": false
+}

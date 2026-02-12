@@ -1,0 +1,16 @@
+# Python / virtualenv
+.venv/
+__pycache__/
+.ruff_cache/
+.pytest_cache/
+
+# Build artifacts
+**/dist/
+**/build/
+
+# Large data / samples (avoid formatting huge files)
+docs/**/*.csv
+docs/**/*.xlsx
+docs/**/*.json
+
+data/

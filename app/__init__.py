@@ -33,10 +33,26 @@ def create_app(config_name: str | None = None) -> Flask:
     login_manager.login_view = "admin.login"
     cors.init_app(app, origins=app.config["CORS_ORIGINS"])
 
+    # User loader pour Flask-Login
+    from app.models.user import User
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return db.session.get(User, int(user_id))
+
     # Enregistrement des blueprints
+    from app.admin import admin_bp
     from app.api import api_bp
 
     app.register_blueprint(api_bp, url_prefix="/api")
+    app.register_blueprint(admin_bp, url_prefix="/admin")
+
+    # Creer l'utilisateur admin s'il n'existe pas
+    with app.app_context():
+        from app.admin.routes import ensure_admin_user
+
+        db.create_all()
+        ensure_admin_user()
 
     logger.info("Co-Pilot app created with config '%s'", config_name)
     return app
