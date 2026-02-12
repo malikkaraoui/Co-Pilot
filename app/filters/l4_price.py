@@ -15,7 +15,7 @@ class L4PriceFilter(BaseFilter):
 
     def run(self, data: dict[str, Any]) -> FilterResult:
         price = data.get("price_eur")
-        if not price:
+        if price is None:
             return self.skip("Prix non disponible dans l'annonce")
 
         # Import local pour eviter les imports circulaires

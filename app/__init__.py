@@ -25,6 +25,17 @@ def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
 
+    # Garde-fous production : interdire les secrets par defaut
+    if config_name == "production":
+        if app.config["SECRET_KEY"] == "dev-only-insecure-key":
+            raise RuntimeError(
+                "SECRET_KEY non definie. Definir la variable d'environnement SECRET_KEY."
+            )
+        if not app.config.get("ADMIN_PASSWORD_HASH"):
+            raise RuntimeError(
+                "ADMIN_PASSWORD_HASH non defini. Definir la variable d'environnement."
+            )
+
     setup_logging(app.config.get("LOG_LEVEL", "INFO"))
 
     # Initialisation des extensions

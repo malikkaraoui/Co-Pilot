@@ -61,6 +61,8 @@
              href="{{ url_for('admin.dashboard') }}">Dashboard</a>
           <a class="nav-link {% if request.endpoint == 'admin.vehicles' %}active{% endif %}"
              href="{{ url_for('admin.vehicles') }}">Vehicules</a>
+          <a class="nav-link {% if request.endpoint == 'admin.database' %}active{% endif %}"
+             href="{{ url_for('admin.database') }}">Base Vehicules</a>
           <a class="nav-link {% if request.endpoint == 'admin.errors' %}active{% endif %}"
              href="{{ url_for('admin.errors') }}">Logs erreurs</a>
           <a class="nav-link {% if request.endpoint == 'admin.pipelines' %}active{% endif %}"

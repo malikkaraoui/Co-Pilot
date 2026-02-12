@@ -10,9 +10,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const tabId = message.tabId;
 
-  // Injecter le CSS puis le JS sur l'onglet actif
+  // Etape 1 : Lire window.__NEXT_DATA__ dans le contexte MAIN (contourne le CSP)
+  // Etape 2 : Injecter le CSS puis le content script
   chrome.scripting
-    .insertCSS({ target: { tabId }, files: ["content.css"] })
+    .executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => {
+        let el = document.getElementById("__copilot_next_data__");
+        if (!el) {
+          el = document.createElement("div");
+          el.id = "__copilot_next_data__";
+          el.style.display = "none";
+          document.documentElement.appendChild(el);
+        }
+        el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
+      },
+    })
+    .then(() =>
+      chrome.scripting.insertCSS({ target: { tabId }, files: ["content.css"] })
+    )
     .then(() =>
       chrome.scripting.executeScript({
         target: { tabId },

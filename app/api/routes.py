@@ -9,7 +9,10 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
 from app.errors import ExtractionError
+from app.extensions import db
 from app.filters.engine import FilterEngine
+from app.models.filter_result import FilterResultDB
+from app.models.scan import ScanLog
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from app.schemas.filter_result import FilterResultSchema
 from app.services.extraction import extract_ad_data
@@ -94,6 +97,35 @@ def _do_analyze():
 
     # Calcul du score
     score, is_partial = calculate_score(filter_results)
+
+    # Persistence (best-effort : ne casse jamais la reponse API)
+    try:
+        scan = ScanLog(
+            url=req.url,
+            raw_data=json_data.get("next_data"),
+            score=score,
+            is_partial=is_partial,
+            vehicle_make=ad_data.get("make"),
+            vehicle_model=ad_data.get("model"),
+        )
+        db.session.add(scan)
+        db.session.flush()
+
+        for r in filter_results:
+            db.session.add(FilterResultDB(
+                scan_id=scan.id,
+                filter_id=r.filter_id,
+                status=r.status,
+                score=r.score,
+                message=r.message,
+                details=r.details,
+            ))
+
+        db.session.commit()
+        logger.info("Persisted ScanLog id=%d score=%d", scan.id, score)
+    except (OSError, ValueError, TypeError) as exc:
+        db.session.rollback()
+        logger.warning("Failed to persist scan: %s", exc)
 
     # Construction de la reponse
     filters_out = [

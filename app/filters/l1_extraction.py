@@ -21,12 +21,11 @@ class L1ExtractionFilter(BaseFilter):
         missing_secondary = []
 
         for field in CRITICAL_FIELDS:
-            if not data.get(field):
+            if data.get(field) is None:
                 missing_critical.append(field)
 
         for field in SECONDARY_FIELDS:
-            val = data.get(field)
-            if not val:
+            if data.get(field) is None:
                 missing_secondary.append(field)
 
         total_fields = len(CRITICAL_FIELDS) + len(SECONDARY_FIELDS)

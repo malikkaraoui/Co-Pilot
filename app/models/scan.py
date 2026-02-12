@@ -15,6 +15,8 @@ class ScanLog(db.Model):
     raw_data = db.Column(db.JSON)
     score = db.Column(db.Integer)
     is_partial = db.Column(db.Boolean, default=False)
+    vehicle_make = db.Column(db.String(100))
+    vehicle_model = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     filter_results = db.relationship("FilterResultDB", backref="scan", lazy="select")

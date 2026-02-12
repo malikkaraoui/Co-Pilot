@@ -108,6 +108,44 @@ def dashboard():
     )
     score_values = [s.score for s in scores]
 
+    # Performance des filtres : pass/warning/fail/skip par filter_id
+    filter_stats = (
+        db.session.query(
+            FilterResultDB.filter_id,
+            FilterResultDB.status,
+            db.func.count(FilterResultDB.id).label("count"),
+        )
+        .group_by(FilterResultDB.filter_id, FilterResultDB.status)
+        .all()
+    )
+    filter_perf: dict[str, dict[str, int]] = {}
+    for row in filter_stats:
+        if row.filter_id not in filter_perf:
+            filter_perf[row.filter_id] = {"pass": 0, "warning": 0, "fail": 0, "skip": 0}
+        filter_perf[row.filter_id][row.status] = row.count
+
+    # Top 10 vehicules analyses
+    top_vehicles = (
+        db.session.query(
+            ScanLog.vehicle_make,
+            ScanLog.vehicle_model,
+            db.func.count(ScanLog.id).label("count"),
+        )
+        .filter(ScanLog.vehicle_make.isnot(None))
+        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .order_by(db.func.count(ScanLog.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    # 10 derniers scans
+    recent_scans = (
+        ScanLog.query
+        .order_by(ScanLog.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
     return render_template(
         "admin/dashboard.html",
         total_scans=total_scans,
@@ -117,6 +155,9 @@ def dashboard():
         chart_days=json.dumps(chart_days),
         chart_counts=json.dumps(chart_counts),
         score_values=json.dumps(score_values),
+        filter_perf=json.dumps(filter_perf),
+        top_vehicles=top_vehicles,
+        recent_scans=recent_scans,
     )
 
 
@@ -164,6 +205,109 @@ def vehicles():
         "admin/vehicles.html",
         unrecognized_models=unrecognized_models,
         known_vehicles=known_vehicles,
+    )
+
+
+# ── Base Vehicules (import CSV) ───────────────────────────────────
+
+
+@admin_bp.route("/database")
+@login_required
+def database():
+    """Exploration de la base vehicules importee depuis le CSV Kaggle."""
+    from app.models.vehicle import VehicleSpec
+
+    # Parametres de filtrage
+    brand_filter = request.args.get("brand", "").strip()
+    model_filter = request.args.get("model", "").strip()
+    fuel_filter = request.args.get("fuel", "").strip()
+    page = request.args.get("page", 1, type=int)
+
+    # Stats generales
+    total_brands = (
+        db.session.query(db.func.count(db.distinct(Vehicle.brand))).scalar() or 0
+    )
+    total_models = (
+        db.session.query(
+            db.func.count(
+                db.distinct(Vehicle.brand + " " + Vehicle.model)
+            )
+        ).scalar()
+        or 0
+    )
+    total_specs = db.session.query(db.func.count(VehicleSpec.id)).scalar() or 0
+
+    # Distribution par marque (top 20) pour graphique Plotly
+    brand_dist = (
+        db.session.query(
+            Vehicle.brand,
+            db.func.count(VehicleSpec.id).label("count"),
+        )
+        .join(VehicleSpec, Vehicle.id == VehicleSpec.vehicle_id)
+        .group_by(Vehicle.brand)
+        .order_by(db.func.count(VehicleSpec.id).desc())
+        .limit(20)
+        .all()
+    )
+    chart_brands = [row.brand for row in brand_dist]
+    chart_counts = [row.count for row in brand_dist]
+
+    # Liste des marques pour le select de filtre
+    all_brands = (
+        db.session.query(Vehicle.brand)
+        .distinct()
+        .order_by(Vehicle.brand)
+        .all()
+    )
+    brand_list = [b.brand for b in all_brands]
+
+    # Liste des carburants pour le select de filtre
+    all_fuels = (
+        db.session.query(VehicleSpec.fuel_type)
+        .filter(VehicleSpec.fuel_type.isnot(None), VehicleSpec.fuel_type != "")
+        .distinct()
+        .order_by(VehicleSpec.fuel_type)
+        .all()
+    )
+    fuel_list = [f.fuel_type for f in all_fuels]
+
+    # Query principale avec filtres
+    query = (
+        db.session.query(Vehicle, VehicleSpec)
+        .join(VehicleSpec, Vehicle.id == VehicleSpec.vehicle_id)
+        .order_by(Vehicle.brand, Vehicle.model, VehicleSpec.power_hp)
+    )
+
+    if brand_filter:
+        query = query.filter(Vehicle.brand == brand_filter)
+    if model_filter:
+        query = query.filter(Vehicle.model.ilike(f"%{model_filter}%"))
+    if fuel_filter:
+        query = query.filter(VehicleSpec.fuel_type == fuel_filter)
+
+    # Pagination manuelle (query retourne des tuples, pas un model)
+    per_page = 50
+    total_results = query.count()
+    total_pages = max(1, (total_results + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    results = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return render_template(
+        "admin/database.html",
+        total_brands=total_brands,
+        total_models=total_models,
+        total_specs=total_specs,
+        chart_brands=json.dumps(chart_brands),
+        chart_counts=json.dumps(chart_counts),
+        brand_list=brand_list,
+        fuel_list=fuel_list,
+        brand_filter=brand_filter,
+        model_filter=model_filter,
+        fuel_filter=fuel_filter,
+        results=results,
+        page=page,
+        total_pages=total_pages,
+        total_results=total_results,
     )
 
 
@@ -271,7 +415,9 @@ def ensure_admin_user():
     password_hash = current_app.config.get("ADMIN_PASSWORD_HASH", "")
 
     if not password_hash:
-        password_hash = generate_password_hash("123audia4")
+        # Dev uniquement : generer un hash par defaut (bloque en prod par create_app)
+        logger.warning("ADMIN_PASSWORD_HASH non defini -- utilisation d'un mot de passe dev")
+        password_hash = generate_password_hash("dev-password-change-me")
 
     existing = User.query.filter_by(username=username).first()
     if not existing:

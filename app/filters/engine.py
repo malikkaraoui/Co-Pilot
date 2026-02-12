@@ -4,9 +4,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from flask import current_app
-
 import httpx
+from flask import current_app
 
 from app.errors import FilterError
 from app.filters.base import BaseFilter, FilterResult

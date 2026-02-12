@@ -22,54 +22,83 @@
 
   // ── Utilitaires ────────────────────────────────────────────────
 
+  /** Echappe les caracteres HTML pour prevenir les injections XSS. */
+  function escapeHTML(str) {
+    if (typeof str !== "string") return String(str ?? "");
+    const el = document.createElement("span");
+    el.textContent = str;
+    return el.innerHTML;
+  }
+
   /** Retourne un message d'erreur aléatoire. */
   function getRandomErrorMessage() {
     return ERROR_MESSAGES[Math.floor(Math.random() * ERROR_MESSAGES.length)];
   }
 
   /**
-   * Extrait le JSON __NEXT_DATA__ a jour.
-   * Injecte un micro-script dans le contexte de la page pour lire
-   * window.__NEXT_DATA__ (mis a jour par Next.js lors des navigations SPA).
-   * Fallback sur le tag DOM si l'injection echoue.
+   * Detecte si les donnees __NEXT_DATA__ sont obsoletes (navigation SPA).
+   * Compare l'ID de l'annonce dans les donnees avec l'ID dans l'URL courante.
+   * Retourne true (= perime) si on ne peut pas confirmer la correspondance.
    */
-  function extractNextData() {
-    // Essayer de lire window.__NEXT_DATA__ via injection dans le contexte page
-    try {
-      const bridge = document.createElement("script");
-      bridge.textContent = `
-        (function() {
-          var el = document.getElementById("__copilot_next_data__");
-          if (!el) {
-            el = document.createElement("div");
-            el.id = "__copilot_next_data__";
-            el.style.display = "none";
-            document.documentElement.appendChild(el);
-          }
-          el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
-        })();
-      `;
-      document.documentElement.appendChild(bridge);
-      bridge.remove();
+  function isStaleData(data) {
+    const urlMatch = window.location.href.match(/\/(\d+)(?:[?#]|$)/);
+    if (!urlMatch) return false;
+    const urlAdId = urlMatch[1];
 
-      const el = document.getElementById("__copilot_next_data__");
-      if (el && el.textContent) {
+    const ad = data?.props?.pageProps?.ad;
+    if (!ad) return true; // Pas d'annonce dans les donnees → considerer perime
+
+    const dataAdId = String(ad.list_id || ad.id || "");
+    if (!dataAdId) return true; // Pas d'ID → impossible de verifier → perime
+
+    return dataAdId !== urlAdId;
+  }
+
+  /**
+   * Extrait le JSON __NEXT_DATA__ a jour.
+   *
+   * 1. Lit les donnees injectees par le background (world:MAIN)
+   * 2. Verifie la fraicheur (compare ad ID vs URL)
+   * 3. Si obsoletes (nav SPA) : re-fetch le HTML de la page pour un __NEXT_DATA__ frais
+   */
+  async function extractNextData() {
+    // 1. Donnees injectees par le background (world:MAIN)
+    const el = document.getElementById("__copilot_next_data__");
+    if (el && el.textContent) {
+      try {
         const data = JSON.parse(el.textContent);
         el.remove();
-        if (data) return data;
+        if (data && !isStaleData(data)) return data;
+      } catch {
+        // continue
       }
-    } catch {
-      // Fallback ci-dessous
     }
 
-    // Fallback : lire le tag script DOM (premiere page seulement)
+    // 2. Tag script DOM (premiere page seulement)
     const script = document.getElementById("__NEXT_DATA__");
-    if (!script) return null;
-    try {
-      return JSON.parse(script.textContent);
-    } catch {
-      return null;
+    if (script) {
+      try {
+        const data = JSON.parse(script.textContent);
+        if (data && !isStaleData(data)) return data;
+      } catch {
+        // continue
+      }
     }
+
+    // 3. Fallback SPA : re-fetch le HTML de la page courante
+    try {
+      const resp = await fetch(window.location.href, {
+        credentials: "same-origin",
+        headers: { "Accept": "text/html" },
+      });
+      const html = await resp.text();
+      const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (match) return JSON.parse(match[1]);
+    } catch {
+      // extraction impossible
+    }
+
+    return null;
   }
 
   /** Détermine la couleur selon le score. */
@@ -158,13 +187,13 @@
         const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
 
         return `
-          <div class="copilot-filter-item" data-status="${f.status}">
+          <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
             <div class="copilot-filter-header">
               <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
-              <span class="copilot-filter-label">${label}</span>
+              <span class="copilot-filter-label">${escapeHTML(label)}</span>
               <span class="copilot-filter-score" style="color:${color}">${Math.round(f.score * 100)}%</span>
             </div>
-            <p class="copilot-filter-message">${f.message}</p>
+            <p class="copilot-filter-message">${escapeHTML(f.message)}</p>
             ${detailsHTML}
           </div>
         `;
@@ -178,7 +207,7 @@
       .filter(([, v]) => v !== null && v !== undefined)
       .map(([k, v]) => {
         const val = typeof v === "object" ? JSON.stringify(v) : v;
-        return `<span class="copilot-detail-key">${k}:</span> ${val}`;
+        return `<span class="copilot-detail-key">${escapeHTML(k)}:</span> ${escapeHTML(val)}`;
       })
       .join("<br>");
 
@@ -237,7 +266,7 @@
             <span class="copilot-popup-title">Co-Pilot</span>
             <button class="copilot-popup-close" id="copilot-close">&times;</button>
           </div>
-          <p class="copilot-popup-vehicle">${vehicleInfo}</p>
+          <p class="copilot-popup-vehicle">${escapeHTML(vehicleInfo)}</p>
           ${partialBadge}
         </div>
 
@@ -274,7 +303,7 @@
         </div>
         <div class="copilot-error-body">
           <div class="copilot-error-icon">&#x1F527;</div>
-          <p class="copilot-error-message">${message}</p>
+          <p class="copilot-error-message">${escapeHTML(message)}</p>
           <button class="copilot-btn copilot-btn-retry" id="copilot-retry">Réessayer</button>
         </div>
       </div>
@@ -342,19 +371,19 @@
 
   /** Lance l'analyse : extrait les donnees, appelle l'API, affiche les resultats. */
   async function runAnalysis() {
-    const nextData = extractNextData();
+    showLoading();
+
+    const nextData = await extractNextData();
     if (!nextData) {
       showPopup(buildErrorPopup("Impossible de lire les données de cette page. Vérifiez que vous êtes sur une annonce Leboncoin."));
       return;
     }
 
-    showLoading();
-
     try {
       const response = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ next_data: nextData }),
+        body: JSON.stringify({ url: window.location.href, next_data: nextData }),
       });
 
       if (!response.ok) {
@@ -394,8 +423,10 @@
   function init() {
     if (!isAdPage()) return;
 
-    // Eviter les doubles injections (popup deja visible ou analyse deja lancee)
-    if (document.getElementById("copilot-popup")) return;
+    // Toujours supprimer l'ancienne popup (navigation SPA = meme DOM)
+    removePopup();
+
+    // Si une analyse est deja en cours, ne pas en lancer une autre
     if (window.__copilotRunning) return;
     window.__copilotRunning = true;
 

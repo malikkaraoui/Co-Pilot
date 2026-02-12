@@ -25,15 +25,25 @@ def _deep_get(data: dict, path: str) -> Any:
 
 
 def _find_ad_payload(next_data: dict) -> dict | None:
-    """Localise le payload de l'annonce dans __NEXT_DATA__."""
+    """Localise le payload de l'annonce dans __NEXT_DATA__.
+
+    Utilise le chemin standard Next.js en priorite, puis un fallback
+    restrictif qui exige list_id pour eviter de matcher des annonces
+    provenant de listes de resultats ou de recommandations.
+    """
     ad = _deep_get(next_data, "props.pageProps.ad")
     if isinstance(ad, dict):
         return ad
 
-    # Fallback : recherche recursive d'un dict qui ressemble a une annonce
+    # Fallback : recherche recursive d'un dict qui ressemble a une annonce.
+    # On exige list_id (identifiant unique d'annonce Leboncoin) pour eviter
+    # de matcher des annonces issues de listes / recommandations.
     def _walk(node: Any) -> dict | None:
         if isinstance(node, dict):
-            if "attributes" in node and ("price" in node or "subject" in node):
+            has_attributes = "attributes" in node
+            has_identity = "list_id" in node or "ad_id" in node
+            has_content = "price" in node or "subject" in node
+            if has_attributes and has_identity and has_content:
                 return node
             for value in node.values():
                 hit = _walk(value)
@@ -46,7 +56,10 @@ def _find_ad_payload(next_data: dict) -> dict | None:
                     return hit
         return None
 
-    return _walk(next_data)
+    result = _walk(next_data)
+    if result:
+        logger.info("Ad payload found via fallback walker (list_id=%s)", result.get("list_id"))
+    return result
 
 
 def _normalize_attributes(ad: dict) -> dict[str, Any]:

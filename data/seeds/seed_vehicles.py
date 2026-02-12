@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed du referentiel vehicules -- 20 modeles les plus vendus en France (2010-2025).
+"""Seed du referentiel vehicules -- Top 50 modeles les plus vendus en France.
 
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_vehicles.py
@@ -14,9 +14,10 @@ from app import create_app  # noqa: E402
 from app.extensions import db  # noqa: E402
 from app.models.vehicle import Vehicle, VehicleSpec  # noqa: E402
 
-# Les 20 modeles les plus vendus / recherches en France (2010-2025)
+# Top 50 modeles les plus vendus en France (ventes 2025 + parc occasion)
 VEHICLES = [
     # (marque, modele, generation, annee_debut, annee_fin)
+    # --- Existants (20 originaux) ---
     ("Peugeot", "208", "II", 2019, 2025),
     ("Peugeot", "3008", "II", 2016, 2023),
     ("Peugeot", "308", "III", 2021, 2025),
@@ -37,6 +38,39 @@ VEHICLES = [
     ("Fiat", "500", "II", 2007, 2025),
     ("Ford", "Fiesta", "VII", 2017, 2023),
     ("BMW", "Serie 3", "G20", 2018, 2025),
+    # --- 30 nouveaux modeles (Top 50 ventes 2025) ---
+    ("Renault", "5 E-Tech", "I", 2024, 2025),
+    ("Renault", "Symbioz", "I", 2024, 2025),
+    ("Renault", "Austral", "I", 2022, 2025),
+    ("Peugeot", "5008", "II", 2017, 2025),
+    ("Ford", "Puma", "I", 2019, 2025),
+    ("Dacia", "Bigster", "I", 2025, 2025),
+    ("Citroen", "e-C3", "I", 2024, 2025),
+    ("Toyota", "Yaris Cross", "I", 2021, 2025),
+    ("Hyundai", "Tucson", "IV", 2020, 2025),
+    ("Volkswagen", "Tiguan", "II", 2016, 2025),
+    ("Opel", "Corsa", "F", 2019, 2025),
+    ("Mini", "Cooper", "F56/F66", 2014, 2025),
+    ("Volkswagen", "T-Roc", "I", 2017, 2025),
+    ("Dacia", "Jogger", "I", 2022, 2025),
+    ("Nissan", "Qashqai", "III", 2021, 2025),
+    ("Volkswagen", "T-Cross", "I", 2018, 2025),
+    ("Citroen", "C4", "III", 2020, 2025),
+    ("BMW", "Serie 1", "F40", 2019, 2025),
+    ("MG", "ZS", "I", 2020, 2025),
+    ("Suzuki", "Swift", "IV", 2017, 2025),
+    ("Hyundai", "Kona", "I/II", 2017, 2025),
+    ("Ford", "Kuga", "III", 2019, 2025),
+    ("Toyota", "Aygo X", "I", 2022, 2025),
+    ("BMW", "X1", "U11", 2022, 2025),
+    ("Skoda", "Fabia", "IV", 2021, 2025),
+    ("MG", "3", "I", 2024, 2025),
+    ("Mercedes", "GLA", "II", 2020, 2025),
+    ("Nissan", "Juke", "II", 2019, 2025),
+    ("Kia", "Sportage", "V", 2021, 2025),
+    ("Audi", "A3", "8Y", 2020, 2025),
+    ("Skoda", "Octavia", "IV", 2019, 2025),
+    ("Mercedes", "Classe A", "W177", 2018, 2025),
 ]
 
 # Specs de base pour chaque modele (fuel, transmission, puissance)
@@ -83,6 +117,141 @@ SPECS = [
      4.0, "Moteur EcoBoost fiable, suspension parfois bruyante", "Revision ~220 EUR"),
     ("BMW", "Serie 3", "Diesel", "Automatique", "320d 190 BVA", 190,
      3.6, "Chaine distribution, turbo, electronique couteuse", "Chaine ~1500 EUR, entretien ~500 EUR/an"),
+    # --- 30 nouveaux modeles ---
+    # Renault 5 E-Tech
+    ("Renault", "5 E-Tech", "Electrique", "Automatique", "Moteur electrique 150ch", 150,
+     4.0, "Modele recent, peu de recul. Batterie 52 kWh", "Entretien EV ~100 EUR/an"),
+    # Renault Symbioz
+    ("Renault", "Symbioz", "Hybride", "Automatique", "1.6 E-Tech Full Hybrid 145", 145,
+     4.0, "Modele recent, base Captur. Systeme hybride Renault E-Tech", "Revision ~250 EUR"),
+    # Renault Austral
+    ("Renault", "Austral", "Hybride", "Automatique", "1.2 E-Tech Full Hybrid 200", 200,
+     3.8, "Remplacant du Kadjar. Electronique complexe, ecran parfois lent", "Revision ~300 EUR"),
+    ("Renault", "Austral", "Essence", "Manuelle", "1.2 TCe 130 Mild Hybrid", 130,
+     3.9, "Micro-hybridation 48V, courroie a surveiller", "Revision ~250 EUR"),
+    # Peugeot 5008
+    ("Peugeot", "5008", "Diesel", "Automatique", "1.5 BlueHDi 130 EAT8", 130,
+     3.7, "Boite EAT8 hesitante, FAP sur trajets courts, 7 places", "Boite ~2000 EUR, FAP ~800 EUR"),
+    ("Peugeot", "5008", "Essence", "Automatique", "1.2 PureTech 130 EAT8", 130,
+     3.5, "Turbo PureTech fragile (rappel constructeur), consommation elevee", "Turbo ~1200 EUR"),
+    # Ford Puma
+    ("Ford", "Puma", "Essence", "Manuelle", "1.0 EcoBoost 125", 125,
+     4.1, "Moteur EcoBoost fiable, coffre Megabox pratique", "Revision ~220 EUR"),
+    ("Ford", "Puma", "Hybride", "Manuelle", "1.0 EcoBoost 125 mHEV", 125,
+     4.0, "Micro-hybridation 48V, bon compromis conso/puissance", "Revision ~230 EUR"),
+    # Dacia Bigster
+    ("Dacia", "Bigster", "Hybride", "Automatique", "1.2 TCe 140 Mild Hybrid", 140,
+     4.0, "Modele tout neuf 2025, pas de recul fiabilite. Grand SUV familial", "Revision estimee ~200 EUR"),
+    # Citroen e-C3
+    ("Citroen", "e-C3", "Electrique", "Automatique", "Moteur electrique 113ch", 113,
+     4.0, "EV abordable, batterie LFP 44 kWh, autonomie ~320 km WLTP", "Entretien EV ~100 EUR/an"),
+    # Toyota Yaris Cross
+    ("Toyota", "Yaris Cross", "Hybride", "Automatique", "1.5 Hybrid 116", 116,
+     4.7, "Hybride Toyota mature, quasi aucun probleme. Coffre un peu juste", "Revision ~200 EUR"),
+    # Hyundai Tucson
+    ("Hyundai", "Tucson", "Hybride", "Automatique", "1.6 T-GDi HEV 230", 230,
+     4.2, "Garantie 5 ans, systeme hybride fiable, electronique embarquee complete", "Revision ~280 EUR"),
+    ("Hyundai", "Tucson", "Diesel", "Manuelle", "1.6 CRDi 136", 136,
+     4.0, "Moteur diesel robuste, injecteurs a surveiller apres 100 000 km", "Injecteurs ~300 EUR/piece"),
+    # Volkswagen Tiguan
+    ("Volkswagen", "Tiguan", "Diesel", "Automatique", "2.0 TDI 150 DSG", 150,
+     3.6, "Boite DSG double embrayage, AdBlue, electronique complexe VW", "Embrayage DSG ~2500 EUR"),
+    ("Volkswagen", "Tiguan", "Essence", "Manuelle", "1.5 TSI 150", 150,
+     3.9, "Moteur TSI fiable, consommation correcte pour un SUV", "Revision ~300 EUR"),
+    # Opel Corsa
+    ("Opel", "Corsa", "Essence", "Manuelle", "1.2 Turbo 100", 100,
+     4.1, "Plateforme PSA (PureTech rebadge), memes soucis courroie", "Courroie ~600 EUR"),
+    ("Opel", "Corsa", "Electrique", "Automatique", "Moteur electrique 136ch", 136,
+     4.2, "Corsa-e, batterie 50 kWh, autonomie ~330 km WLTP", "Entretien EV ~100 EUR/an"),
+    # Mini Cooper
+    ("Mini", "Cooper", "Essence", "Automatique", "1.5 136 DKG", 136,
+     3.5, "Boite double embrayage, electronique BMW, entretien premium", "Revision ~350 EUR, embrayage ~1800 EUR"),
+    ("Mini", "Cooper", "Electrique", "Automatique", "Moteur electrique 184ch", 184,
+     3.8, "Mini Cooper SE, batterie 54 kWh, autonomie ~300 km", "Entretien EV ~150 EUR/an"),
+    # Volkswagen T-Roc
+    ("Volkswagen", "T-Roc", "Essence", "Automatique", "1.5 TSI 150 DSG", 150,
+     3.7, "Boite DSG, electronique VW. Bonne tenue de route", "Embrayage DSG ~2500 EUR, revision ~300 EUR"),
+    # Dacia Jogger
+    ("Dacia", "Jogger", "Essence", "Manuelle", "1.0 TCe 110", 110,
+     4.3, "7 places, tres bon rapport espace/prix. Finitions basiques", "Revision ~180 EUR"),
+    ("Dacia", "Jogger", "Hybride", "Automatique", "1.6 Hybrid 140", 140,
+     4.0, "Systeme hybride Renault E-Tech, consommation basse", "Revision ~200 EUR"),
+    # Nissan Qashqai
+    ("Nissan", "Qashqai", "Hybride", "Automatique", "1.3 DIG-T e-Power 190", 190,
+     3.9, "Systeme e-Power (moteur thermique = generateur), pas de boite classique", "Revision ~280 EUR"),
+    # Volkswagen T-Cross
+    ("Volkswagen", "T-Cross", "Essence", "Manuelle", "1.0 TSI 95", 95,
+     4.2, "Petit SUV urbain, moteur 3 cylindres TSI fiable", "Revision ~250 EUR"),
+    # Citroen C4
+    ("Citroen", "C4", "Diesel", "Automatique", "1.5 BlueHDi 130 EAT8", 130,
+     3.8, "Suspension progressive Citroen, FAP a surveiller", "FAP ~800 EUR, revision ~250 EUR"),
+    ("Citroen", "C4", "Electrique", "Automatique", "Moteur electrique 136ch", 136,
+     4.0, "e-C4, batterie 50 kWh, autonomie ~350 km WLTP", "Entretien EV ~100 EUR/an"),
+    # BMW Serie 1
+    ("BMW", "Serie 1", "Essence", "Automatique", "118i 140 DKG", 140,
+     3.7, "Traction avant (F40+), boite DKG, electronique BMW premium", "Revision ~400 EUR, DKG ~2000 EUR"),
+    ("BMW", "Serie 1", "Diesel", "Automatique", "116d 116 BVA", 116,
+     3.8, "Diesel econome, chaine distribution, AdBlue", "Chaine ~1500 EUR, revision ~400 EUR"),
+    # MG ZS
+    ("MG", "ZS", "Electrique", "Automatique", "Moteur electrique 177ch", 177,
+     3.5, "SUV EV chinois, batterie 72 kWh, autonomie ~440 km. Reseau SAV limite", "Batterie garantie 7 ans"),
+    ("MG", "ZS", "Essence", "Manuelle", "1.5 VTi 106", 106,
+     3.3, "Moteur basique, finitions en retrait, garantie 7 ans", "Revision ~150 EUR"),
+    # Suzuki Swift
+    ("Suzuki", "Swift", "Hybride", "Manuelle", "1.2 Mild Hybrid 83", 83,
+     4.5, "Tres fiable, micro-hybridation, legere (moins de 1 tonne)", "Revision ~180 EUR"),
+    # Hyundai Kona
+    ("Hyundai", "Kona", "Electrique", "Automatique", "Moteur electrique 218ch", 218,
+     4.3, "Batterie 65 kWh, autonomie ~490 km, garantie 5 ans", "Entretien EV ~120 EUR/an"),
+    ("Hyundai", "Kona", "Essence", "Automatique", "1.0 T-GDi 120 DCT", 120,
+     4.0, "Boite DCT double embrayage, compact et polyvalent", "Revision ~250 EUR"),
+    # Ford Kuga
+    ("Ford", "Kuga", "Hybride", "Automatique", "2.5 Duratec FHEV 190", 190,
+     3.8, "Full hybrid, bon confort, consommation maitrisee", "Revision ~280 EUR"),
+    ("Ford", "Kuga", "Diesel", "Manuelle", "1.5 EcoBlue 120", 120,
+     3.9, "Diesel robuste, FAP a surveiller sur courts trajets", "FAP ~800 EUR, revision ~250 EUR"),
+    # Toyota Aygo X
+    ("Toyota", "Aygo X", "Essence", "Manuelle", "1.0 VVT-i 72", 72,
+     4.5, "Micro-citadine tres fiable, moteur eprouve, peu de frais", "Revision ~150 EUR"),
+    # BMW X1
+    ("BMW", "X1", "Essence", "Automatique", "sDrive18i 136 DKG", 136,
+     3.7, "SUV compact premium, boite DKG, electronique BMW", "Revision ~400 EUR, DKG ~2000 EUR"),
+    ("BMW", "X1", "Diesel", "Automatique", "sDrive18d 150 BVA", 150,
+     3.8, "Diesel econome, chaine distribution, AdBlue", "Chaine ~1500 EUR, revision ~400 EUR"),
+    # Skoda Fabia
+    ("Skoda", "Fabia", "Essence", "Manuelle", "1.0 TSI 95", 95,
+     4.3, "Plateforme VW, fiabilite prouvee, rapport qualite/prix excellent", "Revision ~220 EUR"),
+    # MG 3
+    ("MG", "3", "Hybride", "Automatique", "1.5 Hybrid 195", 195,
+     3.5, "Modele 2024 tres recent, hybride chinois. Reseau SAV a developper", "Garantie 7 ans, revision ~180 EUR"),
+    # Mercedes GLA
+    ("Mercedes", "GLA", "Essence", "Automatique", "200 163 DCT", 163,
+     3.6, "SUV compact premium, boite DCT, electronique complexe MBUX", "Revision ~450 EUR, DCT ~2500 EUR"),
+    ("Mercedes", "GLA", "Diesel", "Automatique", "200d 150 DCT", 150,
+     3.7, "Diesel doux, consommation basse, AdBlue, chaine distrib", "Chaine ~1500 EUR, revision ~450 EUR"),
+    # Nissan Juke
+    ("Nissan", "Juke", "Hybride", "Automatique", "1.6 Hybrid 143", 143,
+     3.9, "Systeme hybride fiable, design polarisant, coffre petit", "Revision ~260 EUR"),
+    # Kia Sportage
+    ("Kia", "Sportage", "Hybride", "Automatique", "1.6 T-GDi HEV 230", 230,
+     4.2, "Garantie 7 ans, systeme hybride Hyundai/Kia, tres bien equipe", "Revision ~280 EUR"),
+    ("Kia", "Sportage", "Diesel", "Automatique", "1.6 CRDi 136 DCT", 136,
+     4.0, "Diesel robuste, boite DCT, garantie 7 ans constructeur", "Revision ~260 EUR"),
+    # Audi A3
+    ("Audi", "A3", "Essence", "Automatique", "35 TFSI 150 S tronic", 150,
+     3.7, "Boite S tronic (DSG VW), electronique complexe, finition premium", "Embrayage S tronic ~2500 EUR, revision ~350 EUR"),
+    ("Audi", "A3", "Diesel", "Automatique", "30 TDI 116 S tronic", 116,
+     3.8, "Diesel econome, AdBlue, chaine distribution", "Chaine ~1500 EUR, revision ~350 EUR"),
+    # Skoda Octavia
+    ("Skoda", "Octavia", "Diesel", "Automatique", "2.0 TDI 150 DSG", 150,
+     3.9, "Enormement d'espace, plateforme VW Golf. Boite DSG a surveiller", "Embrayage DSG ~2500 EUR, revision ~280 EUR"),
+    ("Skoda", "Octavia", "Essence", "Manuelle", "1.5 TSI 150", 150,
+     4.1, "Moteur TSI VW fiable, coffre geant (600L), excellent rapport qualite/prix", "Revision ~250 EUR"),
+    # Mercedes Classe A
+    ("Mercedes", "Classe A", "Essence", "Automatique", "A200 163 DCT", 163,
+     3.5, "Compacte premium, boite DCT, electronique MBUX, entretien couteux", "Revision ~450 EUR, DCT ~2500 EUR"),
+    ("Mercedes", "Classe A", "Diesel", "Automatique", "A180d 116 DCT", 116,
+     3.6, "Diesel econome, chaine distrib, AdBlue, confort premium", "Chaine ~1500 EUR, revision ~450 EUR"),
 ]
 
 

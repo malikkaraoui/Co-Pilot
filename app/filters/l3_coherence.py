@@ -22,7 +22,7 @@ class L3CoherenceFilter(BaseFilter):
         mileage = data.get("mileage_km")
         price = data.get("price_eur")
 
-        if not year_str or not mileage:
+        if year_str is None or mileage is None:
             return self.skip("Annee ou kilometrage non disponible")
 
         try:

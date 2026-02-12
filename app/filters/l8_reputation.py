@@ -2,6 +2,7 @@
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from app.filters.base import BaseFilter, FilterResult
@@ -40,10 +41,10 @@ class L8ImportDetectionFilter(BaseFilter):
         # Signal 3 : Anomalie de prix (tres bas pour le type)
         price = data.get("price_eur")
         year_str = data.get("year_model")
-        if price and year_str:
+        if price is not None and year_str:
             try:
                 year = int(year_str)
-                age = 2026 - year  # approximate
+                age = datetime.now(timezone.utc).year - year
                 # Heuristique tres approximative : si prix < 2000EUR pour un vehicule < 8 ans
                 if age < 8 and price < 3000:
                     signals.append(

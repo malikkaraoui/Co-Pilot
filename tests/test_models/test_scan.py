@@ -9,7 +9,8 @@ def test_create_scan_log(db):
     db.session.add(scan)
     db.session.commit()
 
-    saved = ScanLog.query.first()
+    saved = ScanLog.query.filter_by(url="https://www.leboncoin.fr/ad/voitures/123").first()
+    assert saved is not None
     assert saved.url.endswith("/123")
     assert saved.score == 72
 

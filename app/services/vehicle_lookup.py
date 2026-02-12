@@ -5,6 +5,7 @@ Gere les variantes courantes de noms de marques et modeles
 """
 
 import logging
+import unicodedata
 
 from app.models.vehicle import Vehicle
 
@@ -13,53 +14,148 @@ logger = logging.getLogger(__name__)
 # Alias de marques courantes -> nom canonique en base
 BRAND_ALIASES: dict[str, str] = {
     "vw": "volkswagen",
-    "citroën": "citroen",
     "bmw": "bmw",
     "merco": "mercedes",
     "merc": "mercedes",
+    "mercedes-benz": "mercedes",
+    "mb": "mercedes",
+    "mg motor": "mg",
+    "hyunday": "hyundai",
+    "hundai": "hyundai",
 }
 
 # Alias de modeles courants -> nom canonique en base
 MODEL_ALIASES: dict[str, str] = {
+    # Renault
     "clio 5": "clio v",
     "clio5": "clio v",
-    "serie 3": "serie 3",
-    "série 3": "serie 3",
-    "series 3": "serie 3",
-    "3er": "serie 3",
-    "golf 7": "golf",
-    "golf 8": "golf",
-    "golf vii": "golf",
-    "golf viii": "golf",
-    "yaris 4": "yaris",
-    "yaris iv": "yaris",
-    "500": "500",
-    "fiat500": "500",
-    "polo 6": "polo",
-    "polo vi": "polo",
+    "clio v": "clio v",
+    "renault 5": "5 e-tech",
+    "r5": "5 e-tech",
+    "r5 e-tech": "5 e-tech",
+    "captur 2": "captur",
+    "captur ii": "captur",
+    "megane 4": "megane",
+    "megane iv": "megane",
+    "scenic 4": "scenic",
+    "scenic iv": "scenic",
+    # Peugeot
     "208 ii": "208",
     "2008 ii": "2008",
     "3008 ii": "3008",
     "308 iii": "308",
+    "5008 ii": "5008",
+    # Citroen
     "c3 iii": "c3",
-    "c-hr": "c-hr",
-    "chr": "c-hr",
+    "c3 aircross": "c3 aircross",
+    "ec3": "e-c3",
+    "e c3": "e-c3",
+    "c4 iii": "c4",
+    "e-c4": "c4",
+    # Dacia
     "sandero 3": "sandero",
     "sandero iii": "sandero",
     "duster 2": "duster",
     "duster ii": "duster",
+    "duster 3": "duster",
+    # Volkswagen
+    "golf 7": "golf",
+    "golf 8": "golf",
+    "golf vii": "golf",
+    "golf viii": "golf",
+    "polo 6": "polo",
+    "polo vi": "polo",
+    "t-roc": "t-roc",
+    "troc": "t-roc",
+    "t roc": "t-roc",
+    "t-cross": "t-cross",
+    "tcross": "t-cross",
+    "t cross": "t-cross",
+    "tiguan 2": "tiguan",
+    "tiguan ii": "tiguan",
+    # Toyota
+    "yaris 4": "yaris",
+    "yaris iv": "yaris",
+    "yaris cross": "yaris cross",
+    "c-hr": "c-hr",
+    "chr": "c-hr",
+    "aygo x": "aygo x",
+    "aygox": "aygo x",
+    # BMW
+    "serie 3": "serie 3",
+    "series 3": "serie 3",
+    "3er": "serie 3",
+    "serie 1": "serie 1",
+    "series 1": "serie 1",
+    "1er": "serie 1",
+    "x1": "x1",
+    "ix1": "x1",
+    # Fiat
+    "500": "500",
+    "fiat500": "500",
+    # Ford
+    "fiesta 7": "fiesta",
+    "kuga 3": "kuga",
+    "kuga iii": "kuga",
+    # Nissan
+    "qashqai 3": "qashqai",
+    "qashqai iii": "qashqai",
+    "juke 2": "juke",
+    "juke ii": "juke",
+    # Hyundai
+    "tucson 4": "tucson",
+    "tucson iv": "tucson",
+    "kona 2": "kona",
+    # Mercedes
+    "gla": "gla",
+    "classe a": "classe a",
+    "class a": "classe a",
+    "a-class": "classe a",
+    "a-klasse": "classe a",
+    # Audi
+    "a3": "a3",
+    "a3 sportback": "a3",
+    # Skoda
+    "fabia 4": "fabia",
+    "fabia iv": "fabia",
+    "octavia 4": "octavia",
+    "octavia iv": "octavia",
+    # Mini
+    "cooper": "cooper",
+    "mini cooper": "cooper",
+    "cooper s": "cooper",
+    "cooper se": "cooper",
+    # Kia
+    "sportage 5": "sportage",
+    "sportage v": "sportage",
+    # MG
+    "zs": "zs",
+    "zs ev": "zs",
+    "mg3": "3",
+    # Opel
+    "corsa f": "corsa",
+    "corsa-e": "corsa",
+    # Suzuki
+    "swift 4": "swift",
+    "swift iv": "swift",
 }
 
 
+def _strip_accents(text: str) -> str:
+    """Supprime les accents et diacritiques (ex. Citroën -> Citroen, Škoda -> Skoda)."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
 def _normalize_brand(brand: str) -> str:
-    """Normalise le nom de marque en appliquant les alias connus."""
-    cleaned = brand.strip().lower()
+    """Normalise le nom de marque : minuscule, sans accents, puis alias."""
+    cleaned = _strip_accents(brand.strip().lower())
     return BRAND_ALIASES.get(cleaned, cleaned)
 
 
 def _normalize_model(model: str) -> str:
-    """Normalise le nom de modele en appliquant les alias connus."""
-    cleaned = model.strip().lower()
+    """Normalise le nom de modele : minuscule, sans accents, puis alias."""
+    cleaned = _strip_accents(model.strip().lower())
     return MODEL_ALIASES.get(cleaned, cleaned)
 
 

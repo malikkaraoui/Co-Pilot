@@ -32,8 +32,8 @@
   </div>
 </div>
 
-<!-- Graphiques -->
-<div class="row g-3">
+<!-- Graphiques ligne 1 -->
+<div class="row g-3 mb-3">
   <div class="col-md-7">
     <div class="stat-card">
       <h5>Scans par jour (30 derniers jours)</h5>
@@ -44,6 +44,68 @@
     <div class="stat-card">
       <h5>Distribution des scores</h5>
       <div id="chart-scores"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Graphiques ligne 2 : performance filtres + top vehicules -->
+<div class="row g-3 mb-3">
+  <div class="col-md-7">
+    <div class="stat-card">
+      <h5>Performance des filtres</h5>
+      <div id="chart-filters"></div>
+    </div>
+  </div>
+  <div class="col-md-5">
+    <div class="stat-card">
+      <h5>Vehicules les plus analyses</h5>
+      {% if top_vehicles %}
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Marque</th><th>Modele</th><th>Scans</th></tr></thead>
+        <tbody>
+          {% for v in top_vehicles %}
+          <tr>
+            <td>{{ v.vehicle_make }}</td>
+            <td>{{ v.vehicle_model or '-' }}</td>
+            <td><span class="badge bg-primary">{{ v.count }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted text-center py-5">Aucune donnee</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Derniers scans -->
+<div class="row g-3">
+  <div class="col-12">
+    <div class="stat-card">
+      <h5>10 derniers scans</h5>
+      {% if recent_scans %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr><th>Date</th><th>Vehicule</th><th>URL</th><th>Score</th><th>Partiel</th></tr></thead>
+          <tbody>
+            {% for s in recent_scans %}
+            <tr>
+              <td style="font-size:12px; white-space:nowrap">{{ s.created_at.strftime('%d/%m %H:%M') if s.created_at else '-' }}</td>
+              <td>{{ s.vehicle_make or '' }} {{ s.vehicle_model or '' }}</td>
+              <td style="font-size:12px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                {% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url[:60] }}{% if s.url|length > 60 %}...{% endif %}</a>{% else %}-{% endif %}
+              </td>
+              <td><strong>{{ s.score }}/100</strong></td>
+              <td>{% if s.is_partial %}<span class="badge bg-warning text-dark">Oui</span>{% else %}<span class="badge bg-success">Non</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted text-center py-5">Aucun scan enregistre</p>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -90,6 +152,37 @@
   } else {
     document.getElementById("chart-scores").innerHTML =
       '<p class="text-muted text-center py-5">Aucun score disponible</p>';
+  }
+
+  // Graphique performance des filtres (stacked bar)
+  const filterPerf = {{ filter_perf|safe }};
+  const filterIds = Object.keys(filterPerf).sort();
+
+  if (filterIds.length > 0) {
+    const labels = {
+      L1: "Completude", L2: "Referentiel", L3: "Coherence",
+      L4: "Prix Argus", L5: "Statistique", L6: "Telephone",
+      L7: "SIRET", L8: "Import", L9: "Global"
+    };
+    const xLabels = filterIds.map(fid => labels[fid] || fid);
+    const traces = ["pass", "warning", "fail", "skip"].map(status => ({
+      x: xLabels,
+      y: filterIds.map(fid => filterPerf[fid][status] || 0),
+      name: status,
+      type: "bar",
+      marker: {
+        color: { pass: "#22c55e", warning: "#f59e0b", fail: "#ef4444", skip: "#9ca3af" }[status]
+      }
+    }));
+    Plotly.newPlot("chart-filters", traces, {
+      barmode: "stack",
+      margin: { t: 10, r: 20, b: 60, l: 40 },
+      height: 300,
+      legend: { orientation: "h", y: -0.25 }
+    }, { responsive: true, displayModeBar: false });
+  } else {
+    document.getElementById("chart-filters").innerHTML =
+      '<p class="text-muted text-center py-5">Aucune donnee de filtre</p>';
   }
 </script>
 {% endblock %}

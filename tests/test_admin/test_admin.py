@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash
 from app.models.log import AppLog
 from app.models.scan import ScanLog
 from app.models.user import User
+from app.models.vehicle import Vehicle, VehicleSpec
 
 
 @pytest.fixture()
@@ -61,6 +62,7 @@ class TestLogin:
 
     def test_login_failure(self, client, admin_user):
         """Identifiants invalides affichent un message d'erreur."""
+        client.get("/admin/logout")  # ensure clean session
         resp = _login(client, password="mauvais")
         assert b"Identifiants invalides" in resp.data
 
@@ -183,3 +185,74 @@ class TestPipelines:
         assert resp.status_code == 200
         assert b"Referentiel vehicules" in resp.data
         assert b"Argus geolocalise" in resp.data
+
+
+# ── Base Vehicules ─────────────────────────────────────────────
+
+
+class TestDatabase:
+    """Tests de la page Base Vehicules."""
+
+    def test_database_page_loads(self, client, admin_user):
+        """La page base vehicules se charge."""
+        _login(client)
+        resp = client.get("/admin/database")
+        assert resp.status_code == 200
+        assert b"Base Vehicules" in resp.data
+
+    def test_database_shows_stats(self, app, client, admin_user):
+        """La page affiche les stats marques/modeles/specs."""
+        from app.extensions import db
+
+        with app.app_context():
+            v = Vehicle(brand="TestMarque", model="TestModele", generation="I",
+                        year_start=2020, year_end=2025)
+            db.session.add(v)
+            db.session.flush()
+            spec = VehicleSpec(vehicle_id=v.id, fuel_type="Essence",
+                               engine="1.0 Test", power_hp=100)
+            db.session.add(spec)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/database")
+        assert resp.status_code == 200
+        assert b"TestMarque" in resp.data
+        assert b"TestModele" in resp.data
+
+    def test_database_filter_by_brand(self, app, client, admin_user):
+        """Le filtre par marque fonctionne."""
+        from app.extensions import db
+
+        with app.app_context():
+            v1 = Vehicle(brand="FilterA", model="M1", year_start=2020)
+            v2 = Vehicle(brand="FilterB", model="M2", year_start=2020)
+            db.session.add_all([v1, v2])
+            db.session.flush()
+            db.session.add(VehicleSpec(vehicle_id=v1.id, engine="1.0", fuel_type="Essence"))
+            db.session.add(VehicleSpec(vehicle_id=v2.id, engine="2.0", fuel_type="Diesel"))
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/database?brand=FilterA")
+        assert resp.status_code == 200
+        assert b"FilterA" in resp.data
+        # FilterB appears in chart JS but NOT in table rows
+        assert b"<strong>FilterB</strong>" not in resp.data
+        assert b"1 resultats" in resp.data
+
+    def test_database_filter_by_fuel(self, app, client, admin_user):
+        """Le filtre par carburant fonctionne."""
+        from app.extensions import db
+
+        with app.app_context():
+            v = Vehicle(brand="FuelTest", model="X", year_start=2020)
+            db.session.add(v)
+            db.session.flush()
+            db.session.add(VehicleSpec(vehicle_id=v.id, engine="EV", fuel_type="Electrique"))
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/database?fuel=Electrique")
+        assert resp.status_code == 200
+        assert b"FuelTest" in resp.data

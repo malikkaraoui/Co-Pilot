@@ -1,0 +1,182 @@
+{% extends "admin/base.html" %}
+{% block title %}Base Vehicules - Co-Pilot Admin{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Base Vehicules</h2>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ total_brands }}</div>
+      <div class="stat-label">Marques</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ total_models }}</div>
+      <div class="stat-label">Modeles uniques</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ total_specs }}</div>
+      <div class="stat-label">Fiches specs</div>
+    </div>
+  </div>
+</div>
+
+<!-- Graphique distribution marques -->
+<div class="stat-card mb-4">
+  <h5 class="mb-3">Fiches par marque (top 20)</h5>
+  <div id="brand-chart" style="height: 400px;"></div>
+</div>
+
+<!-- Filtres -->
+<div class="stat-card mb-4">
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label fw-bold">Marque</label>
+      <select name="brand" class="form-select">
+        <option value="">Toutes</option>
+        {% for b in brand_list %}
+          <option value="{{ b }}" {% if b == brand_filter %}selected{% endif %}>{{ b }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label fw-bold">Modele</label>
+      <input type="text" name="model" class="form-control" placeholder="Recherche..."
+             value="{{ model_filter }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label fw-bold">Carburant</label>
+      <select name="fuel" class="form-select">
+        <option value="">Tous</option>
+        {% for f in fuel_list %}
+          <option value="{{ f }}" {% if f == fuel_filter %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <button type="submit" class="btn btn-primary w-100">Filtrer</button>
+    </div>
+  </form>
+</div>
+
+<!-- Tableau des resultats -->
+<div class="stat-card">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">{{ total_results }} resultats</h5>
+    {% if total_pages > 1 %}
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if page > 1 %}
+          <li class="page-item">
+            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page - 1 }}">Prec</a>
+          </li>
+        {% endif %}
+        <li class="page-item disabled">
+          <span class="page-link">{{ page }} / {{ total_pages }}</span>
+        </li>
+        {% if page < total_pages %}
+          <li class="page-item">
+            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page + 1 }}">Suiv</a>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Marque</th>
+          <th>Modele</th>
+          <th>Generation</th>
+          <th>Annees</th>
+          <th>Motorisation</th>
+          <th>Puissance</th>
+          <th>Carburant</th>
+          <th>Conso (L/100)</th>
+          <th>CO2 (g/km)</th>
+          <th>Poids (kg)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vehicle, spec in results %}
+        <tr>
+          <td><strong>{{ vehicle.brand }}</strong></td>
+          <td>{{ vehicle.model }}</td>
+          <td>{{ vehicle.generation or '-' }}</td>
+          <td>{{ vehicle.year_start or '?' }}-{{ vehicle.year_end or '...' }}</td>
+          <td>{{ spec.engine or '-' }}</td>
+          <td>{{ spec.power_hp or '-' }} ch</td>
+          <td>
+            {% if spec.fuel_type == 'Essence' %}
+              <span class="badge bg-success">{{ spec.fuel_type }}</span>
+            {% elif spec.fuel_type == 'Diesel' %}
+              <span class="badge bg-secondary">{{ spec.fuel_type }}</span>
+            {% elif spec.fuel_type == 'Hybride' or spec.fuel_type == 'Hybride rechargeable' %}
+              <span class="badge bg-info text-dark">{{ spec.fuel_type }}</span>
+            {% elif spec.fuel_type == 'Electrique' %}
+              <span class="badge bg-primary">{{ spec.fuel_type }}</span>
+            {% else %}
+              <span class="badge bg-light text-dark">{{ spec.fuel_type or '-' }}</span>
+            {% endif %}
+          </td>
+          <td>{{ spec.mixed_consumption_l100km or '-' }}</td>
+          <td>{{ spec.co2_emissions_gkm or '-' }}</td>
+          <td>{{ spec.curb_weight_kg or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="d-flex justify-content-center mt-3">
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if page > 1 %}
+          <li class="page-item">
+            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page - 1 }}">Prec</a>
+          </li>
+        {% endif %}
+        <li class="page-item disabled">
+          <span class="page-link">{{ page }} / {{ total_pages }}</span>
+        </li>
+        {% if page < total_pages %}
+          <li class="page-item">
+            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page + 1 }}">Suiv</a>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  var brands = {{ chart_brands|safe }};
+  var counts = {{ chart_counts|safe }};
+
+  Plotly.newPlot('brand-chart', [{
+    type: 'bar',
+    x: counts.reverse(),
+    y: brands.reverse(),
+    orientation: 'h',
+    marker: { color: '#3b82f6' }
+  }], {
+    margin: { l: 120, r: 20, t: 10, b: 40 },
+    xaxis: { title: 'Nombre de fiches' },
+    yaxis: { automargin: true },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)'
+  }, { responsive: true });
+</script>
+{% endblock %}

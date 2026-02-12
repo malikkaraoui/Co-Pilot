@@ -19,7 +19,7 @@ class L5VisualFilter(BaseFilter):
         price = data.get("price_eur")
         mileage = data.get("mileage_km")
 
-        if not price and not mileage:
+        if price is None and mileage is None:
             return self.skip("Ni prix ni kilometrage disponibles")
 
         # Recuperation des donnees de reference pour ce type de vehicule
@@ -53,7 +53,7 @@ class L5VisualFilter(BaseFilter):
         z_scores = {}
 
         # Z-score du prix
-        if price:
+        if price is not None:
             price_mean = np.mean(ref_prices)
             price_std = np.std(ref_prices)
             if price_std > 0:
