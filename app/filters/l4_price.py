@@ -50,6 +50,7 @@ class L4PriceFilter(BaseFilter):
         source = None
         details: dict[str, Any] = {"price_annonce": price, "region": region}
 
+        logger.info("L4 lookup: make=%r model=%r year=%d region=%r", make, model, year, region)
         market = get_market_stats(make, model, year, region)
         if market and market.sample_count >= 5:
             ref_price = market.price_median
@@ -68,6 +69,26 @@ class L4PriceFilter(BaseFilter):
                 details["source"] = source
 
         if ref_price is None:
+            if market and market.sample_count < 5:
+                logger.info(
+                    "L4 insufficient samples: %s %s %d %s (n=%d, min=5)",
+                    make,
+                    model,
+                    year,
+                    region,
+                    market.sample_count,
+                )
+                return self.skip(
+                    f"Donnees insuffisantes ({market.sample_count} annonces, minimum 5)"
+                )
+            logger.info(
+                "L4 no ref: market=%s, tried make=%r model=%r year=%d region=%r",
+                market,
+                make,
+                model,
+                year,
+                region,
+            )
             return self.skip("Pas de donnees de reference pour ce modele dans cette region")
 
         # Comparaison

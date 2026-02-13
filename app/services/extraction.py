@@ -72,12 +72,7 @@ def _normalize_attributes(ad: dict) -> dict[str, Any]:
     for attr in attrs:
         if not isinstance(attr, dict):
             continue
-        key = (
-            attr.get("key")
-            or attr.get("key_label")
-            or attr.get("label")
-            or attr.get("name")
-        )
+        key = attr.get("key") or attr.get("key_label") or attr.get("label") or attr.get("name")
         val = (
             attr.get("value")
             or attr.get("value_label")
@@ -122,7 +117,7 @@ def _extract_location(ad: dict) -> dict[str, Any]:
         "city": location.get("city"),
         "zipcode": location.get("zipcode"),
         "department": location.get("department_name"),
-        "region": location.get("region_name"),
+        "region": location.get("region_name") or location.get("region"),
         "lat": location.get("lat"),
         "lng": location.get("lng"),
     }
@@ -178,21 +173,20 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         "title": title,
         "price_eur": price,
         "make": attrs.get("Marque") or attrs.get("brand"),
-        "model": (
-            attrs.get("Modèle")
-            or attrs.get("modele")
-            or attrs.get("model")
-        ),
-        "year_model": str(y) if (y := (
-            attrs.get("Année modèle")
-            or attrs.get("Année")
-            or attrs.get("year")
-            or attrs.get("regdate")
-        )) is not None else None,
+        "model": (attrs.get("Modèle") or attrs.get("modele") or attrs.get("model")),
+        "year_model": str(y)
+        if (
+            y := (
+                attrs.get("Année modèle")
+                or attrs.get("Année")
+                or attrs.get("year")
+                or attrs.get("regdate")
+            )
+        )
+        is not None
+        else None,
         "mileage_km": _coerce_int(
-            attrs.get("Kilométrage")
-            or attrs.get("kilometrage")
-            or attrs.get("mileage")
+            attrs.get("Kilométrage") or attrs.get("kilometrage") or attrs.get("mileage")
         ),
         "fuel": (
             attrs.get("Énergie")
@@ -207,12 +201,9 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
             or attrs.get("gearbox")
         ),
         "doors": _coerce_int(attrs.get("Nombre de portes")),
-        "seats": _coerce_int(
-            attrs.get("Nombre de place(s)") or attrs.get("Nombre de places")
-        ),
+        "seats": _coerce_int(attrs.get("Nombre de place(s)") or attrs.get("Nombre de places")),
         "first_registration": (
-            attrs.get("Date de première mise en circulation")
-            or attrs.get("Mise en circulation")
+            attrs.get("Date de première mise en circulation") or attrs.get("Mise en circulation")
         ),
         "color": attrs.get("Couleur"),
         "power_fiscal_cv": _coerce_int(attrs.get("Puissance fiscale")),

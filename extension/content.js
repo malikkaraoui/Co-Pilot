@@ -35,6 +35,11 @@
     return ERROR_MESSAGES[Math.floor(Math.random() * ERROR_MESSAGES.length)];
   }
 
+  /** Pause utilitaire. */
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   /**
    * Detecte si les donnees __NEXT_DATA__ sont obsoletes (navigation SPA).
    * Compare l'ID de l'annonce dans les donnees avec l'ID dans l'URL courante.
@@ -462,12 +467,13 @@
 
     // Collecte des prix AVANT l'analyse (silencieuse, ~1-2s)
     // Permet a L4/L5 d'avoir des donnees fraiches pour ce vehicule
+    let collectInfo = { submitted: false };
     const vehicle = extractVehicleFromNextData(nextData);
     if (vehicle.make && vehicle.model && vehicle.year) {
-      await maybeCollectMarketPrices(vehicle).catch(() => {});
+      collectInfo = await maybeCollectMarketPrices(vehicle, nextData).catch(() => ({ submitted: false }));
     }
 
-    try {
+    async function fetchAnalysisOnce() {
       const response = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -478,14 +484,33 @@
         const errorData = await response.json().catch(() => null);
         const msg = errorData?.message || getRandomErrorMessage();
         showPopup(buildErrorPopup(msg));
-        return;
+        return null;
       }
 
       const result = await response.json();
 
       if (!result.success) {
         showPopup(buildErrorPopup(result.message || getRandomErrorMessage()));
-        return;
+        return null;
+      }
+      return result;
+    }
+
+    try {
+      let result = await fetchAnalysisOnce();
+      if (!result) return;
+
+      // Si une collecte vient d'etre soumise pour le vehicule COURANT
+      // et que L4 n'a pas encore de reference, relancer apres un delai.
+      // Le POST /market-prices peut prendre ~1-2s a commiter en base.
+      if (collectInfo.submitted && collectInfo.isCurrentVehicle) {
+        const l4 = (result?.data?.filters || []).find((f) => f.filter_id === "L4");
+        const noRefYet = l4 && l4.status === "skip" && /pas de donnees/i.test(l4.message || "");
+        if (noRefYet) {
+          await sleep(1500);
+          const retried = await fetchAnalysisOnce();
+          if (retried) result = retried;
+        }
       }
 
       showPopup(buildResultsPopup(result.data));
@@ -497,11 +522,12 @@
 
   // ── Collecte crowdsourcee des prix du marche ────────────────────
 
-  /** Mapping des regions LeBonCoin (valeurs du parametre locations). */
+  /** Mapping des regions LeBonCoin (valeurs du parametre locations).
+   *  Les cles correspondent aux region_name retournees par l'API LBC (avec accents). */
   const LBC_REGIONS = {
-    "Ile-de-France": "r_12",
-    "Auvergne-Rhone-Alpes": "r_1",
-    "Provence-Alpes-Cote d'Azur": "r_21",
+    "Île-de-France": "r_12",
+    "Auvergne-Rhône-Alpes": "r_1",
+    "Provence-Alpes-Côte d'Azur": "r_21",
     "Occitanie": "r_16",
     "Nouvelle-Aquitaine": "r_54",
     "Hauts-de-France": "r_22",
@@ -509,7 +535,7 @@
     "Bretagne": "r_6",
     "Pays de la Loire": "r_18",
     "Normandie": "r_28",
-    "Bourgogne-Franche-Comte": "r_27",
+    "Bourgogne-Franche-Comté": "r_27",
     "Centre-Val de Loire": "r_7",
     "Corse": "r_9",
   };
@@ -517,17 +543,11 @@
   /** Cooldown entre deux collectes (anti-ban). */
   const COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
 
-  /** Extrait la region depuis les donnees __NEXT_DATA__ de l'annonce courante. */
-  function extractRegionFromPage() {
-    const nextEl = document.getElementById("__NEXT_DATA__");
-    if (!nextEl) return "";
-    try {
-      const nd = JSON.parse(nextEl.textContent);
-      const loc = nd?.props?.pageProps?.ad?.location;
-      return loc?.region_name || loc?.region || "";
-    } catch {
-      return "";
-    }
+  /** Extrait la region depuis les donnees __NEXT_DATA__ (passees en parametre pour eviter les stale DOM). */
+  function extractRegionFromNextData(nextData) {
+    if (!nextData) return "";
+    const loc = nextData?.props?.pageProps?.ad?.location;
+    return loc?.region_name || loc?.region || "";
   }
 
   /**
@@ -535,25 +555,23 @@
    * mise a jour, puis collecte les prix sur LeBonCoin.
    *
    * Chaque user travaille pour la communaute :
-   * - Cooldown 24h (localStorage) pour eviter les bans
    * - Le serveur assigne le vehicule le plus prioritaire a collecter
-   * - Si le vehicule courant est a jour, un autre modele est assigne
+   * - Le vehicule courant est TOUJOURS collecte si le serveur le demande
+   *   (la fraicheur 7j cote serveur protege des abus)
+   * - Cooldown 24h (localStorage) uniquement pour les collectes d'AUTRES
+   *   vehicules (anti-ban LBC)
    *
-   * Fire-and-forget : ne bloque pas l'affichage des resultats.
+   * Appelee AVANT l'analyse pour que L4/L5 aient des donnees fraiches.
    */
-  async function maybeCollectMarketPrices(vehicle) {
+  async function maybeCollectMarketPrices(vehicle, nextData) {
     const { make, model, year } = vehicle;
-    if (!make || !model || !year) return;
+    if (!make || !model || !year) return { submitted: false };
 
-    // 1. Cooldown 24h (localStorage)
-    const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
-    if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) return;
+    // 1. Extraire la region depuis le nextData (pas le DOM qui peut etre stale)
+    const region = extractRegionFromNextData(nextData);
+    if (!region) return { submitted: false };
 
-    // 2. Extraire la region de l'annonce courante
-    const region = extractRegionFromPage();
-    if (!region) return;
-
-    // 3. Demander au serveur quel vehicule collecter
+    // 2. Demander au serveur quel vehicule collecter
     const jobUrl = API_URL.replace("/analyze", "/market-prices/next-job")
       + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}`
       + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`;
@@ -562,12 +580,23 @@
     try {
       jobResp = await fetch(jobUrl).then((r) => r.json());
     } catch {
-      return; // serveur injoignable -- silencieux
+      return { submitted: false }; // serveur injoignable -- silencieux
     }
-    if (!jobResp?.data?.collect) return;
+    if (!jobResp?.data?.collect) return { submitted: false };
 
     const target = jobResp.data.vehicle;
     const targetRegion = jobResp.data.region;
+
+    // 3. Cooldown 24h -- uniquement pour les collectes d'AUTRES vehicules
+    //    Le vehicule courant est toujours collecte (le serveur gere la fraicheur)
+    const isCurrentVehicle =
+      target.make.toLowerCase() === make.toLowerCase() &&
+      target.model.toLowerCase() === model.toLowerCase();
+
+    if (!isCurrentVehicle) {
+      const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
+      if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) return { submitted: false };
+    }
 
     // 4. Chercher le vehicule cible sur LeBonCoin
     const searchText = encodeURIComponent(`${target.make} ${target.model}`);
@@ -575,6 +604,7 @@
     let searchUrl = `https://www.leboncoin.fr/recherche?category=2&text=${searchText}`;
     if (regionParam) searchUrl += `&locations=${regionParam}`;
 
+    let submitted = false;
     try {
       const resp = await fetch(searchUrl, {
         credentials: "same-origin",
@@ -583,7 +613,7 @@
       const html = await resp.text();
 
       const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-      if (!match) return;
+      if (!match) return { submitted: false };
 
       const data = JSON.parse(match[1]);
       const ads = data?.props?.pageProps?.searchData?.ads
@@ -596,7 +626,7 @@
 
       if (prices.length >= 3) {
         const marketUrl = API_URL.replace("/analyze", "/market-prices");
-        await fetch(marketUrl, {
+        const marketResp = await fetch(marketUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -607,6 +637,7 @@
             prices: prices,
           }),
         });
+        submitted = marketResp.ok;
       }
     } catch {
       // Silencieux -- ne pas perturber l'experience utilisateur
@@ -614,6 +645,7 @@
 
     // 5. Sauvegarder le timestamp (meme si pas assez de prix)
     localStorage.setItem("copilot_last_collect", String(Date.now()));
+    return { submitted, isCurrentVehicle };
   }
 
   // ── Point d'entree ─────────────────────────────────────────────

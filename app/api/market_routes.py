@@ -10,7 +10,12 @@ from pydantic import ValidationError as PydanticValidationError
 from app.api import api_bp
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
-from app.services.market_service import MIN_SAMPLE_COUNT, store_market_prices
+from app.services.market_service import (
+    MIN_SAMPLE_COUNT,
+    market_text_key,
+    market_text_key_expr,
+    store_market_prices,
+)
 
 FRESHNESS_DAYS = 7
 
@@ -132,11 +137,11 @@ def next_market_job():
     cutoff = now - timedelta(days=FRESHNESS_DAYS)
 
     # 1. Le vehicule courant a-t-il besoin d'un refresh ?
-    current = MarketPrice.query.filter_by(
-        make=make,
-        model=model,
-        year=year,
-        region=region,
+    current = MarketPrice.query.filter(
+        market_text_key_expr(MarketPrice.make) == market_text_key(make),
+        market_text_key_expr(MarketPrice.model) == market_text_key(model),
+        MarketPrice.year == year,
+        market_text_key_expr(MarketPrice.region) == market_text_key(region),
     ).first()
 
     if not current or current.collected_at < cutoff:
@@ -161,10 +166,10 @@ def next_market_job():
     for v in all_vehicles:
         mid_year = (v.year_start + (v.year_end or v.year_start)) // 2
         mp = (
-            MarketPrice.query.filter_by(
-                make=v.brand,
-                model=v.model,
-                region=region,
+            MarketPrice.query.filter(
+                market_text_key_expr(MarketPrice.make) == market_text_key(v.brand),
+                market_text_key_expr(MarketPrice.model) == market_text_key(v.model),
+                market_text_key_expr(MarketPrice.region) == market_text_key(region),
             )
             .order_by(MarketPrice.collected_at.desc())
             .first()

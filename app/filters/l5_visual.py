@@ -19,6 +19,7 @@ class L5VisualFilter(BaseFilter):
     def _collect_ref_prices(data: dict[str, Any], vehicle: Any) -> tuple[np.ndarray, str]:
         """Collecte les prix de reference : MarketPrice d'abord, sinon ArgusPrice."""
         from app.models.market_price import MarketPrice
+        from app.services.market_service import market_text_key, market_text_key_expr
 
         make = data.get("make", "")
         model = data.get("model", "")
@@ -35,8 +36,8 @@ class L5VisualFilter(BaseFilter):
 
             if year is not None:
                 records = MarketPrice.query.filter(
-                    MarketPrice.make == make,
-                    MarketPrice.model == model,
+                    market_text_key_expr(MarketPrice.make) == market_text_key(make),
+                    market_text_key_expr(MarketPrice.model) == market_text_key(model),
                     MarketPrice.sample_count >= 5,
                 ).all()
                 if records:
