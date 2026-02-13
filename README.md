@@ -18,6 +18,75 @@ Extension Chrome                API Flask (Python)
      |     avec jauge + détails      |
 ```
 
+## Argus Maison -- Cotation collaborative
+
+L'**Argus Maison** est un système de cotation participatif intégré à Co-Pilot. Plutôt que de dépendre uniquement de données Argus importées (seeds), le système collecte les prix réels du marché directement depuis les annonces Leboncoin grâce aux utilisateurs de l'extension.
+
+Chaque utilisateur qui analyse une annonce contribue automatiquement à enrichir la base de prix.
+
+### Schéma du pipeline
+
+```text
+                        Extension Chrome
+                              |
+         1. Analyse d'une annonce Leboncoin
+                              |
+         2. GET /api/market-prices/next-job
+                  (quel véhicule collecter ?)
+                              |
+                    +---------+---------+
+                    |                   |
+          Véhicule courant        Autre véhicule
+          (toujours collecté)     (rotation, cooldown 24h)
+                    |                   |
+                    +---------+---------+
+                              |
+         3. Recherche Leboncoin (même marque/modèle/région)
+            Parse __NEXT_DATA__ → extraction des prix
+                              |
+         4. POST /api/market-prices
+            { make, model, year, region, prices: [...] }
+                              |
+                        API Flask
+                              |
+         5. Filtrage (prix < 500 EUR exclus)
+            Calcul NumPy : min, median, mean, max, std
+                              |
+         6. Upsert MarketPrice en base
+            (clé unique : marque + modèle + année + région)
+                              |
+                    Données disponibles
+                      pour les filtres
+                              |
+              +---------------+---------------+
+              |                               |
+     Filtre L4 (Prix vs Argus)     Filtre L5 (Z-score)
+              |                               |
+     MarketPrice (n >= 5) ?        MarketPrice (n >= 5) ?
+        OUI → prix réel              OUI → stats réelles
+        NON → fallback ArgusPrice    NON → fallback ArgusPrice
+```
+
+### Strategie de fallback des prix
+
+```text
+MarketPrice crowdsourcé (>= 5 échantillons)
+        |
+        +-- NON --> MarketPrice année ±3 (même marque/modèle/région)
+                          |
+                          +-- NON --> ArgusPrice seed (import CSV)
+                                            |
+                                            +-- NON --> filtre skip
+```
+
+### Points clés
+
+- **Fraîcheur** : cache 24h par véhicule/région, les données restent exploitables au-delà
+- **Anti-abus** : cooldown 24h pour les véhicules tiers, le véhicule courant est toujours collecté
+- **Matching robuste** : normalisation Unicode (NFKC), insensible à la casse et aux apostrophes
+- **Transparence** : l'extension affiche un badge "Données simulées" quand L4/L5 utilisent le fallback ArgusPrice
+- **Admin** : page `/admin/argus` avec stats, filtres par marque/région, tableau paginé des cotations
+
 ## Les 9 filtres
 
 | ID  | Nom                    | Description                                                                 |
@@ -37,7 +106,7 @@ Extension Chrome                API Flask (Python)
 - **Backend** : Python 3.12, Flask 3.x, SQLAlchemy 2.x, Pydantic 2.x
 - **Base de données** : SQLite (portable, persistée via Docker volume)
 - **Extension** : Chrome Manifest V3, vanilla JS, CSS préfixé `.copilot-*`
-- **Tests** : pytest, 114+ tests, couverture 86%+
+- **Tests** : pytest, 226+ tests, couverture 86%+
 - **Lint** : ruff
 - **CI** : GitHub Actions (lint + tests)
 - **Conteneurisation** : Docker + docker-compose
@@ -111,9 +180,9 @@ Co-Pilot/
 │   ├── api/                 # Blueprint API (routes, erreurs)
 │   ├── admin/               # Blueprint admin (dashboard)
 │   ├── filters/             # 9 filtres L1-L9 + BaseFilter + FilterEngine
-│   ├── models/              # Modèles SQLAlchemy (Vehicle, ScanLog, etc.)
+│   ├── models/              # Modèles SQLAlchemy (Vehicle, ScanLog, MarketPrice…)
 │   ├── schemas/             # Schémas Pydantic (validation)
-│   ├── services/            # Logique métier (extraction, scoring, lookup)
+│   ├── services/            # Logique métier (extraction, scoring, market_service…)
 │   └── extensions.py        # Extensions Flask (db, cors, login)
 ├── extension/
 │   ├── manifest.json        # Manifest V3
@@ -121,7 +190,7 @@ Co-Pilot/
 │   ├── content.css          # Styles de la popup
 │   ├── popup/               # Popup de l'extension
 │   └── demo.html            # Page de test
-├── tests/                   # 114+ tests pytest
+├── tests/                   # 226+ tests pytest
 ├── data/
 │   ├── copilot.db           # Base SQLite (non versionné)
 │   └── seeds/               # Scripts de peuplement
@@ -161,6 +230,35 @@ Analyse une annonce Leboncoin et retourne un score de confiance.
   }
 }
 ```
+
+### POST /api/market-prices
+
+Enregistre des prix collectés par l'extension pour alimenter l'Argus Maison.
+
+**Requête :**
+
+```json
+{
+  "make": "Peugeot",
+  "model": "3008",
+  "year": 2019,
+  "region": "Île-de-France",
+  "prices": [15200, 16800, 14500, 17000, 15900]
+}
+```
+
+**Réponse :**
+
+```json
+{
+  "success": true,
+  "data": { "sample_count": 5, "price_median": 15900 }
+}
+```
+
+### GET /api/market-prices/next-job
+
+Retourne le prochain véhicule à collecter (smart job assignment).
 
 ### GET /api/health
 
