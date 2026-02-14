@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
+from app.extensions import db
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
 from app.services.market_service import (
@@ -158,32 +159,52 @@ def next_market_job():
         )
 
     # 2. Trouver un autre vehicule qui a besoin de mise a jour dans cette region
-    all_vehicles = Vehicle.query.all()
+    # Sous-requete : dernier collected_at par (make, model) dans cette region
+    from sqlalchemy import case, func
+
+    latest_mp = (
+        db.session.query(
+            func.lower(MarketPrice.make).label("mp_make"),
+            func.lower(MarketPrice.model).label("mp_model"),
+            func.max(MarketPrice.collected_at).label("latest_at"),
+        )
+        .filter(market_text_key_expr(MarketPrice.region) == market_text_key(region))
+        .group_by(func.lower(MarketPrice.make), func.lower(MarketPrice.model))
+        .subquery()
+    )
+
+    # LEFT JOIN Vehicle avec la sous-requete pour trouver les vehicules stale/absents
+    candidates = (
+        db.session.query(
+            Vehicle.brand,
+            Vehicle.model,
+            Vehicle.year_start,
+            Vehicle.year_end,
+            latest_mp.c.latest_at,
+        )
+        .outerjoin(
+            latest_mp,
+            db.and_(
+                func.lower(Vehicle.brand) == latest_mp.c.mp_make,
+                func.lower(Vehicle.model) == latest_mp.c.mp_model,
+            ),
+        )
+        .filter(Vehicle.year_start.isnot(None))
+        .order_by(
+            # Priorite : jamais collecte (NULL) d'abord, puis le plus ancien
+            case((latest_mp.c.latest_at.is_(None), 0), else_=1),
+            latest_mp.c.latest_at.asc(),
+        )
+        .limit(1)
+        .all()
+    )
 
     best_candidate = None
-    best_age = timedelta(0)
-
-    for v in all_vehicles:
-        mid_year = (v.year_start + (v.year_end or v.year_start)) // 2
-        mp = (
-            MarketPrice.query.filter(
-                market_text_key_expr(MarketPrice.make) == market_text_key(v.brand),
-                market_text_key_expr(MarketPrice.model) == market_text_key(v.model),
-                market_text_key_expr(MarketPrice.region) == market_text_key(region),
-            )
-            .order_by(MarketPrice.collected_at.desc())
-            .first()
-        )
-
-        if not mp:
-            # Pas de donnees du tout → priorite max
-            best_candidate = (v.brand, v.model, mid_year)
-            break
-
-        age = now - mp.collected_at
-        if age > best_age and mp.collected_at < cutoff:
-            best_age = age
-            best_candidate = (v.brand, v.model, mid_year)
+    for c in candidates:
+        # Verifier que le candidat est stale ou absent
+        if c.latest_at is None or c.latest_at < cutoff:
+            mid_year = (c.year_start + (c.year_end or c.year_start)) // 2
+            best_candidate = (c.brand, c.model, mid_year)
 
     if best_candidate:
         logger.info(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed du referentiel vehicules -- Top 50 modeles les plus vendus en France.
+"""Seed du referentiel vehicules -- Top 70 modeles les plus vendus en France.
 
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_vehicles.py
@@ -15,7 +15,7 @@ from app.extensions import db  # noqa: E402
 from app.models.vehicle import Vehicle, VehicleSpec  # noqa: E402
 from app.services.pipeline_tracker import track_pipeline  # noqa: E402
 
-# Top 50 modeles les plus vendus en France (ventes 2025 + parc occasion)
+# Top 70 modeles les plus vendus en France (ventes 2024-2025 + parc occasion)
 VEHICLES = [
     # (marque, modele, generation, annee_debut, annee_fin)
     # --- Existants (20 originaux) ---
@@ -72,6 +72,25 @@ VEHICLES = [
     ("Audi", "A3", "8Y", 2020, 2025),
     ("Skoda", "Octavia", "IV", 2019, 2025),
     ("Mercedes", "Classe A", "W177", 2018, 2025),
+    # --- Nouveaux modeles (revue marche FR 2024 top 100 immat.) ---
+    ("Tesla", "Model Y", "I", 2021, 2025),
+    ("Tesla", "Model 3", "I/II", 2019, 2025),
+    ("Toyota", "Corolla", "XII", 2018, 2025),
+    ("Toyota", "RAV4", "V", 2018, 2025),
+    ("Seat", "Ibiza", "V", 2017, 2025),
+    ("Seat", "Arona", "I", 2017, 2025),
+    ("Cupra", "Formentor", "I", 2020, 2025),
+    ("Dacia", "Spring", "I", 2021, 2025),
+    ("Kia", "Niro", "II", 2022, 2025),
+    ("Kia", "Picanto", "III", 2017, 2025),
+    ("Opel", "Mokka", "II", 2020, 2025),
+    ("Volkswagen", "ID.3", "I", 2020, 2025),
+    ("Volkswagen", "Taigo", "I", 2021, 2025),
+    ("Skoda", "Kamiq", "I", 2019, 2025),
+    ("Peugeot", "408", "I", 2022, 2025),
+    ("Renault", "Espace", "VI", 2023, 2025),
+    ("Jeep", "Avenger", "I", 2022, 2025),
+    ("Fiat", "600", "I", 2024, 2025),
 ]
 
 # Specs de base pour chaque modele (fuel, transmission, puissance)
@@ -891,6 +910,150 @@ SPECS = [
         3.6,
         "Diesel econome, chaine distrib, AdBlue, confort premium",
         "Chaine ~1500 EUR, revision ~450 EUR",
+    ),
+    # --- Specs nouveaux modeles (revue marche FR 2024) ---
+    (
+        "Tesla",
+        "Model Y",
+        "Electrique",
+        "Automatique",
+        "Long Range AWD 350 kW",
+        456,
+        4.0,
+        "Ajustements carrosserie, bruits de caisse, ecran central unique",
+        "Pas d'entretien moteur, pneus ~300 EUR/paire, batterie garantie 8 ans",
+    ),
+    (
+        "Tesla",
+        "Model 3",
+        "Electrique",
+        "Automatique",
+        "Propulsion 208 kW",
+        275,
+        4.0,
+        "Bruits de roulement, qualite de finition variable, peinture fragile",
+        "Freins rares a changer (regen), pneus ~300 EUR/paire",
+    ),
+    (
+        "Toyota",
+        "Corolla",
+        "Hybride",
+        "Automatique",
+        "1.8 Hybrid 140",
+        140,
+        4.5,
+        "Fiabilite exemplaire, hybride auto-rechargeable, CVT parfois monotone",
+        "Revision ~200 EUR, batterie hybride garantie 10 ans",
+    ),
+    (
+        "Toyota",
+        "RAV4",
+        "Hybride",
+        "Automatique",
+        "2.5 Hybrid 218 AWD-i",
+        218,
+        4.3,
+        "SUV familial fiable, consommation maitrisee, coffre genereux",
+        "Revision ~250 EUR, pneus SUV ~200 EUR/unite",
+    ),
+    (
+        "Seat",
+        "Ibiza",
+        "Essence",
+        "Manuelle",
+        "1.0 TSI 95",
+        95,
+        4.0,
+        "Base VW Polo, chaine de distribution, electronique VW Group fiable",
+        "Revision ~200 EUR, chaine ~800 EUR si necessaire",
+    ),
+    (
+        "Cupra",
+        "Formentor",
+        "Essence",
+        "Automatique",
+        "1.5 TSI 150 DSG",
+        150,
+        3.8,
+        "DSG a surveiller, suspension sport ferme, electronique complexe",
+        "DSG vidange ~400 EUR, revision ~350 EUR",
+    ),
+    (
+        "Dacia",
+        "Spring",
+        "Electrique",
+        "Automatique",
+        "Moteur 33 kW",
+        45,
+        3.8,
+        "Petite autonomie (~230 km WLTP), finitions basiques, charge lente",
+        "Entretien minimal ~100 EUR/an, batterie garantie 8 ans",
+    ),
+    (
+        "Kia",
+        "Niro",
+        "Hybride",
+        "Automatique",
+        "1.6 GDi HEV 141",
+        141,
+        4.2,
+        "Garantie 7 ans, hybride ou PHEV, finition soignee",
+        "Revision ~250 EUR, garantie longue couvre la plupart des problemes",
+    ),
+    (
+        "Opel",
+        "Mokka",
+        "Essence",
+        "Automatique",
+        "1.2 Turbo 130 EAT8",
+        130,
+        3.9,
+        "Base PSA (comme 2008), PureTech rebadge, boite EAT8",
+        "Courroie ~600 EUR, revision ~250 EUR",
+    ),
+    (
+        "Volkswagen",
+        "ID.3",
+        "Electrique",
+        "Automatique",
+        "Pro Performance 150 kW",
+        204,
+        3.5,
+        "Bugs logiciels frequents, qualite interieure decevante, mises a jour OTA",
+        "Entretien minimal, pneus ~250 EUR/paire, batterie garantie 8 ans",
+    ),
+    (
+        "Skoda",
+        "Kamiq",
+        "Essence",
+        "Manuelle",
+        "1.0 TSI 110",
+        110,
+        4.1,
+        "SUV compact VW Group, chaine de distribution, bon rapport qualite-prix",
+        "Revision ~200 EUR, chaine ~800 EUR",
+    ),
+    (
+        "Peugeot",
+        "408",
+        "Hybride",
+        "Automatique",
+        "1.6 PHEV 225 e-EAT8",
+        225,
+        3.7,
+        "Nouveau modele, PHEV complexe, i-Cockpit divise",
+        "Revision PHEV ~350 EUR, batterie garantie 8 ans",
+    ),
+    (
+        "Jeep",
+        "Avenger",
+        "Electrique",
+        "Automatique",
+        "Moteur 115 kW",
+        156,
+        3.8,
+        "Base CMP Stellantis (comme e-2008), autonomie ~400 km WLTP",
+        "Entretien minimal, pneus SUV ~180 EUR/unite",
     ),
 ]
 

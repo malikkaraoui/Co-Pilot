@@ -6,9 +6,10 @@ from app.extensions import db
 
 
 class Vehicle(db.Model):
-    """Vehicule connu dans la base de reference (20 modeles MVP)."""
+    """Vehicule connu dans la base de reference (70 modeles, objectif 200+)."""
 
     __tablename__ = "vehicles"
+    __table_args__ = (db.UniqueConstraint("brand", "model", name="uq_vehicle_brand_model"),)
 
     id = db.Column(db.Integer, primary_key=True)
     brand = db.Column(db.String(80), nullable=False, index=True)
@@ -16,6 +17,9 @@ class Vehicle(db.Model):
     generation = db.Column(db.String(80))
     year_start = db.Column(db.Integer)
     year_end = db.Column(db.Integer)
+    enrichment_status = db.Column(
+        db.String(20), nullable=False, default="complete", server_default="complete"
+    )
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     specs = db.relationship("VehicleSpec", backref="vehicle", lazy="select")

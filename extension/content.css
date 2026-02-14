@@ -379,6 +379,68 @@
   transform: none;
 }
 
+/* ── Banniere carVertical ────────────────────────────────── */
+.copilot-carvertical-banner {
+  margin: 8px 24px 16px;
+}
+
+.copilot-carvertical-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--copilot-text);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.copilot-carvertical-link:hover {
+  border-color: #00B775;
+  box-shadow: 0 2px 12px rgba(0, 183, 117, 0.15);
+  transform: translateY(-1px);
+}
+
+.copilot-carvertical-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.copilot-carvertical-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.copilot-carvertical-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--copilot-text);
+  line-height: 1.3;
+}
+
+.copilot-carvertical-text small {
+  font-size: 11px;
+  color: #00B775;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.copilot-carvertical-arrow {
+  font-size: 22px;
+  color: #00B775;
+  font-weight: 300;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 /* ── Footer ───────────────────────────────────────────────── */
 .copilot-popup-footer {
   padding: 12px 24px;

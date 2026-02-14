@@ -344,6 +344,18 @@
 
         ${buildPremiumSection()}
 
+        <div class="copilot-carvertical-banner">
+          <a href="https://www.carvertical.com/fr" target="_blank" rel="noopener noreferrer"
+             class="copilot-carvertical-link" id="copilot-carvertical-btn">
+            <img class="copilot-carvertical-logo" src="${typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('carvertical_logo.png') : 'carvertical_logo.png'}" alt="carVertical"/>
+            <span class="copilot-carvertical-text">
+              <strong>Historique du véhicule</strong>
+              <small>Vérifier sur carVertical</small>
+            </span>
+            <span class="copilot-carvertical-arrow">&rsaquo;</span>
+          </a>
+        </div>
+
         <div class="copilot-popup-footer">
           <p>Co-Pilot v1.0 &middot; Analyse automatisée</p>
         </div>
@@ -676,4 +688,25 @@
   }
 
   init();
+
+  // ── Test exports (Node.js / Vitest uniquement) ──────────────────
+  // En browser, typeof module === 'undefined' → ce bloc est inerte.
+  // En Node/jsdom, init() sort immediatement (URL != leboncoin).
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {
+      extractVehicleFromNextData,
+      extractRegionFromNextData,
+      isStaleData,
+      isAdPage,
+      scoreColor,
+      statusColor,
+      statusIcon,
+      filterLabel,
+      maybeCollectMarketPrices,
+      LBC_REGIONS,
+      COLLECT_COOLDOWN_MS,
+      SIMULATED_FILTERS,
+      API_URL,
+    };
+  }
 })();

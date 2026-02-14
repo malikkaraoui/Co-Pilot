@@ -4,6 +4,7 @@
   "description": "Co-Pilot - Projet géré avec la méthode BMAD",
   "private": true,
   "scripts": {
+    "test:extension": "vitest run --config vitest.config.js",
     "version:patch": "npm version patch --no-git-tag-version && node scripts/update-version.mjs patch",
     "version:minor": "npm version minor --no-git-tag-version && node scripts/update-version.mjs minor",
     "version:major": "npm version major --no-git-tag-version && node scripts/update-version.mjs major",
@@ -11,6 +12,10 @@
     "release:patch": "npm run version:patch && npm run version:tag",
     "release:minor": "npm run version:minor && npm run version:tag",
     "release:major": "npm run version:major && npm run version:tag"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0",
+    "vitest": "^3.0.0"
   },
   "repository": {
     "type": "git",

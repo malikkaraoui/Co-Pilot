@@ -4,9 +4,11 @@ from app.models.vehicle import Vehicle, VehicleSpec
 
 
 def test_create_vehicle(db):
-    v = Vehicle(brand="Peugeot", model="3008", year_start=2016, year_end=2023)
-    db.session.add(v)
-    db.session.commit()
+    v = Vehicle.query.filter_by(brand="Peugeot", model="3008").first()
+    if not v:
+        v = Vehicle(brand="Peugeot", model="3008", year_start=2016, year_end=2023)
+        db.session.add(v)
+        db.session.commit()
 
     saved = Vehicle.query.filter_by(brand="Peugeot", model="3008").first()
     assert saved is not None
@@ -15,9 +17,13 @@ def test_create_vehicle(db):
 
 
 def test_vehicle_spec_relationship(db):
-    v = Vehicle(brand="Renault", model="Clio V", year_start=2019)
-    db.session.add(v)
-    db.session.flush()
+    v = Vehicle.query.filter_by(brand="Renault", model="Clio V").first()
+    if not v:
+        v = Vehicle(brand="Renault", model="Clio V", year_start=2019)
+        db.session.add(v)
+        db.session.flush()
+    else:
+        db.session.flush()
 
     spec = VehicleSpec(
         vehicle_id=v.id,

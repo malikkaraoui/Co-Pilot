@@ -9,10 +9,16 @@ class TestGetVehicleSpecs:
     """Tests pour la recuperation des specs par vehicle_id."""
 
     def _seed(self):
-        """Insere un vehicule avec deux specs."""
-        v = Vehicle(brand="Peugeot", model="208", generation="II")
-        db.session.add(v)
-        db.session.flush()
+        """Insere un vehicule avec deux specs (idempotent)."""
+        v = Vehicle.query.filter_by(brand="SpecTest", model="Alpha").first()
+        if not v:
+            v = Vehicle(brand="SpecTest", model="Alpha", generation="I")
+            db.session.add(v)
+            db.session.flush()
+        # Eviter l'accumulation de specs entre appels successifs
+        if VehicleSpec.query.filter_by(vehicle_id=v.id).count() > 0:
+            db.session.commit()
+            return v
         s1 = VehicleSpec(
             vehicle_id=v.id,
             fuel_type="Essence",
@@ -59,19 +65,22 @@ class TestGetVehicleFiche:
 
     def _seed(self):
         # Utiliser un vehicule absent des seeds pour eviter les conflits
-        v = Vehicle(brand="Volvo", model="XC40", generation="I")
-        db.session.add(v)
-        db.session.flush()
-        s = VehicleSpec(
-            vehicle_id=v.id,
-            fuel_type="Hybride",
-            engine="1.5 T5 Recharge",
-            power_hp=262,
-            reliability_rating=4.8,
-            known_issues="Quasi aucun probleme",
-            expected_costs="200 EUR/an",
-        )
-        db.session.add(s)
+        v = Vehicle.query.filter_by(brand="Volvo", model="XC40").first()
+        if not v:
+            v = Vehicle(brand="Volvo", model="XC40", generation="I")
+            db.session.add(v)
+            db.session.flush()
+        if VehicleSpec.query.filter_by(vehicle_id=v.id).count() == 0:
+            s = VehicleSpec(
+                vehicle_id=v.id,
+                fuel_type="Hybride",
+                engine="1.5 T5 Recharge",
+                power_hp=262,
+                reliability_rating=4.8,
+                known_issues="Quasi aucun probleme",
+                expected_costs="200 EUR/an",
+            )
+            db.session.add(s)
         db.session.commit()
         return v
 

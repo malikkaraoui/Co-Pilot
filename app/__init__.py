@@ -5,7 +5,7 @@ import os
 
 from flask import Flask
 
-from app.extensions import cors, db, login_manager
+from app.extensions import cors, csrf, db, login_manager
 from app.logging_config import setup_logging
 from config import config_by_name
 
@@ -43,6 +43,15 @@ def create_app(config_name: str | None = None) -> Flask:
     login_manager.init_app(app)
     login_manager.login_view = "admin.login"
     cors.init_app(app, origins=app.config["CORS_ORIGINS"])
+    csrf.init_app(app)
+
+    # Headers de securite HTTP
+    @app.after_request
+    def add_security_headers(resp):
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return resp
 
     # DBHandler : persiste WARNING/ERROR dans app_logs (desactive en tests)
     if not app.config.get("TESTING"):
@@ -67,6 +76,9 @@ def create_app(config_name: str | None = None) -> Flask:
     # Enregistrement des blueprints
     from app.admin import admin_bp
     from app.api import api_bp
+
+    # Exempter les routes API du CSRF (elles utilisent JSON, pas des formulaires)
+    csrf.exempt(api_bp)
 
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/admin")

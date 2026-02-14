@@ -2,16 +2,19 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from flask import current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.admin import admin_bp
 from app.extensions import db
 from app.models.filter_result import FilterResultDB
 from app.models.log import AppLog
+from app.models.market_price import MarketPrice
 from app.models.pipeline_run import PipelineRun
 from app.models.scan import ScanLog
 from app.models.user import User
@@ -156,9 +159,24 @@ def dashboard():
     # 10 derniers scans
     recent_scans = ScanLog.query.order_by(ScanLog.created_at.desc()).limit(10).all()
 
-    # Prix du marche crowdsources
-    from app.models.market_price import MarketPrice
+    # Vehicules non reconnus (distinct make+model avec L2 warning)
+    unrecognized_subq = (
+        db.session.query(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .join(FilterResultDB, FilterResultDB.scan_id == ScanLog.id)
+        .filter(
+            FilterResultDB.filter_id == "L2",
+            FilterResultDB.status == "warning",
+            ScanLog.vehicle_make.isnot(None),
+            ScanLog.vehicle_model.isnot(None),
+        )
+        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .subquery()
+    )
+    unrecognized_count = (
+        db.session.query(db.func.count()).select_from(unrecognized_subq).scalar() or 0
+    )
 
+    # Prix du marche crowdsources
     market_total = db.session.query(db.func.count(MarketPrice.id)).scalar() or 0
     market_fresh = (
         db.session.query(db.func.count(MarketPrice.id))
@@ -184,6 +202,7 @@ def dashboard():
         filter_perf=json.dumps(filter_perf),
         top_vehicles=top_vehicles,
         recent_scans=recent_scans,
+        unrecognized_count=unrecognized_count,
         market_total=market_total,
         market_fresh=market_fresh,
         market_total_samples=market_total_samples,
@@ -199,33 +218,92 @@ def dashboard():
 @login_required
 def car():
     """Modeles vehicules les plus demandes mais non reconnus."""
-    # Filtres L2 avec status "warning" = modele non reconnu
-    unrecognized = (
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    seven_days_ago = now - timedelta(days=7)
+    fourteen_days_ago = now - timedelta(days=14)
+
+    # Query robuste : JOIN ScanLog + FilterResultDB (L2 warning = non reconnu)
+    unrecognized_rows = (
         db.session.query(
-            FilterResultDB.details,
-            db.func.count(FilterResultDB.id).label("count"),
+            ScanLog.vehicle_make,
+            ScanLog.vehicle_model,
+            db.func.count(ScanLog.id).label("demand_count"),
+            db.func.min(ScanLog.created_at).label("first_seen"),
+            db.func.max(ScanLog.created_at).label("last_seen"),
         )
+        .join(FilterResultDB, FilterResultDB.scan_id == ScanLog.id)
         .filter(
             FilterResultDB.filter_id == "L2",
             FilterResultDB.status == "warning",
+            ScanLog.vehicle_make.isnot(None),
+            ScanLog.vehicle_model.isnot(None),
         )
-        .group_by(FilterResultDB.details)
-        .order_by(db.func.count(FilterResultDB.id).desc())
-        .limit(20)
+        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .order_by(db.func.count(ScanLog.id).desc())
+        .limit(50)
         .all()
     )
 
-    # Extraire marque/modele des details JSON
+    # Tendance 7j : comptages semaine courante vs semaine precedente
+    recent_counts = {
+        (r.vehicle_make, r.vehicle_model): r.cnt
+        for r in db.session.query(
+            ScanLog.vehicle_make,
+            ScanLog.vehicle_model,
+            db.func.count(ScanLog.id).label("cnt"),
+        )
+        .join(FilterResultDB, FilterResultDB.scan_id == ScanLog.id)
+        .filter(
+            FilterResultDB.filter_id == "L2",
+            FilterResultDB.status == "warning",
+            ScanLog.created_at >= seven_days_ago,
+            ScanLog.vehicle_make.isnot(None),
+            ScanLog.vehicle_model.isnot(None),
+        )
+        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .all()
+    }
+
+    previous_counts = {
+        (r.vehicle_make, r.vehicle_model): r.cnt
+        for r in db.session.query(
+            ScanLog.vehicle_make,
+            ScanLog.vehicle_model,
+            db.func.count(ScanLog.id).label("cnt"),
+        )
+        .join(FilterResultDB, FilterResultDB.scan_id == ScanLog.id)
+        .filter(
+            FilterResultDB.filter_id == "L2",
+            FilterResultDB.status == "warning",
+            ScanLog.created_at >= fourteen_days_ago,
+            ScanLog.created_at < seven_days_ago,
+            ScanLog.vehicle_make.isnot(None),
+            ScanLog.vehicle_model.isnot(None),
+        )
+        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .all()
+    }
+
     unrecognized_models = []
-    for row in unrecognized:
-        details = row.details if isinstance(row.details, dict) else {}
-        brand = details.get("brand", "?")
-        model = details.get("model", "?")
+    for row in unrecognized_rows:
+        key = (row.vehicle_make, row.vehicle_model)
+        recent = recent_counts.get(key, 0)
+        previous = previous_counts.get(key, 0)
+        if previous > 0:
+            trend = round((recent - previous) / previous * 100)
+        elif recent > 0:
+            trend = None  # "Nouveau" -- pas de semaine precedente pour comparer
+        else:
+            trend = 0
+
         unrecognized_models.append(
             {
-                "brand": brand,
-                "model": model,
-                "count": row.count,
+                "brand": row.vehicle_make,
+                "model": row.vehicle_model,
+                "count": row.demand_count,
+                "first_seen": row.first_seen,
+                "last_seen": row.last_seen,
+                "trend": trend,
             }
         )
 
@@ -237,6 +315,69 @@ def car():
         unrecognized_models=unrecognized_models,
         known_vehicles=known_vehicles,
     )
+
+
+@admin_bp.route("/vehicle/quick-add", methods=["POST"])
+@login_required
+def quick_add_vehicle():
+    """Ajout rapide d'un vehicule au referentiel depuis la demande utilisateur."""
+    brand = request.form.get("brand", "").strip()[:80]
+    model_name = request.form.get("model", "").strip()[:120]
+
+    if not brand or not model_name:
+        flash("Marque et modele sont requis.", "error")
+        return redirect(url_for("admin.car"))
+
+    # Validation : caracteres autorises (lettres, chiffres, espaces, tirets, points)
+    _VALID_NAME = re.compile(r"^[\w\s.\-/]+$", re.UNICODE)
+    if not _VALID_NAME.match(brand) or not _VALID_NAME.match(model_name):
+        flash("Caracteres invalides dans la marque ou le modele.", "error")
+        return redirect(url_for("admin.car"))
+
+    # Verifier doublon (case-insensitive)
+    existing = Vehicle.query.filter(
+        db.func.lower(Vehicle.brand) == brand.lower(),
+        db.func.lower(Vehicle.model) == model_name.lower(),
+    ).first()
+
+    if existing:
+        flash(f"{brand} {model_name} existe deja dans le referentiel.", "warning")
+        return redirect(url_for("admin.car"))
+
+    # Capitalisation intelligente preservant la casse originale pour les cas mixtes
+    brand_clean = brand.upper() if len(brand) <= 3 else brand.title()
+    # Preserver la casse d'origine pour les modeles avec casse mixte (iX3, ID.3, e-C3)
+    model_clean = model_name
+
+    current_year = datetime.now(timezone.utc).year
+
+    vehicle = Vehicle(
+        brand=brand_clean,
+        model=model_clean,
+        year_start=current_year,
+        enrichment_status="pending",
+    )
+    db.session.add(vehicle)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        flash(f"{brand} {model_name} existe deja dans le referentiel.", "warning")
+        return redirect(url_for("admin.car"))
+
+    logger.info(
+        "Quick-add vehicle: %s %s (id=%d) by admin '%s'",
+        brand_clean,
+        model_clean,
+        vehicle.id,
+        current_user.username,
+    )
+
+    flash(
+        f"{brand_clean} {model_clean} ajoute au referentiel (enrichissement en attente).",
+        "success",
+    )
+    return redirect(url_for("admin.car"))
 
 
 # ── Base Vehicules (import CSV) ───────────────────────────────────
@@ -472,7 +613,7 @@ _FILTER_META = [
         "data_source": "Referentiel vehicules (base locale)",
         "data_source_type": "real",
         "maturity": 80,
-        "maturity_note": "Referentiel a enrichir (52 modeles actuellement, objectif 200+)",
+        "maturity_note": "Referentiel a enrichir (70 modeles actuellement, objectif 200+)",
     },
     {
         "id": "L3",
@@ -604,8 +745,6 @@ def filters():
 @login_required
 def argus():
     """Vue dediee de l'argus maison : tous les prix crowdsources par les extensions."""
-    from app.models.market_price import MarketPrice
-
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Filtres

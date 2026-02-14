@@ -41,16 +41,18 @@ class TestFindVehicle:
     """Tests d'integration avec la base de donnees."""
 
     def _seed_vehicles(self):
-        """Insere quelques vehicules de test."""
-        vehicles = [
-            Vehicle(brand="Peugeot", model="3008", generation="II"),
-            Vehicle(brand="Renault", model="Clio V", generation="V"),
-            Vehicle(brand="Volkswagen", model="Golf", generation="VII/VIII"),
-            Vehicle(brand="Toyota", model="C-HR", generation="I/II"),
-            Vehicle(brand="BMW", model="Serie 3", generation="G20"),
+        """Insere quelques vehicules de test (lookup-or-create pour eviter les doublons)."""
+        specs = [
+            ("Peugeot", "3008", "II"),
+            ("Renault", "Clio V", "V"),
+            ("Volkswagen", "Golf", "VII/VIII"),
+            ("Toyota", "C-HR", "I/II"),
+            ("BMW", "Serie 3", "G20"),
         ]
-        for v in vehicles:
-            db.session.add(v)
+        for brand, model, gen in specs:
+            existing = Vehicle.query.filter_by(brand=brand, model=model).first()
+            if not existing:
+                db.session.add(Vehicle(brand=brand, model=model, generation=gen))
         db.session.commit()
 
     def test_exact_match(self, app):

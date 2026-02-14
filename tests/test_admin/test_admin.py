@@ -3,6 +3,7 @@
 import pytest
 from werkzeug.security import generate_password_hash
 
+from app.models.filter_result import FilterResultDB
 from app.models.log import AppLog
 from app.models.scan import ScanLog
 from app.models.user import User
@@ -161,6 +162,211 @@ class TestVehicles:
         resp = client.get("/admin/car")
         assert resp.status_code == 200
         assert b"Referentiel actuel" in resp.data
+
+    def test_car_shows_unrecognized_from_scans(self, app, client, admin_user):
+        """La page affiche les vehicules non reconnus depuis les scans."""
+        from app.extensions import db
+
+        with app.app_context():
+            for _ in range(3):
+                scan = ScanLog(vehicle_make="Tesla", vehicle_model="Model Y", score=50)
+                db.session.add(scan)
+                db.session.flush()
+                db.session.add(
+                    FilterResultDB(
+                        scan_id=scan.id,
+                        filter_id="L2",
+                        status="warning",
+                        score=0.3,
+                        message="Non reconnu",
+                        details={"brand": "Tesla", "model": "Model Y", "recognized": False},
+                    )
+                )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/car")
+        assert resp.status_code == 200
+        assert b"Tesla" in resp.data
+        assert b"Model Y" in resp.data
+
+    def test_car_shows_trend_column(self, client, admin_user):
+        """La page affiche la colonne tendance 7j."""
+        _login(client)
+        resp = client.get("/admin/car")
+        assert resp.status_code == 200
+        assert b"Tendance 7j" in resp.data
+
+    def test_car_shows_enrichment_status(self, app, client, admin_user):
+        """La page affiche le statut d'enrichissement du referentiel."""
+        from app.extensions import db
+
+        with app.app_context():
+            v = Vehicle(brand="TestBrand", model="TestModel", enrichment_status="pending")
+            db.session.add(v)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/car")
+        assert resp.status_code == 200
+        assert b"En attente" in resp.data
+
+
+# ── Quick-add vehicule ─────────────────────────────────────────
+
+
+class TestQuickAdd:
+    """Tests de l'endpoint quick-add vehicule."""
+
+    def test_quick_add_creates_vehicle(self, app, client, admin_user):
+        """Le quick-add cree un vehicule avec enrichment_status=pending."""
+        from datetime import datetime, timezone
+
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Tesla", "model": "Model S"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"ajoute au referentiel" in resp.data
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(model="Model S").first()
+            assert v is not None
+            assert v.enrichment_status == "pending"
+            assert v.brand == "Tesla"
+            assert v.year_start == datetime.now(timezone.utc).year
+            assert v.year_end is None
+            assert v.generation is None
+
+    def test_quick_add_capitalizes_brand(self, app, client, admin_user):
+        """Le quick-add capitalise correctement les marques."""
+        _login(client)
+        client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "BMW", "model": "iX3"},
+            follow_redirects=True,
+        )
+
+        with app.app_context():
+            v = Vehicle.query.filter(Vehicle.model.ilike("ix3")).first()
+            assert v is not None
+            assert v.brand == "BMW"  # reste en majuscules (<=3 chars)
+            assert v.model == "iX3"  # casse mixte preservee
+
+    def test_quick_add_duplicate_rejected(self, app, client, admin_user):
+        """Le quick-add refuse les doublons."""
+        from app.extensions import db
+
+        with app.app_context():
+            v = Vehicle(brand="Audi", model="Q5", year_start=2020)
+            db.session.add(v)
+            db.session.commit()
+
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "audi", "model": "q5"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"existe deja" in resp.data
+
+    def test_quick_add_empty_brand_rejected(self, client, admin_user):
+        """Le quick-add refuse une marque vide."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "", "model": "Something"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"requis" in resp.data
+
+    def test_quick_add_requires_auth(self, client):
+        """Le quick-add necessite une authentification."""
+        client.get("/admin/logout")
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Tesla", "model": "Model 3"},
+        )
+        assert resp.status_code == 302
+        assert "/admin/login" in resp.headers["Location"]
+
+    def test_quick_add_rejects_invalid_chars(self, client, admin_user):
+        """Le quick-add refuse les caracteres speciaux dangereux."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "<script>", "model": "alert(1)"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Caracteres invalides" in resp.data
+
+    def test_car_trend_nouveau_badge(self, app, client, admin_user):
+        """Vehicule avec previous=0 affiche 'Nouveau' et non '+100%'."""
+        from app.extensions import db
+
+        with app.app_context():
+            scan = ScanLog(vehicle_make="Volvo", vehicle_model="XC40", score=50)
+            db.session.add(scan)
+            db.session.flush()
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan.id,
+                    filter_id="L2",
+                    status="warning",
+                    score=0.3,
+                    message="Non reconnu",
+                )
+            )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/car")
+        assert resp.status_code == 200
+        assert b"Nouveau" in resp.data
+        assert b"+100%" not in resp.data
+
+
+# ── Dashboard non-reconnus ─────────────────────────────────────
+
+
+class TestDashboardUnrecognized:
+    """Tests du compteur vehicules non reconnus sur le dashboard."""
+
+    def test_dashboard_shows_unrecognized_count(self, app, client, admin_user):
+        """Le dashboard affiche le nombre de vehicules non reconnus."""
+        from app.extensions import db
+
+        with app.app_context():
+            scan = ScanLog(vehicle_make="Volvo", vehicle_model="XC60", score=50)
+            db.session.add(scan)
+            db.session.flush()
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan.id,
+                    filter_id="L2",
+                    status="warning",
+                    score=0.3,
+                    message="Non reconnu",
+                )
+            )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/dashboard")
+        assert resp.status_code == 200
+        assert b"non reconnus" in resp.data
+
+    def test_dashboard_unrecognized_links_to_car(self, client, admin_user):
+        """Le lien 'non reconnus' pointe vers /admin/car."""
+        _login(client)
+        resp = client.get("/admin/dashboard")
+        assert resp.status_code == 200
+        assert b"/admin/car" in resp.data
 
 
 # ── Logs erreurs ────────────────────────────────────────────────

@@ -49,5 +49,5 @@ class L2ReferentielFilter(BaseFilter):
                 f"On ne connait pas encore le {make} {model} "
                 "-- on prepare le garage pour l'expertiser tres prochainement !"
             ),
-            details={"make": make, "model": model, "recognized": False},
+            details={"brand": make, "model": model, "recognized": False},
         )

@@ -54,6 +54,22 @@
   </div>
 </div>
 
+<!-- Carte referentiel : vehicules non reconnus -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: {% if unrecognized_count > 5 %}#ef4444{% elif unrecognized_count > 0 %}#f59e0b{% else %}#22c55e{% endif %};">
+        {{ unrecognized_count }}
+      </div>
+      <div class="stat-label">
+        <a href="{{ url_for('admin.car') }}" style="text-decoration:none; color:#64748b;">
+          Vehicules non reconnus &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Graphiques ligne 1 -->
 <div class="row g-3 mb-3">
   <div class="col-md-7">

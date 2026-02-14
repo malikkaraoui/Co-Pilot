@@ -145,8 +145,10 @@ class TestNextMarketJob:
             db.session.add(mp)
 
             # Ajouter un vehicule dans le referentiel (pas de MarketPrice)
-            v = Vehicle(brand="Renault", model="Clio V", year_start=2019, year_end=2025)
-            db.session.add(v)
+            v = Vehicle.query.filter_by(brand="Renault", model="Clio V").first()
+            if not v:
+                v = Vehicle(brand="Renault", model="Clio V", year_start=2019, year_end=2025)
+                db.session.add(v)
             db.session.commit()
 
             resp = client.get(
@@ -186,6 +188,8 @@ class TestNextMarketJob:
             # dans cette region (pour que le serveur ne trouve aucun candidat)
             all_vehicles = Vehicle.query.all()
             for v in all_vehicles:
+                if not v.year_start:
+                    continue
                 mid_year = (v.year_start + (v.year_end or v.year_start)) // 2
                 existing = MarketPrice.query.filter_by(
                     make=v.brand,

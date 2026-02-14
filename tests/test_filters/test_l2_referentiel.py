@@ -31,3 +31,11 @@ class TestL2ReferentielFilter:
     def test_missing_model_skips(self):
         result = self.filt.run({"make": "Peugeot"})
         assert result.status == "skip"
+
+    def test_model_not_found_uses_brand_key(self):
+        """Unrecognized details should use 'brand' not 'make' key."""
+        with patch("app.services.vehicle_lookup.find_vehicle", return_value=None):
+            result = self.filt.run({"make": "Tesla", "model": "Model 3"})
+        assert "brand" in result.details
+        assert result.details["brand"] == "Tesla"
+        assert "make" not in result.details

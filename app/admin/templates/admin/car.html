@@ -6,30 +6,76 @@
 
 <!-- Modeles non reconnus -->
 <div class="stat-card mb-4">
-  <h5 class="mb-3">Modeles les plus demandes mais non reconnus</h5>
+  <h5 class="mb-3">
+    Modeles demandes mais non reconnus
+    <span class="badge bg-secondary">{{ unrecognized_models|length }}</span>
+  </h5>
   {% if unrecognized_models %}
-    <table class="table table-hover mb-0">
-      <thead>
-        <tr>
-          <th>Rang</th>
-          <th>Marque</th>
-          <th>Modele</th>
-          <th>Demandes</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in unrecognized_models %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ item.brand }}</td>
-          <td>{{ item.model }}</td>
-          <td><span class="badge bg-warning text-dark">{{ item.count }}</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Rang</th>
+            <th>Marque</th>
+            <th>Modele</th>
+            <th>Demandes</th>
+            <th>Premier scan</th>
+            <th>Dernier scan</th>
+            <th>Tendance 7j</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in unrecognized_models %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ item.brand }}</strong></td>
+            <td>{{ item.model }}</td>
+            <td>
+              {% if item.count > 5 %}
+                <span class="badge bg-danger">{{ item.count }}</span>
+              {% elif item.count > 2 %}
+                <span class="badge bg-warning text-dark">{{ item.count }}</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ item.count }}</span>
+              {% endif %}
+            </td>
+            <td style="font-size:12px; white-space:nowrap">
+              {{ item.first_seen.strftime('%d/%m/%Y') if item.first_seen else '-' }}
+            </td>
+            <td style="font-size:12px; white-space:nowrap">
+              {{ item.last_seen.strftime('%d/%m/%Y') if item.last_seen else '-' }}
+            </td>
+            <td>
+              {% if item.trend is none %}
+                <span class="badge bg-info">Nouveau</span>
+              {% elif item.trend > 0 %}
+                <span style="color:#ef4444;" title="+{{ item.trend }}% vs semaine precedente">&#9650; +{{ item.trend }}%</span>
+              {% elif item.trend < 0 %}
+                <span style="color:#22c55e;" title="{{ item.trend }}% vs semaine precedente">&#9660; {{ item.trend }}%</span>
+              {% else %}
+                <span style="color:#9ca3af;">&mdash;</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('admin.quick_add_vehicle') }}"
+                    style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="brand" value="{{ item.brand }}">
+                <input type="hidden" name="model" value="{{ item.model }}">
+                <button type="submit" class="btn btn-sm btn-primary"
+                        title="Ajouter {{ item.brand }} {{ item.model }} au referentiel">
+                  + Ajouter
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   {% else %}
-    <p class="text-muted">Aucun modele non reconnu pour le moment.</p>
+    <p class="text-muted">Tous les vehicules scannes sont reconnus.</p>
   {% endif %}
 </div>
 
@@ -43,6 +89,7 @@
         <th>Modele</th>
         <th>Generation</th>
         <th>Annees</th>
+        <th>Statut</th>
       </tr>
     </thead>
     <tbody>
@@ -52,9 +99,29 @@
         <td>{{ v.model }}</td>
         <td>{{ v.generation or '-' }}</td>
         <td>{{ v.year_start or '?' }} - {{ v.year_end or 'present' }}</td>
+        <td>
+          {% if v.enrichment_status == 'complete' %}
+            <span class="badge bg-success">Complet</span>
+          {% elif v.enrichment_status == 'partial' %}
+            <span class="badge bg-warning text-dark">Partiel</span>
+          {% else %}
+            <span class="badge bg-info">En attente</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if get_flashed_messages() %}
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+  <div class="alert alert-{{ 'success' if category == 'success' else ('warning' if category == 'warning' else 'danger') }} alert-dismissible fade show" role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

@@ -22,6 +22,10 @@ BRAND_ALIASES: dict[str, str] = {
     "mg motor": "mg",
     "hyunday": "hyundai",
     "hundai": "hyundai",
+    "seat": "seat",
+    "cupra": "cupra",
+    "skoda": "skoda",
+    "jeep": "jeep",
 }
 
 # Alias de modeles courants -> nom canonique en base
@@ -138,6 +142,54 @@ MODEL_ALIASES: dict[str, str] = {
     # Suzuki
     "swift 4": "swift",
     "swift iv": "swift",
+    # Tesla
+    "model y": "model y",
+    "model3": "model 3",
+    "modely": "model y",
+    # Toyota (nouveaux)
+    "corolla 12": "corolla",
+    "corolla xii": "corolla",
+    "rav4": "rav4",
+    "rav 4": "rav4",
+    "rav4 5": "rav4",
+    # Seat
+    "ibiza 5": "ibiza",
+    "ibiza v": "ibiza",
+    "arona": "arona",
+    # Cupra
+    "formentor": "formentor",
+    # Dacia
+    "spring": "spring",
+    "spring electric": "spring",
+    # Kia (nouveaux)
+    "niro 2": "niro",
+    "niro ii": "niro",
+    "niro hev": "niro",
+    "niro phev": "niro",
+    "picanto 3": "picanto",
+    "picanto iii": "picanto",
+    # Opel
+    "mokka 2": "mokka",
+    "mokka ii": "mokka",
+    "mokka-e": "mokka",
+    # Volkswagen (nouveaux)
+    "id.3": "id.3",
+    "id3": "id.3",
+    "id 3": "id.3",
+    "taigo": "taigo",
+    # Skoda (nouveau)
+    "kamiq": "kamiq",
+    # Peugeot (nouveau)
+    "408": "408",
+    # Renault (nouveau)
+    "espace 6": "espace",
+    "espace vi": "espace",
+    # Jeep
+    "avenger": "avenger",
+    # Fiat (nouveau)
+    "fiat 600": "600",
+    "600e": "600",
+    "600 hybrid": "600",
 }
 
 
@@ -183,7 +235,8 @@ def find_vehicle(make: str, model: str) -> Vehicle | None:
     if vehicle:
         logger.debug("Found vehicle: %s %s (id=%d)", vehicle.brand, vehicle.model, vehicle.id)
     else:
-        logger.debug("Vehicle not found: %s %s (normalized: %s %s)",
-                      make, model, brand_norm, model_norm)
+        logger.debug(
+            "Vehicle not found: %s %s (normalized: %s %s)", make, model, brand_norm, model_norm
+        )
 
     return vehicle
