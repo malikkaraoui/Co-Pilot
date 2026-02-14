@@ -1,6 +1,7 @@
 """Definitions des routes API."""
 
 import logging
+import re
 import traceback
 
 import httpx
@@ -39,12 +40,14 @@ def analyze():
         return _do_analyze()
     except (KeyError, ValueError, AttributeError, TypeError, OSError, httpx.HTTPError) as exc:
         logger.error("Unhandled error in /analyze: %s\n%s", exc, traceback.format_exc())
-        return jsonify({
-            "success": False,
-            "error": "INTERNAL_ERROR",
-            "message": "Erreur interne du serveur.",
-            "data": None,
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "error": "INTERNAL_ERROR",
+                "message": "Erreur interne du serveur.",
+                "data": None,
+            }
+        ), 500
 
 
 def _do_analyze():
@@ -52,35 +55,63 @@ def _do_analyze():
     # Validation de la requete
     json_data = request.get_json(silent=True)
     if not json_data:
-        return jsonify({
-            "success": False,
-            "error": "VALIDATION_ERROR",
-            "message": "Le corps de la requete doit etre du JSON valide.",
-            "data": None,
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "error": "VALIDATION_ERROR",
+                "message": "Le corps de la requete doit etre du JSON valide.",
+                "data": None,
+            }
+        ), 400
 
     try:
         req = AnalyzeRequest.model_validate(json_data)
     except PydanticValidationError as exc:
         logger.warning("Validation error: %s", exc)
-        return jsonify({
-            "success": False,
-            "error": "VALIDATION_ERROR",
-            "message": "Donnees invalides. Verifiez le format du payload.",
-            "data": None,
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "error": "VALIDATION_ERROR",
+                "message": "Donnees invalides. Verifiez le format du payload.",
+                "data": None,
+            }
+        ), 400
 
     # Extraction des donnees de l'annonce
     try:
         ad_data = extract_ad_data(req.next_data)
     except ExtractionError as exc:
         logger.warning("Extraction failed: %s", exc)
-        return jsonify({
-            "success": False,
-            "error": "EXTRACTION_ERROR",
-            "message": "Impossible d'extraire les donnees de cette annonce.",
-            "data": None,
-        }), 422
+        return jsonify(
+            {
+                "success": False,
+                "error": "EXTRACTION_ERROR",
+                "message": "Impossible d'extraire les donnees de cette annonce.",
+                "data": None,
+            }
+        ), 422
+
+    # Detection non-voiture : si la categorie URL n'est pas "voitures"
+    # ET que l'annonce n'a ni marque ni modele → ce n'est pas une voiture
+    url = req.url or ""
+    url_category = _extract_url_category(url)
+    has_vehicle_attrs = bool(ad_data.get("make")) and bool(ad_data.get("model"))
+
+    if url_category != "voitures" and not has_vehicle_attrs:
+        logger.info(
+            "NOT_A_VEHICLE: category=%s, make=%r, model=%r",
+            url_category,
+            ad_data.get("make"),
+            ad_data.get("model"),
+        )
+        return jsonify(
+            {
+                "success": False,
+                "error": "NOT_A_VEHICLE",
+                "message": "C'est pas une bagnole... bien tente !",
+                "data": {"category": url_category or "inconnue"},
+            }
+        ), 422
 
     # Execution des filtres
     engine = _build_engine()
@@ -88,12 +119,14 @@ def _do_analyze():
         filter_results = engine.run_all(ad_data)
     except (KeyError, ValueError, AttributeError, TypeError, OSError) as exc:
         logger.error("Engine crash: %s: %s", type(exc).__name__, exc)
-        return jsonify({
-            "success": False,
-            "error": "ENGINE_ERROR",
-            "message": "Erreur lors de l'analyse. Reessayez.",
-            "data": None,
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "error": "ENGINE_ERROR",
+                "message": "Erreur lors de l'analyse. Reessayez.",
+                "data": None,
+            }
+        ), 500
 
     # Calcul du score
     score, is_partial = calculate_score(filter_results)
@@ -112,14 +145,16 @@ def _do_analyze():
         db.session.flush()
 
         for r in filter_results:
-            db.session.add(FilterResultDB(
-                scan_id=scan.id,
-                filter_id=r.filter_id,
-                status=r.status,
-                score=r.score,
-                message=r.message,
-                details=r.details,
-            ))
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan.id,
+                    filter_id=r.filter_id,
+                    status=r.status,
+                    score=r.score,
+                    message=r.message,
+                    details=r.details,
+                )
+            )
 
         db.session.commit()
         logger.info("Persisted ScanLog id=%d score=%d", scan.id, score)
@@ -151,12 +186,14 @@ def _do_analyze():
         },
     )
 
-    return jsonify({
-        "success": True,
-        "error": None,
-        "message": None,
-        "data": response.model_dump(),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "error": None,
+            "message": None,
+            "data": response.model_dump(),
+        }
+    )
 
 
 def _build_engine() -> FilterEngine:
@@ -182,3 +219,13 @@ def _build_engine() -> FilterEngine:
     engine.register(L8ImportDetectionFilter())
     engine.register(L9GlobalAssessmentFilter())
     return engine
+
+
+# Pattern : /ad/<category>/<id> ou /ad/<category>/
+_URL_CATEGORY_RE = re.compile(r"/ad/([a-z_]+)/")
+
+
+def _extract_url_category(url: str) -> str | None:
+    """Extrait la categorie LeBonCoin depuis l'URL (ex. 'voitures', 'equipement_auto')."""
+    m = _URL_CATEGORY_RE.search(url)
+    return m.group(1) if m else None

@@ -382,6 +382,29 @@
     `;
   }
 
+  function buildNotAVehiclePopup(message, category) {
+    return `
+      <div class="copilot-popup" id="copilot-popup">
+        <div class="copilot-popup-header">
+          <div class="copilot-popup-title-row">
+            <span class="copilot-popup-title">Co-Pilot</span>
+            <button class="copilot-popup-close" id="copilot-close">&times;</button>
+          </div>
+        </div>
+        <div class="copilot-not-vehicle-body">
+          <div class="copilot-not-vehicle-icon">&#x1F6AB;</div>
+          <h3 class="copilot-not-vehicle-title">${escapeHTML(message)}</h3>
+          <p class="copilot-not-vehicle-category">
+            Cat&eacute;gorie d&eacute;tect&eacute;e : <strong>${escapeHTML(category || "inconnue")}</strong>
+          </p>
+          <p class="copilot-not-vehicle-hint">
+            Co-Pilot analyse uniquement les annonces de v&eacute;hicules.
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
   // ── Logique principale ─────────────────────────────────────────
 
   /** Supprime la popup existante si presente. */
@@ -494,6 +517,10 @@
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
+        if (errorData?.error === "NOT_A_VEHICLE") {
+          showPopup(buildNotAVehiclePopup(errorData.message, errorData.data?.category));
+          return null;
+        }
         const msg = errorData?.message || getRandomErrorMessage();
         showPopup(buildErrorPopup(msg));
         return null;

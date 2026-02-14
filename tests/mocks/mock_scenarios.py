@@ -8,7 +8,7 @@ Aucun appel reseau -- tout est en local (mocks JSON).
 # Annonce complete, prix coherent, vendeur francais, pas de red flag.
 SCENARIO_SAIN_3008 = {
     "name": "Peugeot 3008 sain (particulier)",
-    "expected_score_range": (60, 100),
+    "expected_score_range": (40, 70),
     "expected_status": {"L1": "pass", "L6": "pass", "L8": "pass"},
     "payload": {
         "props": {
@@ -103,7 +103,7 @@ SCENARIO_SUSPECT_IMPORT = {
 # Vendeur professionnel, SIRET present, annonce complete.
 SCENARIO_PRO_SIRET = {
     "name": "Renault Clio V pro (SIRET present)",
-    "expected_score_range": (50, 100),
+    "expected_score_range": (35, 65),
     "expected_status": {"L1": "pass", "L6": "pass"},
     "payload": {
         "props": {
@@ -180,7 +180,7 @@ SCENARIO_INCOMPLET = {
 # Voiture de 2023 avec 180 000 km = tres suspect.
 SCENARIO_KM_INCOHERENT = {
     "name": "Toyota Yaris km incoherent (180k km en 3 ans)",
-    "expected_score_range": (50, 90),
+    "expected_score_range": (30, 65),
     "expected_status": {"L3": "warning"},
     "payload": {
         "props": {

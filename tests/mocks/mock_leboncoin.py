@@ -53,15 +53,69 @@ MINIMAL_AD_NEXT_DATA = {
     }
 }
 
-MALFORMED_NEXT_DATA = {
+MALFORMED_NEXT_DATA = {"props": {"pageProps": {"someOtherKey": "no ad here"}}}
+
+EMPTY_NEXT_DATA = {}
+
+# Annonce non-voiture (pneus dans equipement_auto)
+NON_VEHICLE_AD_NEXT_DATA = {
     "props": {
         "pageProps": {
-            "someOtherKey": "no ad here"
+            "ad": {
+                "list_id": 3144651429,
+                "subject": "4 Pneus Bridgestone Turanza T005 225/45R17",
+                "price": [280],
+                "body": "Lot de 4 pneus Bridgestone en bon etat, 5mm de profil restant.",
+                "location": {
+                    "city": "Strasbourg",
+                    "zipcode": "67000",
+                    "department_name": "Bas-Rhin",
+                    "region_name": "Grand Est",
+                },
+                "owner": {
+                    "type": "private",
+                    "name": "Marc",
+                },
+                "attributes": [
+                    {"key": "Type", "value": "Pneus"},
+                    {"key": "Marque pneu", "value": "Bridgestone"},
+                ],
+            }
         }
     }
 }
 
-EMPTY_NEXT_DATA = {}
+# Voiture publiee dans la categorie equipement_auto (mal categorisee)
+VEHICLE_IN_WRONG_CATEGORY_NEXT_DATA = {
+    "props": {
+        "pageProps": {
+            "ad": {
+                "list_id": 3144609125,
+                "subject": "Renault Megane 1.5 dCi 110ch",
+                "price": [8500],
+                "body": "Megane en bon etat general.",
+                "location": {
+                    "city": "Marseille",
+                    "zipcode": "13001",
+                    "department_name": "Bouches-du-Rhone",
+                    "region_name": "Provence-Alpes-Cote d'Azur",
+                },
+                "owner": {
+                    "type": "private",
+                    "name": "Sophie",
+                    "phone": "0698765432",
+                },
+                "attributes": [
+                    {"key": "Marque", "value": "Renault"},
+                    {"key": "Modèle", "value": "Megane"},
+                    {"key": "Année modèle", "value": "2018"},
+                    {"key": "Kilométrage", "value": "95 000 km"},
+                    {"key": "Énergie", "value": "Diesel"},
+                ],
+            }
+        }
+    }
+}
 
 AD_WITH_FOREIGN_PHONE = {
     "props": {
