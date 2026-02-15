@@ -1,5 +1,14 @@
 # Co-Pilot -- Analyse de confiance pour annonces auto Leboncoin
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)
+![Chrome Extension](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?logo=googlechrome&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-247%2B_passing-2EA44F)
+![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 Co-Pilot est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur Leboncoin et attribue un **score de confiance de 0 à 100**.
 
 L'utilisateur navigue sur Leboncoin, clique sur "Analyser avec Co-Pilot", et obtient un verdict instantané avec le détail de 9 filtres indépendants.
