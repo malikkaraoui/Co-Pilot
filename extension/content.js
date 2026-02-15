@@ -513,6 +513,9 @@
   /** Modeles generiques a ne pas inclure dans la recherche texte. */
   const GENERIC_MODELS = ["autres", "autre", "other", "divers"];
 
+  /** Categories LBC exclues de la collecte de prix (pas des voitures). */
+  const EXCLUDED_CATEGORIES = ["motos", "equipement_moto", "caravaning", "nautisme", "utilitaires"];
+
   /**
    * Extrait l'annee depuis les attributs d'une annonce de recherche LBC.
    * Les ads de recherche ont un format d'attributs different.
@@ -654,6 +657,11 @@
     const { make, model, year } = vehicle;
     if (!make || !model || !year) return { submitted: false };
 
+    // Ne pas collecter de prix pour les categories non-voiture (motos, etc.)
+    const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
+    const urlCategory = urlMatch ? urlMatch[1] : null;
+    if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) return { submitted: false };
+
     // 1. Extraire la region depuis le nextData (pas le DOM qui peut etre stale)
     const region = extractRegionFromNextData(nextData);
     if (!region) return { submitted: false };
@@ -741,6 +749,7 @@
             year: parseInt(target.year, 10),
             region: targetRegion,
             prices: prices,
+            category: urlCategory,
           }),
         });
         submitted = marketResp.ok;

@@ -23,6 +23,11 @@ FRESHNESS_DAYS = 7
 logger = logging.getLogger(__name__)
 
 
+_EXCLUDED_CATEGORIES = frozenset(
+    {"motos", "equipement_moto", "caravaning", "nautisme", "utilitaires"}
+)
+
+
 class MarketPricesRequest(BaseModel):
     """Schema de validation pour les prix du marche envoyes par l'extension."""
 
@@ -31,6 +36,7 @@ class MarketPricesRequest(BaseModel):
     year: int = Field(ge=1990, le=2030)
     region: str = Field(min_length=1, max_length=80)
     prices: list[int] = Field(min_length=MIN_SAMPLE_COUNT)
+    category: str | None = Field(default=None, max_length=40)
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -63,6 +69,20 @@ def submit_market_prices():
                 "success": False,
                 "error": "VALIDATION_ERROR",
                 "message": "Donnees invalides. Verifiez le format du payload.",
+                "data": None,
+            }
+        ), 400
+
+    # Rejeter les categories non-voiture (motos, etc.)
+    if req.category and req.category in _EXCLUDED_CATEGORIES:
+        logger.info(
+            "Market prices rejected: category=%s (%s %s)", req.category, req.make, req.model
+        )
+        return jsonify(
+            {
+                "success": False,
+                "error": "EXCLUDED_CATEGORY",
+                "message": f"La categorie '{req.category}' n'est pas prise en charge.",
                 "data": None,
             }
         ), 400
