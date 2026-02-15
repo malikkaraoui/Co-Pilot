@@ -1,5 +1,6 @@
 """Service MarketPrice -- stockage et recuperation des prix du marche crowdsources."""
 
+import json
 import logging
 import re
 import unicodedata
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 CACHE_DURATION_HOURS = 24
 MIN_SAMPLE_COUNT = 3
+IQR_MULTIPLIER = 1.5
 
 
 def normalize_market_text(text: str) -> str:
@@ -57,6 +59,34 @@ def market_text_key_expr(column):
     )
 
 
+def _filter_outliers_iqr(prices: list[int]) -> tuple[list[int], list[int], float, float]:
+    """Filtre les outliers via la methode IQR (Interquartile Range).
+
+    Args:
+        prices: Liste de prix bruts (deja filtres > 500).
+
+    Returns:
+        (kept_prices, excluded_prices, iqr_low, iqr_high)
+    """
+    arr = np.array(sorted(prices), dtype=float)
+    q1 = float(np.percentile(arr, 25))
+    q3 = float(np.percentile(arr, 75))
+    iqr = q3 - q1
+
+    # Bornes : on accepte [Q1 - 1.5*IQR, Q3 + 1.5*IQR]
+    iqr_low = q1 - IQR_MULTIPLIER * iqr
+    iqr_high = q3 + IQR_MULTIPLIER * iqr
+
+    kept = [p for p in prices if iqr_low <= p <= iqr_high]
+    excluded = [p for p in prices if p < iqr_low or p > iqr_high]
+
+    # Si tout est exclu (ex: echantillon trop petit), garder tout
+    if len(kept) < MIN_SAMPLE_COUNT:
+        return sorted(prices), [], iqr_low, iqr_high
+
+    return sorted(kept), sorted(excluded), iqr_low, iqr_high
+
+
 def store_market_prices(
     make: str,
     model: str,
@@ -66,7 +96,9 @@ def store_market_prices(
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
-    Normalise make/model/region avant stockage pour garantir des matchs fiables.
+    Utilise le filtrage IQR pour eliminer les outliers (prix aberrants).
+    Les stats (min, median, mean, max, std) sont calculees sur les prix filtres.
+    Les details du calcul (prix bruts, filtres, exclus) sont stockes en JSON.
 
     Args:
         make: Marque du vehicule (ex. "Peugeot").
@@ -82,8 +114,22 @@ def store_market_prices(
     model = normalize_market_text(model)
     region = normalize_market_text(region)
 
-    arr = np.array(prices, dtype=float)
+    # Filtrage IQR des outliers
+    kept, excluded, iqr_low, iqr_high = _filter_outliers_iqr(prices)
+    arr = np.array(kept, dtype=float)
     now = datetime.now(timezone.utc)
+
+    details = {
+        "raw_prices": sorted(prices),
+        "kept_prices": kept,
+        "excluded_prices": excluded,
+        "iqr_low": round(iqr_low, 0),
+        "iqr_high": round(iqr_high, 0),
+        "raw_count": len(prices),
+        "kept_count": len(kept),
+        "excluded_count": len(excluded),
+        "method": "iqr",
+    }
 
     stats = {
         "price_min": int(np.min(arr)),
@@ -91,7 +137,8 @@ def store_market_prices(
         "price_mean": int(np.mean(arr)),
         "price_max": int(np.max(arr)),
         "price_std": round(float(np.std(arr)), 2),
-        "sample_count": len(prices),
+        "sample_count": len(kept),
+        "calculation_details": json.dumps(details),
         "collected_at": now,
         "refresh_after": now + timedelta(hours=CACHE_DURATION_HOURS),
     }
@@ -104,7 +151,6 @@ def store_market_prices(
     ).first()
 
     if existing:
-        # Mettre a jour aussi les noms normalises
         existing.make = make
         existing.model = model
         existing.region = region
@@ -112,7 +158,14 @@ def store_market_prices(
             setattr(existing, key, value)
         db.session.commit()
         logger.info(
-            "Updated MarketPrice %s %s %d %s (%d samples)", make, model, year, region, len(prices)
+            "Updated MarketPrice %s %s %d %s (%d/%d kept, %d excluded)",
+            make,
+            model,
+            year,
+            region,
+            len(kept),
+            len(prices),
+            len(excluded),
         )
         return existing
 
@@ -120,7 +173,14 @@ def store_market_prices(
     db.session.add(mp)
     db.session.commit()
     logger.info(
-        "Created MarketPrice %s %s %d %s (%d samples)", make, model, year, region, len(prices)
+        "Created MarketPrice %s %s %d %s (%d/%d kept, %d excluded)",
+        make,
+        model,
+        year,
+        region,
+        len(kept),
+        len(prices),
+        len(excluded),
     )
     return mp
 

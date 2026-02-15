@@ -405,6 +405,29 @@
     `;
   }
 
+  function buildNotSupportedPopup(message, category) {
+    return `
+      <div class="copilot-popup" id="copilot-popup">
+        <div class="copilot-popup-header">
+          <div class="copilot-popup-title-row">
+            <span class="copilot-popup-title">Co-Pilot</span>
+            <button class="copilot-popup-close" id="copilot-close">&times;</button>
+          </div>
+        </div>
+        <div class="copilot-not-vehicle-body">
+          <div class="copilot-not-vehicle-icon">&#x1F3CD;</div>
+          <h3 class="copilot-not-vehicle-title">${escapeHTML(message)}</h3>
+          <p class="copilot-not-vehicle-category">
+            Cat&eacute;gorie : <strong>${escapeHTML(category || "inconnue")}</strong>
+          </p>
+          <p class="copilot-not-vehicle-hint">
+            On bosse dessus, promis. Restez branch&eacute; !
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
   // ── Logique principale ─────────────────────────────────────────
 
   /** Supprime la popup existante si presente. */
@@ -483,7 +506,28 @@
       make: attrs["brand"] || attrs["Marque"] || "",
       model: attrs["model"] || attrs["Modèle"] || attrs["modele"] || "",
       year: attrs["regdate"] || attrs["Année modèle"] || attrs["Année"] || attrs["year"] || "",
+      fuel: attrs["fuel"] || attrs["Énergie"] || attrs["energie"] || "",
     };
+  }
+
+  /** Modeles generiques a ne pas inclure dans la recherche texte. */
+  const GENERIC_MODELS = ["autres", "autre", "other", "divers"];
+
+  /**
+   * Extrait l'annee depuis les attributs d'une annonce de recherche LBC.
+   * Les ads de recherche ont un format d'attributs different.
+   */
+  function getAdYear(ad) {
+    const attrs = ad.attributes || [];
+    for (const a of attrs) {
+      const key = (a.key || a.key_label || "").toLowerCase();
+      if (key === "regdate" || key === "année modèle" || key === "année") {
+        const val = String(a.value || a.value_label || "");
+        const y = parseInt(val, 10);
+        if (y >= 1990 && y <= 2030) return y;
+      }
+    }
+    return null;
   }
 
   /**
@@ -519,6 +563,10 @@
         const errorData = await response.json().catch(() => null);
         if (errorData?.error === "NOT_A_VEHICLE") {
           showPopup(buildNotAVehiclePopup(errorData.message, errorData.data?.category));
+          return null;
+        }
+        if (errorData?.error === "NOT_SUPPORTED") {
+          showPopup(buildNotSupportedPopup(errorData.message, errorData.data?.category));
           return null;
         }
         const msg = errorData?.message || getRandomErrorMessage();
@@ -637,11 +685,21 @@
       if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) return { submitted: false };
     }
 
-    // 4. Chercher le vehicule cible sur LeBonCoin
-    const searchText = encodeURIComponent(`${target.make} ${target.model}`);
+    // 4. Chercher le vehicule cible sur LeBonCoin (recherche ciblee)
+    const targetYear = parseInt(target.year, 10) || 0;
+    const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
+
+    // Texte de recherche : marque + modele (sauf modele generique)
+    const searchTerms = modelIsGeneric ? target.make : `${target.make} ${target.model}`;
+    const searchText = encodeURIComponent(searchTerms);
     const regionParam = LBC_REGIONS[targetRegion] || "";
+
     let searchUrl = `https://www.leboncoin.fr/recherche?category=2&text=${searchText}`;
     if (regionParam) searchUrl += `&locations=${regionParam}`;
+    // Filtre annee : ±1 an pour avoir des comparables pertinents
+    if (targetYear >= 1990) {
+      searchUrl += `&regdate=${targetYear - 1}-${targetYear + 1}`;
+    }
 
     let submitted = false;
     try {
@@ -659,8 +717,17 @@
                 || data?.props?.pageProps?.initialProps?.searchData?.ads
                 || [];
 
+      // Filtrer : prix > 500 ET annee dans la fourchette ±1 an
       const prices = ads
-        .filter((ad) => ad.price && ad.price[0] > 500)
+        .filter((ad) => {
+          if (!ad.price || ad.price[0] <= 500) return false;
+          // Verification annee individuelle par annonce
+          if (targetYear >= 1990) {
+            const adYear = getAdYear(ad);
+            if (adYear && Math.abs(adYear - targetYear) > 1) return false;
+          }
+          return true;
+        })
         .map((ad) => ad.price[0]);
 
       if (prices.length >= 3) {

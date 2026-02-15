@@ -1,5 +1,6 @@
 """Modele MarketPrice -- cache des prix du marche collectes par crowdsourcing."""
 
+import json
 from datetime import datetime, timezone
 
 from app.extensions import db
@@ -23,6 +24,11 @@ class MarketPrice(db.Model):
     price_std = db.Column(db.Float)
     sample_count = db.Column(db.Integer, default=0)
 
+    # Details du calcul (JSON) pour transparence dans le dashboard
+    # Format: {"raw_prices": [...], "kept_prices": [...], "excluded_prices": [...],
+    #          "iqr_low": N, "iqr_high": N, "method": "iqr"}
+    calculation_details = db.Column(db.Text, nullable=True)
+
     collected_at = db.Column(
         db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
@@ -33,6 +39,12 @@ class MarketPrice(db.Model):
             "make", "model", "year", "region", name="uq_market_price_vehicle_region"
         ),
     )
+
+    def get_calculation_details(self) -> dict | None:
+        """Retourne les details du calcul en dict, ou None."""
+        if not self.calculation_details:
+            return None
+        return json.loads(self.calculation_details)
 
     def __repr__(self):
         return f"<MarketPrice {self.make} {self.model} {self.year} {self.region}>"

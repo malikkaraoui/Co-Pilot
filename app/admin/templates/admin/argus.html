@@ -95,11 +95,13 @@
           <th class="text-end">Ecart-type</th>
           <th class="text-center">Annonces</th>
           <th class="text-center">Fraicheur</th>
+          <th class="text-center">Detail</th>
         </tr>
       </thead>
       <tbody>
         {% for m in records %}
         {% set is_fresh = m.refresh_after > now %}
+        {% set details = m.get_calculation_details() %}
         <tr>
           <td style="font-size:12px; white-space:nowrap">
             {{ m.collected_at.strftime('%d/%m/%Y %H:%M') if m.collected_at else '-' }}
@@ -122,11 +124,115 @@
               <span class="badge bg-warning text-dark">A rafraichir</span>
             {% endif %}
           </td>
+          <td class="text-center">
+            {% if details %}
+            <button class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#detailModal{{ m.id }}"
+                    title="Voir le detail du calcul">
+              <small>Voir</small>
+            </button>
+            {% else %}
+            <span class="text-muted" style="font-size:11px">-</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <!-- Modales de detail -->
+  {% for m in records %}
+  {% set details = m.get_calculation_details() %}
+  {% if details %}
+  <div class="modal fade" id="detailModal{{ m.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            Detail du calcul &mdash; {{ m.make }} {{ m.model }} {{ m.year }} ({{ m.region }})
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+        </div>
+        <div class="modal-body">
+          <!-- Methode -->
+          <div class="mb-3">
+            <span class="badge bg-info">Methode : {{ details.get('method', 'inconnue') | upper }}</span>
+            <span class="badge bg-secondary">{{ details.get('raw_count', '?') }} annonces collectees</span>
+            <span class="badge bg-success">{{ details.get('kept_count', '?') }} retenues</span>
+            {% if details.get('excluded_count', 0) > 0 %}
+            <span class="badge bg-danger">{{ details.get('excluded_count', 0) }} exclues</span>
+            {% endif %}
+          </div>
+
+          <!-- Bornes IQR -->
+          <div class="mb-3 p-2" style="background:#f8f9fa; border-radius:8px">
+            <strong>Bornes IQR :</strong>
+            {{ "{:,.0f}".format(details.get('iqr_low', 0)).replace(",", " ") }} &euro;
+            &mdash;
+            {{ "{:,.0f}".format(details.get('iqr_high', 0)).replace(",", " ") }} &euro;
+            <br>
+            <small class="text-muted">Les prix en dehors de ces bornes sont exclus du calcul (outliers).</small>
+          </div>
+
+          <!-- Prix gardes -->
+          <div class="mb-3">
+            <h6>Prix retenus ({{ details.get('kept_count', 0) }})</h6>
+            <div class="d-flex flex-wrap gap-1">
+              {% for p in details.get('kept_prices', []) %}
+              <span class="badge bg-success bg-opacity-75" style="font-size:12px">
+                {{ "{:,}".format(p).replace(",", " ") }} &euro;
+              </span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Prix exclus -->
+          {% if details.get('excluded_prices') %}
+          <div class="mb-3">
+            <h6>Prix exclus (outliers)</h6>
+            <div class="d-flex flex-wrap gap-1">
+              {% for p in details.get('excluded_prices', []) %}
+              <span class="badge bg-danger bg-opacity-75" style="font-size:12px; text-decoration: line-through">
+                {{ "{:,}".format(p).replace(",", " ") }} &euro;
+              </span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- Stats finales -->
+          <div class="mt-3 p-2" style="background:#f0fdf4; border-radius:8px; border:1px solid #bbf7d0">
+            <strong>Stats calculees (sur prix retenus) :</strong>
+            <div class="row mt-2">
+              <div class="col-3 text-center">
+                <div style="font-size:11px; color:#6b7280">Min</div>
+                <strong>{{ "{:,}".format(m.price_min).replace(",", " ") }} &euro;</strong>
+              </div>
+              <div class="col-3 text-center">
+                <div style="font-size:11px; color:#6b7280">Mediane</div>
+                <strong style="color:#22c55e">{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong>
+              </div>
+              <div class="col-3 text-center">
+                <div style="font-size:11px; color:#6b7280">Moyenne</div>
+                <strong>{{ "{:,}".format(m.price_mean).replace(",", " ") }} &euro;</strong>
+              </div>
+              <div class="col-3 text-center">
+                <div style="font-size:11px; color:#6b7280">Max</div>
+                <strong>{{ "{:,}".format(m.price_max).replace(",", " ") }} &euro;</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
 
   <!-- Pagination -->
   {% if total_pages > 1 %}

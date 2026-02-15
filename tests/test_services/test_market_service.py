@@ -2,7 +2,11 @@
 
 from datetime import datetime, timedelta, timezone
 
-from app.services.market_service import get_market_stats, store_market_prices
+from app.services.market_service import (
+    _filter_outliers_iqr,
+    get_market_stats,
+    store_market_prices,
+)
 
 
 class TestStoreMarketPrices:
@@ -126,3 +130,94 @@ class TestGetMarketStats:
         with app.app_context():
             result = get_market_stats("Ferrari", "F40", 1990, "Corse")
             assert result is None
+
+
+class TestFilterOutliersIQR:
+    """Tests du filtrage IQR des outliers."""
+
+    def test_no_outliers_in_normal_data(self):
+        """Donnees normales : rien n'est exclu."""
+        prices = [15000, 16000, 17000, 18000, 19000]
+        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        assert len(excluded) == 0
+        assert len(kept) == 5
+
+    def test_excludes_extreme_low_outlier(self):
+        """Un prix aberrant tres bas est exclu (ex: Mini 2023 a 2990)."""
+        prices = [2990, 16000, 17000, 18000, 19000, 20000, 22000]
+        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        assert 2990 in excluded
+        assert 2990 not in kept
+        assert len(kept) >= 5
+
+    def test_excludes_extreme_high_outlier(self):
+        """Un prix aberrant tres haut est exclu."""
+        prices = [15000, 16000, 17000, 18000, 19000, 95000]
+        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        assert 95000 in excluded
+        assert 95000 not in kept
+
+    def test_keeps_all_if_too_few_after_filter(self):
+        """Si le filtrage enleverait trop de donnees, on garde tout."""
+        prices = [500, 1000, 50000]  # Tout est outlier par rapport aux autres
+        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        # Doit garder au moins MIN_SAMPLE_COUNT (3) → garde tout
+        assert len(kept) == 3
+        assert len(excluded) == 0
+
+    def test_identical_prices_no_exclusion(self):
+        """Prix identiques : IQR=0, tout est garde."""
+        prices = [10000, 10000, 10000, 10000]
+        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        assert len(kept) == 4
+        assert len(excluded) == 0
+
+    def test_real_mini_scenario(self):
+        """Scenario reel Mini 2023 : l'outlier a 2990 casse la moyenne."""
+        # Donnees reelles du user
+        prices = [2990, 16980, 17000, 17500, 18000, 19000, 44970]
+        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        # 2990 et/ou 44970 devraient etre exclus
+        assert 2990 in excluded or 44970 in excluded
+        import numpy as np
+
+        # La mediane des prix gardes devrait etre plus representative
+        arr_kept = np.array(kept, dtype=float)
+        assert 15000 <= int(np.median(arr_kept)) <= 25000
+
+
+class TestStoreWithIQR:
+    """Tests que store_market_prices utilise bien le filtrage IQR."""
+
+    def test_stores_calculation_details(self, app):
+        """Les details du calcul sont stockes en JSON."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Mini",
+                model="Autres",
+                year=2023,
+                region="Bourgogne",
+                prices=[2990, 16980, 17000, 17500, 18000, 19000, 44970],
+            )
+            details = mp.get_calculation_details()
+            assert details is not None
+            assert details["method"] == "iqr"
+            assert details["raw_count"] == 7
+            assert details["kept_count"] <= 7
+            assert details["excluded_count"] >= 1
+            assert 2990 in details["raw_prices"]
+
+    def test_outlier_excluded_from_stats(self, app):
+        """Les stats sont calculees sur les prix filtres, pas les bruts."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="MiniTest",
+                model="OutlierTest",
+                year=2023,
+                region="Test",
+                prices=[2990, 16000, 17000, 18000, 19000, 20000],
+            )
+            # Si 2990 est exclu, le min devrait etre >= 16000
+            assert mp.price_min >= 15000
+            # La moyenne devrait etre > 16000 (pas tiree vers le bas par 2990)
+            assert mp.price_mean >= 16000

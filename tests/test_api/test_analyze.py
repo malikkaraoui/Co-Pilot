@@ -4,6 +4,7 @@ import json
 
 from tests.mocks.mock_leboncoin import (
     MALFORMED_NEXT_DATA,
+    MOTO_AD_NEXT_DATA,
     NON_VEHICLE_AD_NEXT_DATA,
     VALID_AD_NEXT_DATA,
     VEHICLE_IN_WRONG_CATEGORY_NEXT_DATA,
@@ -150,3 +151,41 @@ class TestNotAVehicleDetection:
         assert resp.status_code == 200
         body = resp.get_json()
         assert body["success"] is True
+
+
+class TestMotoDetection:
+    """Tests de la detection des annonces moto."""
+
+    def test_moto_returns_not_supported(self, client):
+        """Annonce moto dans /motos/ → 422 NOT_SUPPORTED."""
+        resp = client.post(
+            "/api/analyze",
+            data=json.dumps(
+                {
+                    "url": "https://www.leboncoin.fr/ad/motos/3134260111",
+                    "next_data": MOTO_AD_NEXT_DATA,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 422
+        body = resp.get_json()
+        assert body["success"] is False
+        assert body["error"] == "NOT_SUPPORTED"
+        assert "motos" in body["message"].lower() or "moto" in body["message"].lower()
+        assert body["data"]["category"] == "motos"
+
+    def test_moto_message_is_encouraging(self, client):
+        """Le message indique que le support moto arrive bientot."""
+        resp = client.post(
+            "/api/analyze",
+            data=json.dumps(
+                {
+                    "url": "https://www.leboncoin.fr/ad/motos/3134260111",
+                    "next_data": MOTO_AD_NEXT_DATA,
+                }
+            ),
+            content_type="application/json",
+        )
+        body = resp.get_json()
+        assert "vite" in body["message"].lower() or "arrive" in body["message"].lower()

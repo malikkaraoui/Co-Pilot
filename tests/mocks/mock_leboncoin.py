@@ -117,6 +117,38 @@ VEHICLE_IN_WRONG_CATEGORY_NEXT_DATA = {
     }
 }
 
+# Annonce moto
+MOTO_AD_NEXT_DATA = {
+    "props": {
+        "pageProps": {
+            "ad": {
+                "list_id": 3134260111,
+                "subject": "Yamaha MT-07 2023 ABS",
+                "price": [6500],
+                "body": "Yamaha MT-07 en parfait etat, premiere main.",
+                "location": {
+                    "city": "Paris",
+                    "zipcode": "75011",
+                    "department_name": "Paris",
+                    "region_name": "Ile-de-France",
+                },
+                "owner": {
+                    "type": "private",
+                    "name": "Lucas",
+                    "phone": "0645789012",
+                },
+                "attributes": [
+                    {"key": "Marque", "value": "Yamaha"},
+                    {"key": "Modèle", "value": "MT-07"},
+                    {"key": "Année modèle", "value": "2023"},
+                    {"key": "Kilométrage", "value": "8 000 km"},
+                    {"key": "Cylindrée", "value": "689 cm3"},
+                ],
+            }
+        }
+    }
+}
+
 AD_WITH_FOREIGN_PHONE = {
     "props": {
         "pageProps": {

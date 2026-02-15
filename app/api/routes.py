@@ -91,12 +91,24 @@ def _do_analyze():
             }
         ), 422
 
-    # Detection non-voiture : si la categorie URL n'est pas "voitures"
-    # ET que l'annonce n'a ni marque ni modele → ce n'est pas une voiture
+    # Detection non-voiture : categorie URL + presence marque/modele
     url = req.url or ""
     url_category = _extract_url_category(url)
     has_vehicle_attrs = bool(ad_data.get("make")) and bool(ad_data.get("model"))
 
+    # Motos : categorie reconnue mais pas encore supportee
+    if url_category == "motos":
+        logger.info("NOT_SUPPORTED: category=motos, url=%s", url)
+        return jsonify(
+            {
+                "success": False,
+                "error": "NOT_SUPPORTED",
+                "message": "Les motos, c'est pas encore notre rayon... mais ca arrive tres vite !",
+                "data": {"category": "motos"},
+            }
+        ), 422
+
+    # Autres categories non-voiture sans attributs vehicule
     if url_category != "voitures" and not has_vehicle_attrs:
         logger.info(
             "NOT_A_VEHICLE: category=%s, make=%r, model=%r",
