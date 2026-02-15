@@ -192,6 +192,7 @@ describe('extractVehicleFromNextData', () => {
       make: 'Peugeot',
       model: '3008',
       year: '2021',
+      fuel: '',
     });
   });
 
