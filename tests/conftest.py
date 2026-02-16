@@ -1,5 +1,7 @@
 """Shared pytest fixtures for Co-Pilot tests."""
 
+from unittest.mock import patch
+
 import pytest
 
 from app import create_app
@@ -20,6 +22,25 @@ def app():
 def client(app):
     """Flask test client."""
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _mock_l7_siret_api():
+    """Empeche tout appel reseau vers l'API SIRET dans les tests.
+
+    Retourne systematiquement une entreprise active fictive.
+    Les tests unitaires de L7 qui mockent deja _call_api ne sont pas affectes
+    car leur patch local prend precedence.
+    """
+    fake_response = {
+        "etat_administratif": "A",
+        "nom_complet": "Entreprise Test SARL",
+    }
+    with patch(
+        "app.filters.l7_siret.L7SiretFilter._call_api",
+        return_value=fake_response,
+    ):
+        yield
 
 
 @pytest.fixture()

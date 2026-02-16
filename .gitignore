@@ -9,7 +9,7 @@ node_modules/
 .vscode/
 .idea/
 
-# Data / Docs (large files, local only)
+# Datasets locaux (CSV/XLSX volumineux, non versionnes)
 docs/
 
 # Environment
@@ -33,6 +33,7 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+reports/
 
 # SQLite database (managed via Docker volume in prod)
 data/copilot.db

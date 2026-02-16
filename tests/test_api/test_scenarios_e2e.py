@@ -1,7 +1,7 @@
 """Tests end-to-end : simule le parcours complet extension → API → filtres → score.
 
 Chaque scenario reproduit une vraie annonce Leboncoin avec des donnees credibles.
-Zero appel reseau -- tout est en local (mocks JSON + SQLite in-memory).
+Zero appel reseau -- tout est en local (mocks JSON + SQLite in-memory + L7 SIRET mocke).
 Les resultats sont analyses pour valider la pertinence du scoring.
 """
 
@@ -180,15 +180,13 @@ class TestScenarioProSiret:
         assert vehicle["make"] == "Renault"
         assert vehicle["model"] == "Clio"
 
-    def test_l7_siret_attempted(self, client):
-        """Le filtre SIRET tourne (tout statut sauf absent)."""
+    def test_l7_siret_passes(self, client):
+        """Le filtre SIRET retourne pass (API mockee, entreprise active)."""
         resp = _analyze(client, SCENARIO_PRO_SIRET)
         body = resp.get_json()
         l7 = _get_filter(body["data"]["filters"], "L7")
         assert l7 is not None
-        # Le SIRET de test peut retourner fail (invalide), skip (API timeout)
-        # ou pass/warning (match reel). L'important : le filtre a tourne.
-        assert l7["status"] in ("pass", "warning", "fail", "skip")
+        assert l7["status"] == "pass"
 
 
 class TestScenarioIncomplet:
