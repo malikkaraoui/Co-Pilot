@@ -5,7 +5,7 @@ import os
 
 from flask import Flask
 
-from app.extensions import cors, csrf, db, login_manager
+from app.extensions import cors, csrf, db, limiter, login_manager
 from app.logging_config import setup_logging
 from config import config_by_name
 
@@ -44,6 +44,7 @@ def create_app(config_name: str | None = None) -> Flask:
     login_manager.login_view = "admin.login"
     cors.init_app(app, origins=app.config["CORS_ORIGINS"])
     csrf.init_app(app)
+    limiter.init_app(app)
 
     # Headers de securite HTTP
     @app.after_request

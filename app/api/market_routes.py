@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
 from app.services.market_service import (
@@ -40,6 +40,7 @@ class MarketPricesRequest(BaseModel):
 
 
 @api_bp.route("/market-prices", methods=["POST"])
+@limiter.limit("20/minute")
 def submit_market_prices():
     """Recoit les prix collectes par l'extension Chrome.
 
@@ -132,6 +133,7 @@ def submit_market_prices():
 
 
 @api_bp.route("/market-prices/next-job", methods=["GET"])
+@limiter.limit("60/minute")
 def next_market_job():
     """Indique a l'extension quel vehicule collecter pour l'argus maison.
 
@@ -151,6 +153,9 @@ def next_market_job():
     region = request.args.get("region")
 
     if not all([make, model, region]):
+        return jsonify({"success": True, "data": {"collect": False}})
+
+    if year is not None and not (1990 <= year <= 2030):
         return jsonify({"success": True, "data": {"collect": False}})
 
     # Comparaisons en naive UTC (SQLite ne conserve pas le tzinfo)

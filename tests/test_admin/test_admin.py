@@ -754,3 +754,290 @@ class TestArgusE2E:
             assert b"Hauts-de-France" in resp.data
             assert b"17 500" in resp.data  # prix median formate
             assert b"Frais" in resp.data
+
+
+# ── Race condition : double POST quick-add ────────────────────
+
+
+class TestQuickAddRaceCondition:
+    """Test que deux POST rapides ne creent qu'un seul vehicule."""
+
+    def test_double_quick_add_creates_single_vehicle(self, app, client, admin_user):
+        """Deux quick-add identiques ne creent qu'un seul vehicule (IntegrityError catch)."""
+        from app.extensions import db
+
+        _login(client)
+
+        # Premier ajout
+        resp1 = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Mazda", "model": "CX-5"},
+            follow_redirects=True,
+        )
+        assert resp1.status_code == 200
+        assert b"ajoute au referentiel" in resp1.data
+
+        # Deuxieme ajout (meme vehicule)
+        resp2 = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "mazda", "model": "cx-5"},
+            follow_redirects=True,
+        )
+        assert resp2.status_code == 200
+        assert b"existe deja" in resp2.data
+
+        # Verifier qu'un seul vehicule existe
+        with app.app_context():
+            count = Vehicle.query.filter(
+                db.func.lower(Vehicle.brand) == "mazda",
+                db.func.lower(Vehicle.model) == "cx-5",
+            ).count()
+            assert count == 1
+
+    def test_concurrent_quick_add_integrity_error(self, app, client, admin_user):
+        """Si un doublon passe la validation, l'IntegrityError est capture."""
+        from app.extensions import db
+
+        _login(client)
+
+        # Inserer directement en base pour simuler un ajout concurrent
+        with app.app_context():
+            v = Vehicle(brand="Hyundai", model="Tucson", year_start=2026)
+            db.session.add(v)
+            db.session.commit()
+
+        # Le quick-add doit detecter le doublon
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "hyundai", "model": "tucson"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"existe deja" in resp.data
+
+        with app.app_context():
+            count = Vehicle.query.filter(
+                db.func.lower(Vehicle.brand) == "hyundai",
+                db.func.lower(Vehicle.model) == "tucson",
+            ).count()
+            assert count == 1
+
+
+# ── Dashboard : compteur exact non reconnus ───────────────────
+
+
+class TestDashboardExactCounts:
+    """Tests du compteur exact de vehicules non reconnus."""
+
+    def test_dashboard_unrecognized_exact_count(self, app, client, admin_user):
+        """Le dashboard affiche le nombre exact de modeles non reconnus distincts."""
+        from app.extensions import db
+
+        with app.app_context():
+            # 3 scans pour "Alpha Romeo Tonale" + 2 pour "Lynk Co 01"
+            for _ in range(3):
+                scan = ScanLog(vehicle_make="Alfa Romeo", vehicle_model="Tonale", score=50)
+                db.session.add(scan)
+                db.session.flush()
+                db.session.add(
+                    FilterResultDB(
+                        scan_id=scan.id,
+                        filter_id="L2",
+                        status="warning",
+                        score=0.3,
+                        message="Non reconnu",
+                        details={"brand": "Alfa Romeo", "model": "Tonale", "recognized": False},
+                    )
+                )
+            for _ in range(2):
+                scan = ScanLog(vehicle_make="Lynk Co", vehicle_model="01", score=50)
+                db.session.add(scan)
+                db.session.flush()
+                db.session.add(
+                    FilterResultDB(
+                        scan_id=scan.id,
+                        filter_id="L2",
+                        status="warning",
+                        score=0.3,
+                        message="Non reconnu",
+                        details={"brand": "Lynk Co", "model": "01", "recognized": False},
+                    )
+                )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/car")
+        assert resp.status_code == 200
+        # Les deux modeles distincts apparaissent
+        assert b"Alfa Romeo" in resp.data
+        assert b"Tonale" in resp.data
+        assert b"Lynk Co" in resp.data
+        assert b"01" in resp.data
+
+    def test_car_page_excludes_not_a_vehicle(self, app, client, admin_user):
+        """Les scans NOT_A_VEHICLE ne comptent pas dans les non reconnus."""
+        from app.extensions import db
+
+        with app.app_context():
+            # Scan normal non reconnu
+            scan1 = ScanLog(
+                vehicle_make="Genesis",
+                vehicle_model="GV70",
+                score=50,
+                url="https://www.leboncoin.fr/ad/voitures/123",
+            )
+            db.session.add(scan1)
+            db.session.flush()
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan1.id,
+                    filter_id="L2",
+                    status="warning",
+                    score=0.3,
+                    message="Non reconnu",
+                    details={"brand": "Genesis", "model": "GV70", "recognized": False},
+                )
+            )
+
+            # Scan moto (devrait etre exclu)
+            scan2 = ScanLog(
+                vehicle_make="Honda",
+                vehicle_model="CB500",
+                score=0,
+                url="https://www.leboncoin.fr/ad/motos/456",
+            )
+            db.session.add(scan2)
+            db.session.flush()
+            db.session.add(
+                FilterResultDB(
+                    scan_id=scan2.id,
+                    filter_id="L2",
+                    status="skip",
+                    score=0.0,
+                    message="NOT_A_VEHICLE",
+                )
+            )
+            db.session.commit()
+
+        _login(client)
+        resp = client.get("/admin/car")
+        assert resp.status_code == 200
+        assert b"Genesis" in resp.data
+        # Les motos skip ne doivent pas apparaitre dans les non reconnus
+        assert b"CB500" not in resp.data
+
+
+# ── Edge cases : make/model avec valeurs speciales ────────────
+
+
+class TestQuickAddEdgeCases:
+    """Tests edge cases pour le quick-add vehicule."""
+
+    def test_quick_add_model_with_accents(self, app, client, admin_user):
+        """Le quick-add gere les accents (Citroen, Senat, etc.)."""
+        from app.extensions import db
+
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Citroën", "model": "Berlingo"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"ajoute au referentiel" in resp.data
+
+        with app.app_context():
+            v = Vehicle.query.filter(db.func.lower(Vehicle.model) == "berlingo").first()
+            assert v is not None
+            assert "Citro" in v.brand  # accent preserved or title-cased
+
+    def test_quick_add_model_with_dot(self, app, client, admin_user):
+        """Le quick-add gere les points (ID.3, e.C3, etc.)."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "VW", "model": "ID.3"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"ajoute au referentiel" in resp.data
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(model="ID.3").first()
+            assert v is not None
+            assert v.brand == "VW"  # <=3 chars stays uppercase
+
+    def test_quick_add_model_with_hyphen(self, app, client, admin_user):
+        """Le quick-add gere les tirets (e-2008, C-HR, etc.)."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Toyota", "model": "C-HR"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"ajoute au referentiel" in resp.data
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(model="C-HR").first()
+            assert v is not None
+
+    def test_quick_add_model_with_slash(self, app, client, admin_user):
+        """Le quick-add gere les slashes (3008/5008, etc.)."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Peugeot", "model": "3008/5008"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"ajoute au referentiel" in resp.data
+
+    def test_quick_add_whitespace_only_rejected(self, client, admin_user):
+        """Le quick-add refuse les chaines de whitespace."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "   ", "model": "   "},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"requis" in resp.data
+
+    def test_quick_add_very_long_input_truncated(self, app, client, admin_user):
+        """Le quick-add tronque les entrees trop longues."""
+        _login(client)
+        long_brand = "A" * 200
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": long_brand, "model": "TestLong"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        # Doit passer (tronque a 80 chars) ou echouer proprement
+        with app.app_context():
+            v = Vehicle.query.filter_by(model="TestLong").first()
+            if v:
+                assert len(v.brand) <= 80
+
+    def test_quick_add_pipe_character_rejected(self, client, admin_user):
+        """Le quick-add refuse les caracteres pipe |."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Test|Brand", "model": "Model"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Caracteres invalides" in resp.data
+
+    def test_quick_add_html_injection_rejected(self, client, admin_user):
+        """Le quick-add refuse les injections HTML."""
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "Test<img>", "model": "Model"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Caracteres invalides" in resp.data

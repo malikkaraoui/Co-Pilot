@@ -244,45 +244,40 @@ def car():
         .all()
     )
 
-    # Tendance 7j : comptages semaine courante vs semaine precedente
-    recent_counts = {
-        (r.vehicle_make, r.vehicle_model): r.cnt
-        for r in db.session.query(
+    # Tendance 7j : comptages semaine courante vs semaine precedente (1 requete)
+    trend_rows = (
+        db.session.query(
             ScanLog.vehicle_make,
             ScanLog.vehicle_model,
-            db.func.count(ScanLog.id).label("cnt"),
-        )
-        .join(FilterResultDB, FilterResultDB.scan_id == ScanLog.id)
-        .filter(
-            FilterResultDB.filter_id == "L2",
-            FilterResultDB.status == "warning",
-            ScanLog.created_at >= seven_days_ago,
-            ScanLog.vehicle_make.isnot(None),
-            ScanLog.vehicle_model.isnot(None),
-        )
-        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
-        .all()
-    }
-
-    previous_counts = {
-        (r.vehicle_make, r.vehicle_model): r.cnt
-        for r in db.session.query(
-            ScanLog.vehicle_make,
-            ScanLog.vehicle_model,
-            db.func.count(ScanLog.id).label("cnt"),
+            db.func.sum(db.case((ScanLog.created_at >= seven_days_ago, 1), else_=0)).label(
+                "recent_cnt"
+            ),
+            db.func.sum(
+                db.case(
+                    (
+                        db.and_(
+                            ScanLog.created_at >= fourteen_days_ago,
+                            ScanLog.created_at < seven_days_ago,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("previous_cnt"),
         )
         .join(FilterResultDB, FilterResultDB.scan_id == ScanLog.id)
         .filter(
             FilterResultDB.filter_id == "L2",
             FilterResultDB.status == "warning",
             ScanLog.created_at >= fourteen_days_ago,
-            ScanLog.created_at < seven_days_ago,
             ScanLog.vehicle_make.isnot(None),
             ScanLog.vehicle_model.isnot(None),
         )
         .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
         .all()
-    }
+    )
+    recent_counts = {(r.vehicle_make, r.vehicle_model): r.recent_cnt for r in trend_rows}
+    previous_counts = {(r.vehicle_make, r.vehicle_model): r.previous_cnt for r in trend_rows}
 
     unrecognized_models = []
     for row in unrecognized_rows:
@@ -307,13 +302,18 @@ def car():
             }
         )
 
-    # Vehicules reconnus dans le referentiel
-    known_vehicles = Vehicle.query.order_by(Vehicle.brand, Vehicle.model).all()
+    # Vehicules reconnus dans le referentiel (pagines)
+    page = request.args.get("page", 1, type=int)
+    per_page = 50
+    known_pagination = Vehicle.query.order_by(Vehicle.brand, Vehicle.model).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
 
     return render_template(
         "admin/car.html",
         unrecognized_models=unrecognized_models,
-        known_vehicles=known_vehicles,
+        known_vehicles=known_pagination.items,
+        pagination=known_pagination,
     )
 
 

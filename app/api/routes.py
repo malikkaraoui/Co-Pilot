@@ -10,7 +10,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
 from app.errors import ExtractionError
-from app.extensions import db
+from app.extensions import db, limiter
 from app.filters.engine import FilterEngine
 from app.models.filter_result import FilterResultDB
 from app.models.scan import ScanLog
@@ -29,6 +29,7 @@ def health():
 
 
 @api_bp.route("/analyze", methods=["POST"])
+@limiter.limit("30/minute")
 def analyze():
     """Analyse une annonce Leboncoin et retourne un score de confiance.
 

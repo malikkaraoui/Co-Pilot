@@ -52,6 +52,7 @@ class TestConfig(Config):
         "connect_args": {"check_same_thread": False},
     }
     WTF_CSRF_ENABLED = False
+    RATELIMIT_ENABLED = False
     LOG_LEVEL = "DEBUG"
 
 
