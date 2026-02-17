@@ -9,15 +9,100 @@ from app.filters.base import BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
 
-IMPORT_KEYWORDS = [
-    "import", "importé", "importee", "etranger", "étrangère", "etrangere",
-    "provenance", "allemagne", "belgique", "espagne", "italie", "pologne",
-    "roumanie", "pays-bas", "hollande",
+# Keywords d'import en francais
+IMPORT_KEYWORDS_FR = [
+    "import",
+    "importé",
+    "importee",
+    "importation",
+    "etranger",
+    "étrangère",
+    "etrangere",
+    "provenance",
+    "en provenance",
+]
+
+# Pays source d'import frequents
+IMPORT_COUNTRIES = [
+    "allemagne",
+    "belgique",
+    "espagne",
+    "italie",
+    "pologne",
+    "roumanie",
+    "pays-bas",
+    "hollande",
+    "portugal",
+    "luxembourg",
+    "autriche",
+    "suisse",
+    "bulgarie",
+    "republique tcheque",
+    "slovaquie",
+    "hongrie",
+    "croatie",
+]
+
+# Keywords multi-langues (descriptions copiees-collees de sites etrangers)
+IMPORT_KEYWORDS_FOREIGN = [
+    # Allemand
+    "unfallwagen",
+    "fahrzeug",
+    "kilometerstand",
+    "gebraucht",
+    "automatik",
+    "schaltgetriebe",
+    "erstbesitzer",
+    "unfallfrei",
+    # Espagnol
+    "vehículo",
+    "vehiculo",
+    "kilómetros",
+    "kilometros",
+    # Italien
+    "veicolo",
+    "chilometri",
+    "cambio automatico",
+    # Anglais (annonces internationales)
+    "left hand drive",
+    "lhd",
+    "imported from",
+]
+
+# Signaux fiscaux / TVA (import pro)
+TAX_KEYWORDS = [
+    "hors taxe",
+    "ht",
+    "tva récupérable",
+    "tva recuperable",
+    "tva deductible",
+    "exportation",
+    "hors tva",
+    "malus payé",
+    "malus paye",
+    "malus ecologique",
+    "malus écologique",
+    "malus inclus",
+    "taxe co2",
+]
+
+# Signaux de carte grise / immatriculation suspecte
+REGISTRATION_KEYWORDS = [
+    "carte grise en cours",
+    "carte grise a faire",
+    "plaque provisoire",
+    "plaque ww",
+    "immatriculation ww",
+    "certificat de conformite",
+    "coc",
+    "homologation",
+    "reception a titre isole",
+    "rti",
 ]
 
 
 class L8ImportDetectionFilter(BaseFilter):
-    """Detecte les signaux indiquant qu'un vehicule pourrait etre importe (historique incomplet, anomalie de prix)."""
+    """Detecte les signaux indiquant qu'un vehicule pourrait etre importe."""
 
     filter_id = "L8"
 
@@ -34,26 +119,42 @@ class L8ImportDetectionFilter(BaseFilter):
         description = (data.get("description") or "").lower()
         title = (data.get("title") or "").lower()
         text = f"{title} {description}"
-        found_keywords = [kw for kw in IMPORT_KEYWORDS if kw in text]
-        if found_keywords:
-            signals.append(f"Mention d'import dans l'annonce ({', '.join(found_keywords[:3])})")
 
-        # Signal 3 : Anomalie de prix (tres bas pour le type)
+        found_import = [kw for kw in IMPORT_KEYWORDS_FR if kw in text]
+        found_countries = [kw for kw in IMPORT_COUNTRIES if kw in text]
+        if found_import:
+            signals.append(f"Mention d'import dans l'annonce ({', '.join(found_import[:3])})")
+        if found_countries:
+            signals.append(f"Pays d'origine mentionne ({', '.join(found_countries[:3])})")
+
+        # Signal 3 : Texte en langue etrangere (copier-coller de site etranger)
+        found_foreign = [kw for kw in IMPORT_KEYWORDS_FOREIGN if kw in text]
+        if found_foreign:
+            signals.append(f"Texte en langue etrangere detecte ({', '.join(found_foreign[:3])})")
+
+        # Signal 4 : Signaux fiscaux (malus, TVA, export)
+        found_tax = [kw for kw in TAX_KEYWORDS if kw in text]
+        if found_tax:
+            signals.append(f"Signal fiscal/TVA ({', '.join(found_tax[:3])})")
+
+        # Signal 5 : Carte grise en cours / immatriculation provisoire
+        found_reg = [kw for kw in REGISTRATION_KEYWORDS if kw in text]
+        if found_reg:
+            signals.append(f"Immatriculation provisoire ou en cours ({', '.join(found_reg[:2])})")
+
+        # Signal 6 : Anomalie de prix (tres bas pour le type)
         price = data.get("price_eur")
         year_str = data.get("year_model")
         if price is not None and year_str:
             try:
                 year = int(year_str)
                 age = datetime.now(timezone.utc).year - year
-                # Heuristique tres approximative : si prix < 2000EUR pour un vehicule < 8 ans
                 if age < 8 and price < 3000:
-                    signals.append(
-                        f"Prix tres bas ({price} EUR) pour un vehicule de {age} ans"
-                    )
+                    signals.append(f"Prix tres bas ({price} EUR) pour un vehicule de {age} ans")
             except (ValueError, TypeError):
                 pass
 
-        # Signal 4 : Vendeur professionnel sans SIRET
+        # Signal 7 : Vendeur professionnel sans SIRET
         owner_type = data.get("owner_type")
         siret = data.get("siret")
         if owner_type == "pro" and not siret:

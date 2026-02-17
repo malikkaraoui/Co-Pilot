@@ -32,13 +32,25 @@ class TestL8ImportDetectionFilter:
 
     def test_import_keywords_warns(self):
         data = {
-            "description": "Vehicule importé d'Allemagne, carnet entretien complet.",
+            "description": "Vehicule importé, carnet entretien complet.",
             "price_eur": 18000,
             "year_model": "2020",
         }
         result = self.filt.run(data)
         assert result.status == "warning"
         assert any("import" in s.lower() for s in result.details["signals"])
+
+    def test_import_keyword_and_country_fails(self):
+        data = {
+            "description": "Vehicule importé d'Allemagne, carnet entretien complet.",
+            "price_eur": 18000,
+            "year_model": "2020",
+        }
+        result = self.filt.run(data)
+        assert result.status == "fail"
+        assert len(result.details["signals"]) >= 2
+        assert any("import" in s.lower() for s in result.details["signals"])
+        assert any("allemagne" in s.lower() for s in result.details["signals"])
 
     def test_multiple_signals_fails(self):
         data = {

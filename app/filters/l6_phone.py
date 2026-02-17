@@ -13,6 +13,38 @@ FR_MOBILE_PATTERN = re.compile(r"^(?:\+33|0033|0)[67]\d{8}$")
 FR_LANDLINE_PATTERN = re.compile(r"^(?:\+33|0033|0)[1-59]\d{8}$")
 FOREIGN_PREFIX_PATTERN = re.compile(r"^\+(?!33)\d{1,3}")
 
+# Prefixes ARCEP reserves au demarchage telephonique (depuis 1er janvier 2023)
+# Source: plan de numerotation ARCEP, liste officielle
+TELEMARKETING_PREFIXES = (
+    "0162",
+    "0163",  # Ile-de-France
+    "0270",
+    "0271",  # Nord-Ouest
+    "0377",
+    "0378",  # Nord-Est
+    "0424",
+    "0425",  # Sud-Est
+    "0568",
+    "0569",  # Sud-Ouest
+    "0948",
+    "0949",  # Numeros non geographiques
+    "09475",
+    "09476",
+    "09477",
+    "09478",
+    "09479",  # Outre-mer
+)
+
+# Numeros virtuels OnOff (souvent utilises pour masquer l'identite)
+VIRTUAL_PREFIXES = (
+    "064466",
+    "064467",
+    "064468",
+    "064469",
+    "07568",
+    "07569",
+)
+
 
 class L6PhoneFilter(BaseFilter):
     """Analyse le numero de telephone du vendeur pour detecter des indicatifs etrangers ou formats suspects."""
@@ -43,6 +75,35 @@ class L6PhoneFilter(BaseFilter):
                     "prefix": prefix,
                     "is_foreign": True,
                 },
+            )
+
+        # Detection prefixes demarchage ARCEP
+        # Normaliser vers format 0XXXXXXXXX pour le matching
+        local = cleaned
+        if local.startswith("+33"):
+            local = "0" + local[3:]
+        elif local.startswith("0033"):
+            local = "0" + local[4:]
+
+        if any(local.startswith(p) for p in TELEMARKETING_PREFIXES):
+            logger.info("L6: telemarketing prefix detected: %s", local[:4])
+            return FilterResult(
+                filter_id=self.filter_id,
+                status="fail",
+                score=0.1,
+                message="Numero de demarchage telephonique (prefixe ARCEP reserve)",
+                details={"phone": phone, "type": "telemarketing_arcep", "prefix": local[:4]},
+            )
+
+        # Detection numeros virtuels (OnOff)
+        if any(local.startswith(p) for p in VIRTUAL_PREFIXES):
+            logger.info("L6: virtual number detected: %s", local[:6])
+            return FilterResult(
+                filter_id=self.filter_id,
+                status="warning",
+                score=0.3,
+                message="Numero virtuel (identite potentiellement masquee)",
+                details={"phone": phone, "type": "virtual_onoff", "prefix": local[:6]},
             )
 
         # Verification mobile francais

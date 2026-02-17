@@ -38,7 +38,23 @@ class L9GlobalAssessmentFilter(BaseFilter):
         elif owner_type == "private":
             pass  # neutral
 
-        # Les photos/images seront ajoutees ici a l'avenir
+        # Photos : >3 = annonce payante (vendeur investi)
+        image_count = data.get("image_count") or 0
+        if image_count > 3:
+            points_forts.append(f"Annonce avec {image_count} photos (option payante)")
+        elif image_count == 0:
+            points_faibles.append("Aucune photo")
+
+        # Options payantes LBC : signe d'investissement du vendeur
+        paid_options = []
+        if data.get("has_urgent"):
+            paid_options.append("Badge Urgent")
+        if data.get("has_highlight"):
+            paid_options.append("A la Une")
+        if data.get("has_boost"):
+            paid_options.append("Remontee")
+        if paid_options:
+            points_forts.append(f"Options payantes : {', '.join(paid_options)}")
 
         # Telephone disponible
         if data.get("phone"):

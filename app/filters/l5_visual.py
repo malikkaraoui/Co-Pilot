@@ -84,6 +84,31 @@ class L5VisualFilter(BaseFilter):
         anomalies = []
         z_scores = {}
 
+        # Malus diesel urbain : un diesel en zone agglo dense a des km plus usants
+        # Le FAP doit monter a 800°C (>100 km/h, >2500 tr/min, 30 min) pour se regenerer.
+        # En ville, ca n'arrive jamais → encrassement FAP, injecteurs, vanne EGR.
+        diesel_urban_warning = None
+        fuel = (data.get("fuel") or "").lower()
+        location = data.get("location") or {}
+        region = location.get("region") or ""
+        is_diesel = "diesel" in fuel
+        agglo_regions = {
+            "Île-de-France",
+            "Ile-de-France",
+            "Auvergne-Rhône-Alpes",
+            "Auvergne-Rhone-Alpes",
+            "Provence-Alpes-Côte d'Azur",
+            "Provence-Alpes-Cote d'Azur",
+        }
+        is_urban = any(r.lower() in region.lower() for r in agglo_regions)
+
+        if is_diesel and is_urban and mileage is not None and mileage > 30000:
+            diesel_urban_warning = (
+                "Diesel en zone urbaine dense -- usure FAP/injecteurs "
+                "potentiellement plus elevee a kilometrage egal"
+            )
+            anomalies.append(diesel_urban_warning)
+
         # Z-score du prix
         if price is not None:
             price_mean = np.mean(ref_prices)
@@ -105,6 +130,7 @@ class L5VisualFilter(BaseFilter):
             "z_scores": z_scores,
             "anomalies": anomalies,
             "source": source,
+            "diesel_urban": diesel_urban_warning is not None,
         }
 
         if not anomalies:

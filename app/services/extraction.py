@@ -169,6 +169,18 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
     owner_name = owner.get("name")
     siret = owner.get("siren") or owner.get("siret")
 
+    # Images : comptage depuis le tableau images/photos de l'annonce
+    images = ad.get("images") or ad.get("photos") or ad.get("pictures") or []
+    image_count = len(images) if isinstance(images, list) else 0
+
+    # Options payantes LBC (urgent, a la une, boost)
+    options = ad.get("options") or ad.get("ad_options") or {}
+    has_urgent = bool(options.get("urgent") or options.get("is_urgent") or ad.get("urgent"))
+    has_highlight = bool(
+        options.get("highlight") or options.get("is_highlight") or ad.get("highlight")
+    )
+    has_boost = bool(options.get("boost") or options.get("is_boost") or ad.get("boost"))
+
     result = {
         "title": title,
         "price_eur": price,
@@ -215,6 +227,10 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         "owner_name": owner_name,
         "siret": siret,
         "raw_attributes": attrs,
+        "image_count": image_count,
+        "has_urgent": has_urgent,
+        "has_highlight": has_highlight,
+        "has_boost": has_boost,
     }
 
     logger.info(
