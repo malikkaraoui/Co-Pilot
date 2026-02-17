@@ -63,7 +63,13 @@ def _find_ad_payload(next_data: dict) -> dict | None:
 
 
 def _normalize_attributes(ad: dict) -> dict[str, Any]:
-    """Convertit ad.attributes[] de Leboncoin en dictionnaire plat cle->valeur."""
+    """Convertit ad.attributes[] de Leboncoin en dictionnaire plat cle->valeur.
+
+    Stocke chaque attribut sous sa cle machine (``key``, ex. ``vehicule_color``)
+    ET sous son label francais (``key_label``, ex. ``Couleur vehicule``) quand
+    il est disponible.  Prefere ``value_label`` (texte lisible) a ``value``
+    (parfois un code encode, ex. fuel=8 pour Hybride Rechargeable).
+    """
     out: dict[str, Any] = {}
     attrs = ad.get("attributes") or []
     if not isinstance(attrs, list):
@@ -73,14 +79,19 @@ def _normalize_attributes(ad: dict) -> dict[str, Any]:
         if not isinstance(attr, dict):
             continue
         key = attr.get("key") or attr.get("key_label") or attr.get("label") or attr.get("name")
+        # Preferer value_label (lisible) a value (parfois encode)
         val = (
-            attr.get("value")
-            or attr.get("value_label")
+            attr.get("value_label")
+            or attr.get("value")
             or attr.get("text")
             or attr.get("value_text")
         )
         if isinstance(key, str) and key.strip():
             out[key.strip()] = val
+            # Stocker aussi sous key_label pour que les lookups par nom francais marchent
+            key_label = attr.get("key_label")
+            if key_label and isinstance(key_label, str) and key_label.strip() != key.strip():
+                out[key_label.strip()] = val
 
     return out
 

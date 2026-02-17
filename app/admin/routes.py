@@ -223,7 +223,7 @@ def car():
     fourteen_days_ago = now - timedelta(days=14)
 
     # Query robuste : JOIN ScanLog + FilterResultDB (L2 warning = non reconnu)
-    unrecognized_rows = (
+    unrecognized_rows_raw = (
         db.session.query(
             ScanLog.vehicle_make,
             ScanLog.vehicle_model,
@@ -243,6 +243,15 @@ def car():
         .limit(50)
         .all()
     )
+
+    # Exclure les vehicules deja ajoutes au referentiel (quick-add ou seed)
+    from app.services.vehicle_lookup import find_vehicle
+
+    unrecognized_rows = [
+        row
+        for row in unrecognized_rows_raw
+        if not find_vehicle(row.vehicle_make, row.vehicle_model)
+    ]
 
     # Tendance 7j : comptages semaine courante vs semaine precedente (1 requete)
     trend_rows = (
