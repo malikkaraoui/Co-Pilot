@@ -325,9 +325,27 @@
     `;
   }
 
+  /** Construit la banniere Autoviza (rapport gratuit offert par LBC). */
+  function buildAutovizaBanner(autovizaUrl) {
+    if (!autovizaUrl) return "";
+    return `
+      <div class="copilot-autoviza-banner">
+        <a href="${escapeHTML(autovizaUrl)}" target="_blank" rel="noopener noreferrer"
+           class="copilot-autoviza-link">
+          <span class="copilot-autoviza-icon">&#x1F4CB;</span>
+          <span class="copilot-autoviza-text">
+            <strong>Rapport d'historique gratuit</strong>
+            <small>Offert par LeBonCoin via Autoviza (valeur 25 €)</small>
+          </span>
+          <span class="copilot-autoviza-arrow">&rsaquo;</span>
+        </a>
+      </div>`;
+  }
+
   /** Construit la popup complete des resultats. */
-  function buildResultsPopup(data) {
+  function buildResultsPopup(data, options = {}) {
     const { score, is_partial, filters, vehicle } = data;
+    const { autovizaUrl } = options;
     const color = scoreColor(score);
 
     const vehicleInfo = vehicle
@@ -362,6 +380,8 @@
         </div>
 
         ${buildPremiumSection()}
+
+        ${buildAutovizaBanner(autovizaUrl)}
 
         <div class="copilot-carvertical-banner">
           <a href="https://www.carvertical.com/fr" target="_blank" rel="noopener noreferrer"
@@ -564,6 +584,16 @@
   }
 
   /**
+   * Detecte un lien vers un rapport Autoviza sur la page LBC.
+   * Certaines annonces offrent un rapport d'historique gratuit (valeur 25 EUR).
+   * Retourne l'URL du rapport ou null si absent.
+   */
+  function detectAutovizaUrl() {
+    const link = document.querySelector('a[href*="autoviza.fr"]');
+    return link ? link.href : null;
+  }
+
+  /**
    * Recupere le numero de telephone sur la page LBC.
    * 1. Verifie si un lien tel: existe deja (numero deja revele)
    * 2. Sinon clique "Voir le numero" (utilisateur connecte uniquement)
@@ -694,7 +724,10 @@
         }
       }
 
-      showPopup(buildResultsPopup(result.data));
+      // Detecter un eventuel rapport Autoviza gratuit sur la page
+      const autovizaUrl = detectAutovizaUrl();
+
+      showPopup(buildResultsPopup(result.data, { autovizaUrl }));
     } catch (err) {
       // Erreur silencieuse -- affichee dans la popup
       showPopup(buildErrorPopup(getRandomErrorMessage()));
