@@ -22,6 +22,7 @@
             <th>Premier scan</th>
             <th>Dernier scan</th>
             <th>Tendance 7j</th>
+            <th>Base CSV</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -58,16 +59,38 @@
               {% endif %}
             </td>
             <td>
+              {% if item.csv_available %}
+                <span class="badge bg-success" title="Donnees techniques disponibles dans le CSV Kaggle">Dispo</span>
+              {% else %}
+                <span class="badge bg-secondary" title="Pas dans le CSV -- enrichissement futur necessaire (RAG, scrap, forums)">Absent</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.csv_available %}
               <form method="POST" action="{{ url_for('admin.quick_add_vehicle') }}"
                     style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="brand" value="{{ item.brand }}">
                 <input type="hidden" name="model" value="{{ item.model }}">
                 <button type="submit" class="btn btn-sm btn-primary"
-                        title="Ajouter {{ item.brand }} {{ item.model }} au referentiel">
+                        title="Ajouter {{ item.brand }} {{ item.model }} + fiches CSV">
                   + Ajouter
                 </button>
               </form>
+              {% elif item.count >= 5 %}
+                <span class="text-muted" style="font-size:12px;" title="5+ scans mais pas de donnees CSV -- enrichissement futur (RAG, YouTube, forums)">En attente enrichissement</span>
+              {% else %}
+              <form method="POST" action="{{ url_for('admin.quick_add_vehicle') }}"
+                    style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="brand" value="{{ item.brand }}">
+                <input type="hidden" name="model" value="{{ item.model }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                        title="Ajouter {{ item.brand }} {{ item.model }} sans fiche technique">
+                  + Coquille vide
+                </button>
+              </form>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}

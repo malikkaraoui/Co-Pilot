@@ -6,6 +6,7 @@ pour creer des VehicleSpec sans intervention manuelle.
 
 import csv
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,31 @@ def _float_or_none(val: str) -> float | None:
         return float(val.strip())
     except (ValueError, OverflowError):
         return None
+
+
+@lru_cache(maxsize=1)
+def _load_model_index() -> frozenset[tuple[str, str]]:
+    """Charge l'index (make_lower, model_lower) du CSV en un seul pass.
+
+    Cache en memoire apres le premier appel (~70k lignes → ~2k paires uniques).
+    """
+    if not CSV_PATH.exists():
+        return frozenset()
+    pairs: set[tuple[str, str]] = set()
+    with open(CSV_PATH, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            make = (row.get("Make") or "").strip().lower()
+            model = (row.get("Modle") or "").strip().lower()
+            if make and model:
+                pairs.add((make, model))
+    logger.info("CSV index loaded: %d unique make/model pairs", len(pairs))
+    return frozenset(pairs)
+
+
+def has_specs(brand: str, model: str) -> bool:
+    """Verifie rapidement si un vehicule a des specs dans le CSV (O(1) apres chargement)."""
+    return (brand.lower().strip(), model.lower().strip()) in _load_model_index()
 
 
 def lookup_specs(brand: str, model: str) -> list[dict[str, Any]]:

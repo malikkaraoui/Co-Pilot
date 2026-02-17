@@ -253,6 +253,66 @@ def car():
         if not find_vehicle(row.vehicle_make, row.vehicle_model)
     ]
 
+    # Auto-promotion : vehicules avec 5+ scans → lookup CSV automatique
+    from app.services.csv_enrichment import has_specs, lookup_specs
+
+    auto_promoted = []
+    still_unrecognized = []
+    for row in unrecognized_rows:
+        if row.demand_count >= 5:
+            csv_specs = lookup_specs(row.vehicle_make, row.vehicle_model)
+            if csv_specs:
+                # Auto-creer le vehicule + specs
+                brand_clean = (
+                    row.vehicle_make.upper()
+                    if len(row.vehicle_make) <= 3
+                    else row.vehicle_make.title()
+                )
+                model_clean = row.vehicle_model
+
+                # Verifier doublon (race condition)
+                existing = Vehicle.query.filter(
+                    db.func.lower(Vehicle.brand) == brand_clean.lower(),
+                    db.func.lower(Vehicle.model) == model_clean.lower(),
+                ).first()
+                if not existing:
+                    years_from = [s["year_from"] for s in csv_specs if s.get("year_from")]
+                    years_to = [s["year_to"] for s in csv_specs if s.get("year_to")]
+                    vehicle = Vehicle(
+                        brand=brand_clean,
+                        model=model_clean,
+                        year_start=min(years_from) if years_from else None,
+                        year_end=max(years_to) if years_to else None,
+                        enrichment_status="partial",
+                    )
+                    db.session.add(vehicle)
+                    db.session.flush()
+                    from app.models.vehicle import VehicleSpec
+
+                    for spec_data in csv_specs:
+                        spec_data.pop("generation", None)
+                        spec_data.pop("year_from", None)
+                        spec_data.pop("year_to", None)
+                        db.session.add(VehicleSpec(vehicle_id=vehicle.id, **spec_data))
+                    db.session.commit()
+                    auto_promoted.append(f"{brand_clean} {model_clean} ({len(csv_specs)} fiches)")
+                    logger.info(
+                        "Auto-promoted %s %s: %d scans, %d CSV specs",
+                        brand_clean,
+                        model_clean,
+                        row.demand_count,
+                        len(csv_specs),
+                    )
+                continue  # Ne pas l'afficher dans la liste non reconnus
+        still_unrecognized.append(row)
+    unrecognized_rows = still_unrecognized
+
+    if auto_promoted:
+        flash(
+            f"Auto-ajout ({len(auto_promoted)}) : {', '.join(auto_promoted)}",
+            "success",
+        )
+
     # Tendance 7j : comptages semaine courante vs semaine precedente (1 requete)
     trend_rows = (
         db.session.query(
@@ -300,6 +360,10 @@ def car():
         else:
             trend = 0
 
+        # Statut CSV : est-ce que le vehicule a des donnees dans le CSV ?
+        # has_specs() est O(1) grace au cache en memoire
+        csv_available = has_specs(row.vehicle_make, row.vehicle_model)
+
         unrecognized_models.append(
             {
                 "brand": row.vehicle_make,
@@ -308,6 +372,7 @@ def car():
                 "first_seen": row.first_seen,
                 "last_seen": row.last_seen,
                 "trend": trend,
+                "csv_available": csv_available,
             }
         )
 
