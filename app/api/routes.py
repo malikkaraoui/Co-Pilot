@@ -153,6 +153,9 @@ def _do_analyze():
             is_partial=is_partial,
             vehicle_make=ad_data.get("make"),
             vehicle_model=ad_data.get("model"),
+            price_eur=ad_data.get("price_eur"),
+            days_online=ad_data.get("days_online"),
+            republished=ad_data.get("republished", False),
         )
         db.session.add(scan)
         db.session.flush()
