@@ -1,7 +1,7 @@
 """Categories de vehicules et km attendus par categorie.
 
 Savoir metier : une citadine fait moins de km/an qu'un SUV familial.
-Un vehicule de flotte d'entreprise roule beaucoup plus mais est mieux suivi.
+Sources km/an : moyennes nationales INSEE / SDES (enquete mobilite).
 """
 
 # km/an moyens par categorie
@@ -98,36 +98,6 @@ VEHICLE_CATEGORY: dict[tuple[str, str], str] = {
     ("fiat", "600"): "suv_compact",
 }
 
-# Vehicules typiques de flotte d'entreprise (km eleve mais bien suivi)
-FLEET_VEHICLES: set[tuple[str, str]] = {
-    ("peugeot", "208"),
-    ("peugeot", "308"),
-    ("peugeot", "3008"),
-    ("peugeot", "5008"),
-    ("renault", "clio v"),
-    ("renault", "megane"),
-    ("renault", "captur"),
-    ("citroen", "c3"),
-    ("citroen", "c4"),
-    ("citroen", "c5 aircross"),
-    ("dacia", "sandero"),
-    ("dacia", "duster"),
-    ("volkswagen", "golf"),
-    ("volkswagen", "polo"),
-    ("volkswagen", "tiguan"),
-    ("ford", "fiesta"),
-    ("ford", "puma"),
-    ("ford", "kuga"),
-    ("toyota", "yaris"),
-    ("toyota", "corolla"),
-    ("bmw", "serie 3"),
-    ("mercedes", "classe a"),
-    ("mercedes", "gla"),
-    ("audi", "a3"),
-    ("skoda", "octavia"),
-    ("skoda", "fabia"),
-}
-
 
 def get_vehicle_category(make: str, model: str) -> str | None:
     """Retourne la categorie du vehicule ou None si inconnu."""
@@ -141,9 +111,3 @@ def get_expected_km_per_year(make: str, model: str) -> int:
     if category:
         return KM_PER_YEAR[category]
     return 15000  # fallback moyen national
-
-
-def is_fleet_vehicle(make: str, model: str) -> bool:
-    """Retourne True si ce modele est typique des flottes d'entreprise."""
-    key = (make.lower().strip(), model.lower().strip())
-    return key in FLEET_VEHICLES

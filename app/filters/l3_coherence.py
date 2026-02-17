@@ -8,7 +8,6 @@ from app.filters.base import BaseFilter, FilterResult
 from app.filters.vehicle_categories import (
     get_expected_km_per_year,
     get_vehicle_category,
-    is_fleet_vehicle,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,10 @@ class L3CoherenceFilter(BaseFilter):
         # km/an attendu adapte a la categorie du vehicule
         avg_km_per_year = get_expected_km_per_year(make, model)
         category = get_vehicle_category(make, model)
-        fleet = is_fleet_vehicle(make, model)
+
+        # Donnee reelle LBC : vendeur pro = probable ex-flotte/LOA
+        owner_type = data.get("owner_type")
+        is_pro = owner_type == "pro"
 
         warnings = []
         expected_km = age * avg_km_per_year
@@ -76,11 +78,11 @@ class L3CoherenceFilter(BaseFilter):
                 f"attendu ~{expected_km:,} km)"
             )
         elif km_ratio > (1 + KM_TOLERANCE_PCT):
-            # Km eleve mais vehicule de flotte : nuancer le message
-            if fleet and km_ratio < 2.5:
+            # Vendeur pro + km eleve : probable deflottage (entretien suivi)
+            if is_pro and km_ratio < 2.5:
                 warnings.append(
-                    f"Kilometrage eleve ({mileage:,} km) mais modele courant en flotte "
-                    f"d'entreprise (entretien suivi)"
+                    f"Kilometrage eleve ({mileage:,} km) mais vendeur professionnel "
+                    f"(probable deflottage, entretien suivi)"
                 )
             else:
                 warnings.append(
@@ -101,8 +103,8 @@ class L3CoherenceFilter(BaseFilter):
             status = "pass"
             message = "Coherence des donnees OK"
         elif len(warnings) == 1:
-            # Vehicule de flotte avec km eleve mais pas excessif : warning leger
-            if fleet and "flotte" in warnings[0]:
+            # Vendeur pro avec km eleve mais pas excessif : warning leger
+            if is_pro and "professionnel" in warnings[0]:
                 score = 0.6
             else:
                 score = 0.5
@@ -126,7 +128,7 @@ class L3CoherenceFilter(BaseFilter):
                 "expected_km": expected_km,
                 "km_ratio": round(km_ratio, 2),
                 "category": category,
-                "is_fleet": fleet,
+                "is_pro": is_pro,
                 "avg_km_per_year": avg_km_per_year,
                 "warnings": warnings,
             },
