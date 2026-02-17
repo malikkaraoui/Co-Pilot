@@ -239,6 +239,7 @@
     is_import: "Véhicule importé",
     import_indicators: "Indicateurs import",
     color: "Couleur",
+    phone_login_hint: "Téléphone",
   };
 
   /** Formate une valeur de detail pour l'affichage humain. */
@@ -262,8 +263,21 @@
 
   /** Construit le HTML des details d'un filtre (depliable). */
   function buildDetailsHTML(details) {
+    // phone_login_hint : affiche directement (pas dans le depliable)
+    let phoneHintHTML = "";
+    if (details.phone_login_hint) {
+      phoneHintHTML = `
+        <div class="copilot-phone-login-hint">
+          <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+          <span>${escapeHTML(details.phone_login_hint)}</span>
+          <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
+             class="copilot-phone-login-link">Se connecter</a>
+        </div>
+      `;
+    }
+
     const entries = Object.entries(details)
-      .filter(([, v]) => v !== null && v !== undefined)
+      .filter(([k, v]) => v !== null && v !== undefined && k !== "phone_login_hint")
       .map(([k, v]) => {
         const label = DETAIL_LABELS[k] || k;
         const val = formatDetailValue(v);
@@ -271,14 +285,16 @@
       })
       .join("");
 
-    if (!entries) return "";
+    if (!entries && !phoneHintHTML) return "";
 
-    return `
-      <details class="copilot-filter-details">
-        <summary>Voir les détails</summary>
-        <div class="copilot-details-content">${entries}</div>
-      </details>
-    `;
+    const detailsBlock = entries
+      ? `<details class="copilot-filter-details">
+          <summary>Voir les détails</summary>
+          <div class="copilot-details-content">${entries}</div>
+        </details>`
+      : "";
+
+    return phoneHintHTML + detailsBlock;
   }
 
   /** Construit la section premium floutée (paywall liquid glass). */
@@ -534,6 +550,53 @@
   }
 
   /**
+   * Revele le numero de telephone en cliquant "Voir le numero" sur la page LBC.
+   * Utilise la session de l'utilisateur connecte -- zero risque.
+   * Retourne le numero (string) ou null si indisponible.
+   */
+  async function revealPhoneNumber() {
+    // Chercher le bouton par son texte (robuste aux changements de classes CSS)
+    const candidates = document.querySelectorAll('button, a, [role="button"]');
+    let phoneBtn = null;
+
+    for (const el of candidates) {
+      const text = (el.textContent || "").toLowerCase().trim();
+      if (text.includes("voir le numéro") || text.includes("voir le numero")
+          || text.includes("afficher le numéro") || text.includes("afficher le numero")) {
+        phoneBtn = el;
+        break;
+      }
+    }
+
+    if (!phoneBtn) return null;
+
+    // Cliquer le bouton (exactement comme l'utilisateur le ferait)
+    phoneBtn.click();
+
+    // Attendre que le DOM se mette a jour avec le numero
+    // LBC fait un appel API interne puis affiche le numero
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await sleep(500);
+
+      // 1. Chercher un lien tel: (format le plus fiable)
+      const telLinks = document.querySelectorAll('a[href^="tel:"]');
+      for (const link of telLinks) {
+        const phone = link.href.replace("tel:", "").trim();
+        if (phone && phone.length >= 10) return phone;
+      }
+
+      // 2. Chercher un pattern telephone dans le conteneur du bouton
+      const container = phoneBtn.closest("div") || phoneBtn.parentElement;
+      if (container) {
+        const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+        if (match) return match[0].replace(/[\s.-]/g, "");
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Lance l'analyse : extrait les donnees, collecte les prix SI besoin
    * (AVANT l'analyse pour que L4/L5 aient des donnees fraiches),
    * puis appelle l'API et affiche les resultats.
@@ -545,6 +608,17 @@
     if (!nextData) {
       showPopup(buildErrorPopup("Impossible de lire les données de cette page. Vérifiez que vous êtes sur une annonce Leboncoin."));
       return;
+    }
+
+    // Reveler le numero de telephone si disponible (clic "Voir le numero")
+    const ad = nextData?.props?.pageProps?.ad;
+    if (ad?.has_phone) {
+      const phone = await revealPhoneNumber();
+      if (phone) {
+        // Injecter dans les donnees pour que le backend l'extraie
+        if (!ad.owner) ad.owner = {};
+        ad.owner.phone = phone;
+      }
     }
 
     // Collecte des prix AVANT l'analyse (silencieuse, ~1-2s)
@@ -799,6 +873,7 @@
     module.exports = {
       extractVehicleFromNextData,
       extractRegionFromNextData,
+      revealPhoneNumber,
       isStaleData,
       isAdPage,
       scoreColor,

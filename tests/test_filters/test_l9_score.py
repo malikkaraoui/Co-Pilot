@@ -64,6 +64,31 @@ class TestL9GlobalAssessmentFilter:
         assert result.status == "pass"
         assert any("option" in p.lower() for p in result.details["points_forts"])
 
+    def test_has_phone_not_revealed_shows_login_hint(self):
+        """has_phone=True sans phone revele = conseil de connexion LBC."""
+        data = {
+            "description": "Vehicule en bon etat general, revision a jour. " * 5,
+            "has_phone": True,
+            "location": {"city": "Paris"},
+            "image_count": 5,
+        }
+        result = self.filt.run(data)
+        assert "phone_login_hint" in result.details
+        assert "connectez" in result.details["phone_login_hint"].lower()
+
+    def test_phone_revealed_is_point_fort(self):
+        """phone present (revele par l'extension) = point fort."""
+        data = {
+            "description": "Vehicule en bon etat general, revision a jour. " * 5,
+            "phone": "0612345678",
+            "has_phone": True,
+            "location": {"city": "Paris"},
+            "image_count": 5,
+        }
+        result = self.filt.run(data)
+        assert any("telephone visible" in p.lower() for p in result.details["points_forts"])
+        assert "phone_login_hint" not in result.details
+
     def test_no_phone_no_location_fails(self):
         data = {
             "description": "",
@@ -71,6 +96,7 @@ class TestL9GlobalAssessmentFilter:
         }
         result = self.filt.run(data)
         assert result.status in ("warning", "fail")
+        # Sans phone ni has_phone : pas de penalite tel, mais description + photo + location
         assert len(result.details["points_faibles"]) >= 2
 
     def test_pro_seller_bonus(self):

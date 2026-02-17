@@ -29,7 +29,9 @@ class TestExtractAdData:
         assert result["color"] == "Gris"
         assert result["power_fiscal_cv"] == 7
         assert result["power_din_hp"] == 120
-        assert result["phone"] == "0612345678"
+        assert result["phone"] is None  # LBC cache le tel derriere une API
+        assert result["has_phone"] is True  # has_phone vient du __NEXT_DATA__
+        assert result["image_count"] == 8  # images = dict avec nb_images
         assert result["location"]["city"] == "Lyon"
         assert result["location"]["region"] == "Auvergne-Rhone-Alpes"
 

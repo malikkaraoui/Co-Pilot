@@ -56,11 +56,15 @@ class L9GlobalAssessmentFilter(BaseFilter):
         if paid_options:
             points_forts.append(f"Options payantes : {', '.join(paid_options)}")
 
-        # Telephone disponible
+        # Telephone : LBC cache le numero derriere "Voir le numero" (API authentifiee).
+        # L'extension tente de cliquer le bouton pour reveler le numero.
+        phone_login_hint = None
         if data.get("phone"):
             points_forts.append("Numero de telephone visible")
-        else:
-            points_faibles.append("Pas de numero de telephone")
+        elif data.get("has_phone"):
+            # Le tel existe mais n'a pas pu etre revele (utilisateur non connecte)
+            phone_login_hint = "Connectez-vous sur LeBonCoin pour reveler le numero"
+        # Pas de penalite si absent : presque toutes les annonces ont un tel cache
 
         # Localisation disponible
         location = data.get("location") or {}
@@ -94,5 +98,6 @@ class L9GlobalAssessmentFilter(BaseFilter):
             details={
                 "points_forts": points_forts,
                 "points_faibles": points_faibles,
+                **({"phone_login_hint": phone_login_hint} if phone_login_hint else {}),
             },
         )

@@ -15,10 +15,27 @@ VALID_AD_NEXT_DATA = {
                     "lat": 45.764,
                     "lng": 4.8357,
                 },
+                "has_phone": True,
+                "images": {
+                    "thumb_url": "https://img.leboncoin.fr/api/v1/lbcpb1/xxx.jpg?rule=ad-thumb",
+                    "small_url": "https://img.leboncoin.fr/api/v1/lbcpb1/xxx.jpg?rule=ad-small",
+                    "nb_images": 8,
+                    "urls": [
+                        f"https://img.leboncoin.fr/api/v1/lbcpb1/{i}.jpg?rule=ad-image"
+                        for i in range(8)
+                    ],
+                    "urls_thumb": [
+                        f"https://img.leboncoin.fr/api/v1/lbcpb1/{i}.jpg?rule=ad-thumb"
+                        for i in range(8)
+                    ],
+                    "urls_large": [
+                        f"https://img.leboncoin.fr/api/v1/lbcpb1/{i}.jpg?rule=ad-large"
+                        for i in range(8)
+                    ],
+                },
                 "owner": {
                     "type": "private",
                     "name": "Jean",
-                    "phone": "0612345678",
                 },
                 "attributes": [
                     {"key": "Marque", "value": "Peugeot"},

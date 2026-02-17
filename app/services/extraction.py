@@ -169,9 +169,18 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
     owner_name = owner.get("name")
     siret = owner.get("siren") or owner.get("siret")
 
-    # Images : comptage depuis le tableau images/photos de l'annonce
-    images = ad.get("images") or ad.get("photos") or ad.get("pictures") or []
-    image_count = len(images) if isinstance(images, list) else 0
+    # Images : LBC utilise un dict {nb_images, urls, urls_thumb, urls_large}
+    images_data = ad.get("images") or {}
+    if isinstance(images_data, dict):
+        image_count = images_data.get("nb_images") or len(images_data.get("urls") or [])
+    elif isinstance(images_data, list):
+        image_count = len(images_data)
+    else:
+        image_count = 0
+
+    # Telephone : LBC ne fournit pas le numero dans __NEXT_DATA__,
+    # seulement has_phone (bool). On l'extrait pour L9.
+    has_phone = bool(ad.get("has_phone"))
 
     # Options payantes LBC (urgent, a la une, boost)
     options = ad.get("options") or ad.get("ad_options") or {}
@@ -228,6 +237,7 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         "siret": siret,
         "raw_attributes": attrs,
         "image_count": image_count,
+        "has_phone": has_phone,
         "has_urgent": has_urgent,
         "has_highlight": has_highlight,
         "has_boost": has_boost,
