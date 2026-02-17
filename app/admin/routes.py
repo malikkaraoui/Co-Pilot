@@ -382,8 +382,44 @@ def quick_add_vehicle():
         current_user.username,
     )
 
+    # Auto-enrichissement depuis le CSV Kaggle (gratuit, immediat)
+    from app.services.csv_enrichment import lookup_specs
+
+    csv_specs = lookup_specs(brand_clean, model_clean)
+    specs_created = 0
+    if csv_specs:
+        from app.models.vehicle import VehicleSpec
+
+        # Extraire les annees du CSV avant de creer les specs
+        years_from = [s["year_from"] for s in csv_specs if s.get("year_from")]
+        years_to = [s["year_to"] for s in csv_specs if s.get("year_to")]
+
+        for spec_data in csv_specs:
+            # Retirer les metadata CSV (pas dans VehicleSpec)
+            spec_data.pop("generation", None)
+            spec_data.pop("year_from", None)
+            spec_data.pop("year_to", None)
+            spec = VehicleSpec(vehicle_id=vehicle.id, **spec_data)
+            db.session.add(spec)
+            specs_created += 1
+
+        if years_from:
+            vehicle.year_start = min(years_from)
+        if years_to:
+            vehicle.year_end = max(years_to)
+        vehicle.enrichment_status = "partial"
+        db.session.commit()
+        logger.info(
+            "Auto-enriched %s %s: %d specs from CSV", brand_clean, model_clean, specs_created
+        )
+
+    enrichment_msg = (
+        f" + {specs_created} fiches techniques importees du CSV"
+        if specs_created
+        else " (enrichissement en attente)"
+    )
     flash(
-        f"{brand_clean} {model_clean} ajoute au referentiel (enrichissement en attente).",
+        f"{brand_clean} {model_clean} ajoute au referentiel{enrichment_msg}.",
         "success",
     )
     return redirect(url_for("admin.car"))

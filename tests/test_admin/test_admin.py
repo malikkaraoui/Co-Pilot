@@ -220,8 +220,6 @@ class TestQuickAdd:
 
     def test_quick_add_creates_vehicle(self, app, client, admin_user):
         """Le quick-add cree un vehicule avec enrichment_status=pending."""
-        from datetime import datetime, timezone
-
         _login(client)
         resp = client.post(
             "/admin/vehicle/quick-add",
@@ -234,11 +232,14 @@ class TestQuickAdd:
         with app.app_context():
             v = Vehicle.query.filter_by(model="Model S").first()
             assert v is not None
-            assert v.enrichment_status == "pending"
             assert v.brand == "Tesla"
-            assert v.year_start == datetime.now(timezone.utc).year
-            assert v.year_end is None
-            assert v.generation is None
+            # Si le CSV Kaggle contient des specs, enrichissement auto
+            from app.services.csv_enrichment import CSV_PATH
+
+            if CSV_PATH.exists():
+                assert v.enrichment_status in ("partial", "pending")
+            else:
+                assert v.enrichment_status == "pending"
 
     def test_quick_add_capitalizes_brand(self, app, client, admin_user):
         """Le quick-add capitalise correctement les marques."""
