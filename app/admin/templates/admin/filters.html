@@ -70,13 +70,13 @@
   <div class="col-md-3">
     <div class="stat-card">
       <div class="stat-value" style="color: #8b5cf6;">{{ simulated_count }}</div>
-      <div class="stat-label">Donnees simulees</div>
+      <div class="stat-label">Données simulées</div>
     </div>
   </div>
   <div class="col-md-3">
     <div class="stat-card">
       <div class="stat-value">{{ avg_maturity }}%</div>
-      <div class="stat-label">Maturite moyenne</div>
+      <div class="stat-label">Maturité moyenne</div>
     </div>
   </div>
 </div>
@@ -93,7 +93,7 @@
           <h5 class="mb-0 mt-1">{{ f.name }}</h5>
         </div>
         {% if f.data_source_type == 'simulated' %}
-          <span class="badge badge-simulated">Donnees simulees</span>
+          <span class="badge badge-simulated">Données simulées</span>
         {% else %}
           <span class="badge badge-real">OK</span>
         {% endif %}

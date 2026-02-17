@@ -60,7 +60,7 @@ class L5VisualFilter(BaseFilter):
         mileage = data.get("mileage_km")
 
         if price is None and mileage is None:
-            return self.skip("Ni prix ni kilometrage disponibles")
+            return self.skip("Ni prix ni kilométrage disponibles")
 
         # Recuperation des donnees de reference pour ce type de vehicule
         from app.services.vehicle_lookup import find_vehicle
@@ -69,17 +69,17 @@ class L5VisualFilter(BaseFilter):
         model = data.get("model")
 
         if not make or not model:
-            return self.skip("Marque ou modele non disponible")
+            return self.skip("Marque ou modèle non disponible")
 
         vehicle = find_vehicle(make, model)
         if not vehicle:
-            return self.skip("Modele non reconnu -- analyse statistique impossible")
+            return self.skip("Modèle non reconnu — analyse statistique impossible")
 
         # Source de prix : MarketPrice (crowdsource) en priorite, sinon ArgusPrice (seed)
         ref_prices, source = self._collect_ref_prices(data, vehicle)
 
         if len(ref_prices) < 3:
-            return self.skip("Pas assez de prix de reference")
+            return self.skip("Pas assez de prix de référence")
 
         anomalies = []
         z_scores = {}
@@ -104,8 +104,8 @@ class L5VisualFilter(BaseFilter):
 
         if is_diesel and is_urban and mileage is not None and mileage > 30000:
             diesel_urban_warning = (
-                "Diesel en zone urbaine dense -- usure FAP/injecteurs "
-                "potentiellement plus elevee a kilometrage egal"
+                "Diesel en zone urbaine dense — usure FAP/injecteurs "
+                "potentiellement plus élevée à kilométrage égal"
             )
             anomalies.append(diesel_urban_warning)
 

@@ -86,7 +86,7 @@ class TestL9GlobalAssessmentFilter:
             "image_count": 5,
         }
         result = self.filt.run(data)
-        assert any("telephone visible" in p.lower() for p in result.details["points_forts"])
+        assert any("téléphone visible" in p.lower() for p in result.details["points_forts"])
         assert "phone_login_hint" not in result.details
 
     def test_no_phone_no_location_fails(self):

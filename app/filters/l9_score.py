@@ -23,11 +23,11 @@ class L9GlobalAssessmentFilter(BaseFilter):
         description = data.get("description") or ""
         desc_len = len(description.strip())
         if desc_len >= 200:
-            points_forts.append("Description detaillee")
+            points_forts.append("Description détaillée")
         elif desc_len >= MIN_DESCRIPTION_LENGTH:
             pass  # neutral
         elif desc_len > 0:
-            points_faibles.append("Description tres courte")
+            points_faibles.append("Description très courte")
         else:
             points_faibles.append("Pas de description")
 
@@ -52,7 +52,7 @@ class L9GlobalAssessmentFilter(BaseFilter):
         if data.get("has_highlight"):
             paid_options.append("A la Une")
         if data.get("has_boost"):
-            paid_options.append("Remontee")
+            paid_options.append("Remontée")
         if paid_options:
             points_forts.append(f"Options payantes : {', '.join(paid_options)}")
 
@@ -60,18 +60,18 @@ class L9GlobalAssessmentFilter(BaseFilter):
         # L'extension tente de cliquer le bouton pour reveler le numero.
         phone_login_hint = None
         if data.get("phone"):
-            points_forts.append("Numero de telephone visible")
+            points_forts.append("Numéro de téléphone visible")
         elif data.get("has_phone"):
             # Le tel existe mais n'a pas pu etre revele (utilisateur non connecte)
-            phone_login_hint = "Connectez-vous sur LeBonCoin pour reveler le numero"
+            phone_login_hint = "Connectez-vous sur LeBonCoin pour révéler le numéro"
         # Pas de penalite si absent : presque toutes les annonces ont un tel cache
 
         # Localisation disponible
         location = data.get("location") or {}
         if location.get("city"):
-            points_forts.append("Localisation precise")
+            points_forts.append("Localisation précise")
         else:
-            points_faibles.append("Localisation non precisee")
+            points_faibles.append("Localisation non précisée")
 
         # Calcul du score
         total = len(points_forts) + len(points_faibles)
@@ -82,13 +82,13 @@ class L9GlobalAssessmentFilter(BaseFilter):
 
         if not points_faibles:
             status = "pass"
-            message = "Annonce complete et detaillee"
+            message = "Annonce complète et détaillée"
         elif len(points_faibles) <= 1:
             status = "warning"
             message = points_faibles[0]
         else:
             status = "fail"
-            message = f"{len(points_faibles)} signaux faibles detectes"
+            message = f"{len(points_faibles)} signaux faibles détectés"
 
         return FilterResult(
             filter_id=self.filter_id,

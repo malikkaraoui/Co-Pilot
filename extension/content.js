@@ -194,7 +194,7 @@
         const label = filterLabel(f.filter_id);
         const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
         const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id)
-          ? '<span class="copilot-badge-simulated">Donnees simulees</span>'
+          ? '<span class="copilot-badge-simulated">Données simulées</span>'
           : "";
 
         return `

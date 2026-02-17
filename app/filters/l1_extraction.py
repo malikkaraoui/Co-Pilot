@@ -38,13 +38,13 @@ class L1ExtractionFilter(BaseFilter):
 
         if missing_critical:
             status = "fail" if len(missing_critical) >= 3 else "warning"
-            message = f"Donnees incompletes : {', '.join(missing_critical)} manquant(s)"
+            message = f"Données incomplètes : {', '.join(missing_critical)} manquant(s)"
         elif missing_secondary:
             status = "warning"
             message = f"Quelques infos secondaires manquantes ({len(missing_secondary)})"
         else:
             status = "pass"
-            message = "Toutes les donnees de l'annonce sont presentes"
+            message = "Toutes les données de l'annonce sont présentes"
 
         logger.info(
             "L1: %s (critical_missing=%d, secondary_missing=%d)",

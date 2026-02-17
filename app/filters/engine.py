@@ -37,9 +37,7 @@ class FilterEngine:
     def filter_count(self) -> int:
         return len(self._filters)
 
-    def _execute_filter(
-        self, filt: BaseFilter, data: dict[str, Any], app=None
-    ) -> FilterResult:
+    def _execute_filter(self, filt: BaseFilter, data: dict[str, Any], app=None) -> FilterResult:
         """Execute un filtre avec gestion d'erreur et contexte Flask."""
         try:
             # Propager le contexte Flask dans les threads pour les filtres
@@ -62,7 +60,7 @@ class FilterEngine:
                 filter_id=filt.filter_id,
                 status="skip",
                 score=0.0,
-                message="Analyse partielle -- ce filtre n'a pas pu s'executer",
+                message="Analyse partielle — ce filtre n'a pas pu s'exécuter",
                 details={"error": str(exc)},
             )
         except (KeyError, ValueError, AttributeError, TypeError, OSError, httpx.HTTPError) as exc:
@@ -76,7 +74,7 @@ class FilterEngine:
                 filter_id=filt.filter_id,
                 status="skip",
                 score=0.0,
-                message="Erreur inattendue -- ce filtre a ete ignore",
+                message="Erreur inattendue — ce filtre a été ignoré",
                 details={"error": type(exc).__name__, "detail": str(exc)},
             )
 
@@ -111,20 +109,29 @@ class FilterEngine:
                 filt = future_to_filter[future]
                 try:
                     results.append(future.result())
-                except (KeyError, ValueError, AttributeError, TypeError, OSError, httpx.HTTPError) as exc:
+                except (
+                    KeyError,
+                    ValueError,
+                    AttributeError,
+                    TypeError,
+                    OSError,
+                    httpx.HTTPError,
+                ) as exc:
                     logger.error(
                         "Filter %s thread crashed: %s: %s",
                         filt.filter_id,
                         type(exc).__name__,
                         exc,
                     )
-                    results.append(FilterResult(
-                        filter_id=filt.filter_id,
-                        status="skip",
-                        score=0.0,
-                        message="Erreur inattendue -- ce filtre a ete ignore",
-                        details={"error": type(exc).__name__},
-                    ))
+                    results.append(
+                        FilterResult(
+                            filter_id=filt.filter_id,
+                            status="skip",
+                            score=0.0,
+                            message="Erreur inattendue — ce filtre a été ignoré",
+                            details={"error": type(exc).__name__},
+                        )
+                    )
 
         # Trier par filter_id pour un ordre constant
         results.sort(key=lambda r: r.filter_id)

@@ -36,12 +36,12 @@ class L3CoherenceFilter(BaseFilter):
         model = data.get("model") or ""
 
         if year_str is None or mileage is None:
-            return self.skip("Annee ou kilometrage non disponible")
+            return self.skip("Année ou kilométrage non disponible")
 
         try:
             year = int(year_str)
         except (ValueError, TypeError):
-            return self.skip("Annee non valide")
+            return self.skip("Année non valide")
 
         current_year = datetime.now(timezone.utc).year
         age = current_year - year
@@ -51,7 +51,7 @@ class L3CoherenceFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="fail",
                 score=0.0,
-                message="L'annee du modele est dans le futur -- donnee suspecte",
+                message="L'année du modèle est dans le futur — donnée suspecte",
                 details={"year": year, "current_year": current_year},
             )
 
@@ -74,19 +74,19 @@ class L3CoherenceFilter(BaseFilter):
 
         if km_ratio < (1 - KM_TOLERANCE_PCT):
             warnings.append(
-                f"Kilometrage bas pour l'annee ({mileage:,} km pour {age} ans, "
+                f"Kilométrage bas pour l'année ({mileage:,} km pour {age} ans, "
                 f"attendu ~{expected_km:,} km)"
             )
         elif km_ratio > (1 + KM_TOLERANCE_PCT):
             # Vendeur pro + km eleve : probable deflottage (entretien suivi)
             if is_pro and km_ratio < 2.5:
                 warnings.append(
-                    f"Kilometrage eleve ({mileage:,} km) mais vendeur professionnel "
-                    f"(probable deflottage, entretien suivi)"
+                    f"Kilométrage élevé ({mileage:,} km) mais vendeur professionnel "
+                    f"(probable déflottage, entretien suivi)"
                 )
             else:
                 warnings.append(
-                    f"Kilometrage eleve ({mileage:,} km pour {age} ans, "
+                    f"Kilométrage élevé ({mileage:,} km pour {age} ans, "
                     f"attendu ~{expected_km:,} km)"
                 )
 
@@ -95,13 +95,13 @@ class L3CoherenceFilter(BaseFilter):
             if price < 500:
                 warnings.append(f"Prix anormalement bas ({price} EUR)")
             elif price > 100000:
-                warnings.append(f"Prix tres eleve ({price:,} EUR)")
+                warnings.append(f"Prix très élevé ({price:,} EUR)")
 
         # Calcul du score
         if not warnings:
             score = 1.0
             status = "pass"
-            message = "Coherence des donnees OK"
+            message = "Cohérence des données OK"
         elif len(warnings) == 1:
             # Vendeur pro avec km eleve mais pas excessif : warning leger
             if is_pro and "professionnel" in warnings[0]:
@@ -113,7 +113,7 @@ class L3CoherenceFilter(BaseFilter):
         else:
             score = 0.2
             status = "fail"
-            message = f"{len(warnings)} incoherences detectees"
+            message = f"{len(warnings)} incohérences détectées"
 
         return FilterResult(
             filter_id=self.filter_id,

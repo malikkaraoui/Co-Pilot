@@ -29,19 +29,19 @@ class L4PriceFilter(BaseFilter):
         region = location.get("region")
 
         if not make or not model or not year_str:
-            return self.skip("Donnees insuffisantes pour la comparaison argus")
+            return self.skip("Données insuffisantes pour la comparaison argus")
 
         try:
             year = int(year_str)
         except (ValueError, TypeError):
-            return self.skip("Annee non valide")
+            return self.skip("Année non valide")
 
         vehicle = find_vehicle(make, model)
         if not vehicle:
-            return self.skip("Modele non reconnu -- comparaison argus impossible")
+            return self.skip("Modèle non reconnu — comparaison argus impossible")
 
         if not region:
-            return self.skip("Region non disponible dans l'annonce")
+            return self.skip("Région non disponible dans l'annonce")
 
         # Source de prix : MarketPrice (crowdsource) en priorite, sinon ArgusPrice (seed)
         from app.services.market_service import get_market_stats
@@ -79,7 +79,7 @@ class L4PriceFilter(BaseFilter):
                     market.sample_count,
                 )
                 return self.skip(
-                    f"Donnees insuffisantes ({market.sample_count} annonces, minimum 5)"
+                    f"Données insuffisantes ({market.sample_count} annonces, minimum 5)"
                 )
             logger.info(
                 "L4 no ref: market=%s, tried make=%r model=%r year=%d region=%r",
@@ -89,7 +89,7 @@ class L4PriceFilter(BaseFilter):
                 year,
                 region,
             )
-            return self.skip("Pas de donnees de reference pour ce modele dans cette region")
+            return self.skip("Pas de données de référence pour ce modèle dans cette région")
 
         # Comparaison
         delta = price - ref_price
@@ -100,17 +100,17 @@ class L4PriceFilter(BaseFilter):
         if abs(delta_pct) <= 10:
             status = "pass"
             score = 1.0
-            message = f"Prix en ligne avec la reference ({delta_pct:+.0f}%)"
+            message = f"Prix en ligne avec la référence ({delta_pct:+.0f}%)"
         elif abs(delta_pct) <= 25:
             status = "warning"
             score = 0.5
             direction = "au-dessus" if delta_pct > 0 else "en dessous"
-            message = f"Prix {abs(delta_pct):.0f}% {direction} de la reference"
+            message = f"Prix {abs(delta_pct):.0f}% {direction} de la référence"
         else:
             status = "fail"
             score = 0.1
             direction = "au-dessus" if delta_pct > 0 else "en dessous"
-            message = f"Prix {abs(delta_pct):.0f}% {direction} de la reference -- anomalie prix"
+            message = f"Prix {abs(delta_pct):.0f}% {direction} de la référence -- anomalie prix"
 
         return FilterResult(
             filter_id=self.filter_id,

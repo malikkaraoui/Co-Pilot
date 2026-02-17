@@ -18,7 +18,7 @@ class L2ReferentielFilter(BaseFilter):
         model = data.get("model")
 
         if not make or not model:
-            return self.skip("Marque ou modele non disponible dans l'annonce")
+            return self.skip("Marque ou modèle non disponible dans l'annonce")
 
         # Import local pour eviter les imports circulaires et permettre l'usage hors contexte app dans les tests
         from app.services.vehicle_lookup import find_vehicle
@@ -31,7 +31,7 @@ class L2ReferentielFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=1.0,
-                message=f"Modele reconnu : {vehicle.brand} {vehicle.model}",
+                message=f"Modèle reconnu : {vehicle.brand} {vehicle.model}",
                 details={
                     "vehicle_id": vehicle.id,
                     "brand": vehicle.brand,
@@ -46,8 +46,8 @@ class L2ReferentielFilter(BaseFilter):
             status="warning",
             score=0.3,
             message=(
-                f"On ne connait pas encore le {make} {model} "
-                "-- on prepare le garage pour l'expertiser tres prochainement !"
+                f"On ne connaît pas encore le {make} {model} "
+                "— on prépare le garage pour l'expertiser très prochainement !"
             ),
             details={"brand": make, "model": model, "recognized": False},
         )

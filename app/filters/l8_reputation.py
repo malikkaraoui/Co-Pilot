@@ -113,7 +113,7 @@ class L8ImportDetectionFilter(BaseFilter):
         phone = data.get("phone") or ""
         cleaned_phone = re.sub(r"[\s\-.]", "", phone)
         if cleaned_phone and re.match(r"^\+(?!33)\d", cleaned_phone):
-            signals.append("Numero de telephone avec indicatif etranger")
+            signals.append("Numéro de téléphone avec indicatif étranger")
 
         # Signal 2 : Mots-cles d'import dans la description
         description = (data.get("description") or "").lower()
@@ -125,12 +125,12 @@ class L8ImportDetectionFilter(BaseFilter):
         if found_import:
             signals.append(f"Mention d'import dans l'annonce ({', '.join(found_import[:3])})")
         if found_countries:
-            signals.append(f"Pays d'origine mentionne ({', '.join(found_countries[:3])})")
+            signals.append(f"Pays d'origine mentionné ({', '.join(found_countries[:3])})")
 
         # Signal 3 : Texte en langue etrangere (copier-coller de site etranger)
         found_foreign = [kw for kw in IMPORT_KEYWORDS_FOREIGN if kw in text]
         if found_foreign:
-            signals.append(f"Texte en langue etrangere detecte ({', '.join(found_foreign[:3])})")
+            signals.append(f"Texte en langue étrangère détecté ({', '.join(found_foreign[:3])})")
 
         # Signal 4 : Signaux fiscaux (malus, TVA, export)
         found_tax = [kw for kw in TAX_KEYWORDS if kw in text]
@@ -150,7 +150,7 @@ class L8ImportDetectionFilter(BaseFilter):
                 year = int(year_str)
                 age = datetime.now(timezone.utc).year - year
                 if age < 8 and price < 3000:
-                    signals.append(f"Prix tres bas ({price} EUR) pour un vehicule de {age} ans")
+                    signals.append(f"Prix très bas ({price} EUR) pour un véhicule de {age} ans")
             except (ValueError, TypeError):
                 pass
 
@@ -166,7 +166,7 @@ class L8ImportDetectionFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=1.0,
-                message="Aucun signal d'import detecte",
+                message="Aucun signal d'import détecté",
                 details={"signals": []},
             )
 
@@ -183,6 +183,6 @@ class L8ImportDetectionFilter(BaseFilter):
             filter_id=self.filter_id,
             status="fail",
             score=0.1,
-            message=f"Vehicule potentiellement importe ({len(signals)} signaux)",
+            message=f"Véhicule potentiellement importé ({len(signals)} signaux)",
             details={"signals": signals},
         )

@@ -584,7 +584,7 @@ class TestFilters:
         _login(client)
         resp = client.get("/admin/filters")
         assert resp.status_code == 200
-        assert resp.data.count(b"Donnees simulees") >= 2
+        assert resp.data.count("Données simulées".encode()) >= 2
 
     def test_filters_shows_maturity(self, client, admin_user):
         """La page affiche les barres de maturite."""

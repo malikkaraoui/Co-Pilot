@@ -28,7 +28,7 @@ class L7SiretFilter(BaseFilter):
 
         # Particulier : pas de SIRET a verifier
         if owner_type == "private" or owner_type == "particulier":
-            return self.skip("Vendeur particulier -- verification SIRET non applicable")
+            return self.skip("Vendeur particulier — vérification SIRET non applicable")
 
         # Pro sans SIRET : suspect
         if not siret and owner_type in ("pro", "professional"):
@@ -36,7 +36,7 @@ class L7SiretFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="warning",
                 score=0.3,
-                message="Vendeur professionnel sans SIRET affiche",
+                message="Vendeur professionnel sans SIRET affiché",
                 details={"owner_type": owner_type},
             )
 
@@ -50,7 +50,7 @@ class L7SiretFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="fail",
                 score=0.1,
-                message="Numero SIRET invalide (format incorrect)",
+                message="Numéro SIRET invalide (format incorrect)",
                 details={"siret": siret, "cleaned": cleaned},
             )
 
@@ -58,7 +58,7 @@ class L7SiretFilter(BaseFilter):
             response = self._call_api(cleaned)
         except ExternalAPIError as exc:
             logger.warning("L7: SIRET API error: %s", exc)
-            return self.skip("API SIRET indisponible -- verification impossible")
+            return self.skip("API SIRET indisponible — vérification impossible")
 
         if not response:
             return FilterResult(
@@ -78,7 +78,9 @@ class L7SiretFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=0.9,
-                message=f"Entreprise active : {denomination}" if denomination else "Entreprise active",
+                message=f"Entreprise active : {denomination}"
+                if denomination
+                else "Entreprise active",
                 details={
                     "siret": cleaned,
                     "found": True,
@@ -91,7 +93,7 @@ class L7SiretFilter(BaseFilter):
             filter_id=self.filter_id,
             status="warning",
             score=0.4,
-            message=f"Entreprise radiee ou fermee ({etat})",
+            message=f"Entreprise radiée ou fermée ({etat})",
             details={
                 "siret": cleaned,
                 "found": True,

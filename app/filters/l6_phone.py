@@ -61,10 +61,10 @@ class L6PhoneFilter(BaseFilter):
                     filter_id=self.filter_id,
                     status="skip",
                     score=0.0,
-                    message="Connectez-vous sur LeBonCoin pour reveler le numero",
+                    message="Connectez-vous sur LeBonCoin pour révéler le numéro",
                     details={"phone_login_hint": True},
                 )
-            return self.skip("Pas de numero de telephone dans l'annonce")
+            return self.skip("Pas de numéro de téléphone dans l'annonce")
 
         # Normalisation : suppression des espaces, tirets, points
         cleaned = re.sub(r"[\s\-.]", "", phone.strip())
@@ -78,7 +78,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="warning",
                 score=0.3,
-                message=f"Numero avec indicatif etranger ({prefix})",
+                message=f"Numéro avec indicatif étranger ({prefix})",
                 details={
                     "phone": phone,
                     "prefix": prefix,
@@ -100,7 +100,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="fail",
                 score=0.1,
-                message="Numero de demarchage telephonique (prefixe ARCEP reserve)",
+                message="Numéro de démarchage téléphonique (préfixe ARCEP réservé)",
                 details={"phone": phone, "type": "telemarketing_arcep", "prefix": local[:4]},
             )
 
@@ -111,7 +111,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="warning",
                 score=0.3,
-                message="Numero virtuel (identite potentiellement masquee)",
+                message="Numéro virtuel (identité potentiellement masquée)",
                 details={"phone": phone, "type": "virtual_onoff", "prefix": local[:6]},
             )
 
@@ -121,7 +121,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=1.0,
-                message="Numero de mobile francais standard",
+                message="Numéro de mobile français standard",
                 details={"phone": phone, "type": "mobile_fr"},
             )
 
@@ -131,7 +131,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=0.9,
-                message="Numero de fixe francais",
+                message="Numéro de fixe français",
                 details={"phone": phone, "type": "landline_fr"},
             )
 
@@ -141,6 +141,6 @@ class L6PhoneFilter(BaseFilter):
             filter_id=self.filter_id,
             status="warning",
             score=0.4,
-            message="Format de numero suspect",
+            message="Format de numéro suspect",
             details={"phone": phone, "type": "unknown"},
         )

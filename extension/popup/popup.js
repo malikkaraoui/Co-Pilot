@@ -49,7 +49,7 @@
       });
 
       if (response && response.ok) {
-        setStatus("Analyse lancee !", false);
+        setStatus("Analyse lancée !", false);
         // Fermer le popup apres un court delai pour laisser le content script travailler
         setTimeout(() => window.close(), 400);
       } else {
