@@ -6,6 +6,7 @@ Base sur le script original lbc_extract.py, reecrit selon les patterns Co-Pilot.
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from app.errors import ExtractionError
@@ -111,6 +112,52 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _parse_date_str(raw: str) -> datetime | None:
+    """Parse une date ISO 8601 LBC en datetime UTC."""
+    try:
+        cleaned = raw.replace("T", " ").split("+")[0].strip()
+        return datetime.strptime(cleaned[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_publication_dates(ad: dict) -> dict:
+    """Extrait les dates de publication et calcule l'anciennete.
+
+    LBC fournit deux dates :
+    - ``first_publication_date`` : date de premiere mise en ligne (la vraie anciennete)
+    - ``index_date`` : date de derniere republication (ce que LBC affiche a l'utilisateur)
+
+    Un vendeur peut republier son annonce pour apparaitre "frais". Co-Pilot
+    utilise first_publication_date pour calculer la vraie duree en vente.
+    """
+    now = datetime.now(timezone.utc)
+
+    first_pub = ad.get("first_publication_date")
+    index_date = ad.get("index_date")
+
+    # Premiere publication (la vraie anciennete)
+    first_dt = _parse_date_str(first_pub) if isinstance(first_pub, str) else None
+    days_online = max((now - first_dt).days, 0) if first_dt else None
+
+    # Derniere republication (ce que LBC montre)
+    index_dt = _parse_date_str(index_date) if isinstance(index_date, str) else None
+    days_since_refresh = max((now - index_dt).days, 0) if index_dt else None
+
+    # Detecter si l'annonce a ete republiee (dates differentes)
+    republished = False
+    if first_dt and index_dt and (index_dt - first_dt).days > 1:
+        republished = True
+
+    return {
+        "publication_date": first_pub,
+        "days_online": days_online,
+        "index_date": index_date if index_date != first_pub else None,
+        "days_since_refresh": days_since_refresh if republished else None,
+        "republished": republished,
+    }
+
+
 def _extract_price(ad: dict) -> int | None:
     """Extrait le prix depuis les donnees de premier niveau de l'annonce."""
     price = ad.get("price")
@@ -201,6 +248,9 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
     )
     has_boost = bool(options.get("boost") or options.get("is_boost") or ad.get("boost"))
 
+    # Dates de publication (premiere + derniere republication)
+    pub_dates = _extract_publication_dates(ad)
+
     result = {
         "title": title,
         "price_eur": price,
@@ -252,6 +302,11 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         "has_urgent": has_urgent,
         "has_highlight": has_highlight,
         "has_boost": has_boost,
+        "publication_date": pub_dates["publication_date"],
+        "days_online": pub_dates["days_online"],
+        "index_date": pub_dates["index_date"],
+        "days_since_refresh": pub_dates["days_since_refresh"],
+        "republished": pub_dates["republished"],
     }
 
     logger.info(

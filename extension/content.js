@@ -240,6 +240,18 @@
     import_indicators: "Indicateurs import",
     color: "Couleur",
     phone_login_hint: "Téléphone",
+    days_online: "Première publication (jours)",
+    republished: "Annonce republiée",
+    stale_below_market: "Prix bas + annonce ancienne",
+    delta_eur: "Écart (€)",
+    delta_pct: "Écart (%)",
+    price_annonce: "Prix annonce",
+    price_reference: "Prix référence",
+    sample_count: "Nb annonces comparées",
+    source: "Source prix",
+    price_argus_mid: "Argus (médian)",
+    price_argus_low: "Argus (bas)",
+    price_argus_high: "Argus (haut)",
   };
 
   /** Formate une valeur de detail pour l'affichage humain. */
@@ -356,6 +368,19 @@
       ? `<span class="copilot-badge-partial">Analyse partielle</span>`
       : "";
 
+    // Badge "En vente depuis X jours" (extrait des details L9)
+    const l9 = (filters || []).find((f) => f.filter_id === "L9");
+    const daysOnline = l9?.details?.days_online;
+    const isRepublished = l9?.details?.republished;
+    let daysOnlineBadge = "";
+    if (daysOnline != null) {
+      const badgeColor = daysOnline <= 7 ? "#22c55e" : daysOnline <= 30 ? "#6b7280" : "#f59e0b";
+      const label = isRepublished
+        ? `&#x1F4C5; En vente depuis ${daysOnline}j (republié)`
+        : `&#x1F4C5; ${daysOnline}j en ligne`;
+      daysOnlineBadge = `<span class="copilot-days-badge" style="color:${badgeColor}">${label}</span>`;
+    }
+
     return `
       <div class="copilot-popup" id="copilot-popup">
         <div class="copilot-popup-header">
@@ -363,7 +388,7 @@
             <span class="copilot-popup-title">Co-Pilot</span>
             <button class="copilot-popup-close" id="copilot-close">&times;</button>
           </div>
-          <p class="copilot-popup-vehicle">${escapeHTML(vehicleInfo)}</p>
+          <p class="copilot-popup-vehicle">${escapeHTML(vehicleInfo)} ${daysOnlineBadge}</p>
           ${partialBadge}
         </div>
 
@@ -586,11 +611,49 @@
   /**
    * Detecte un lien vers un rapport Autoviza sur la page LBC.
    * Certaines annonces offrent un rapport d'historique gratuit (valeur 25 EUR).
+   * Le lien peut etre lazy-loaded par React, donc on retente plusieurs fois.
+   * On cherche aussi dans __NEXT_DATA__ en fallback.
    * Retourne l'URL du rapport ou null si absent.
    */
-  function detectAutovizaUrl() {
-    const link = document.querySelector('a[href*="autoviza.fr"]');
-    return link ? link.href : null;
+  async function detectAutovizaUrl(nextData) {
+    // 1. Chercher dans le DOM (plusieurs tentatives car lazy-load React)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      // Lien direct vers autoviza.fr
+      const directLink = document.querySelector('a[href*="autoviza.fr"]');
+      if (directLink) return directLink.href;
+
+      // Lien via redirect LBC (href contient autoviza en param)
+      const redirectLink = document.querySelector('a[href*="autoviza"]');
+      if (redirectLink) {
+        const href = redirectLink.href;
+        // Extraire l'URL autoviza d'un eventuel redirect
+        const match = href.match(/(https?:\/\/[^\s&"]*autoviza\.fr[^\s&"]*)/);
+        if (match) return match[1];
+        return href;
+      }
+
+      // Bouton/lien avec texte "rapport d'historique" ou "rapport historique"
+      const allLinks = document.querySelectorAll('a[href], button[data-href]');
+      for (const el of allLinks) {
+        const text = (el.textContent || "").toLowerCase();
+        if ((text.includes("rapport") && text.includes("historique")) ||
+            text.includes("autoviza")) {
+          const href = el.href || el.dataset.href || "";
+          if (href && href.includes("autoviza")) return href;
+        }
+      }
+
+      if (attempt < 3) await sleep(800);
+    }
+
+    // 2. Fallback : chercher une URL autoviza dans __NEXT_DATA__
+    if (nextData) {
+      const json = JSON.stringify(nextData);
+      const match = json.match(/(https?:\/\/[^\s"]*autoviza\.fr[^\s"]*)/);
+      if (match) return match[1];
+    }
+
+    return null;
   }
 
   /**
@@ -725,7 +788,8 @@
       }
 
       // Detecter un eventuel rapport Autoviza gratuit sur la page
-      const autovizaUrl = detectAutovizaUrl();
+      // (async : retente plusieurs fois car le lien peut etre lazy-loaded)
+      const autovizaUrl = await detectAutovizaUrl(nextData);
 
       showPopup(buildResultsPopup(result.data, { autovizaUrl }));
     } catch (err) {

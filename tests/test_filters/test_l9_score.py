@@ -110,6 +110,58 @@ class TestL9GlobalAssessmentFilter:
         result = self.filt.run(data)
         assert "professionnel" in " ".join(result.details["points_forts"]).lower()
 
+    def test_recent_ad_is_point_fort(self):
+        """Annonce de moins de 3 jours = point fort."""
+        data = {
+            "description": "Vehicule en bon etat general, revision a jour. " * 5,
+            "phone": "0612345678",
+            "location": {"city": "Lyon"},
+            "image_count": 5,
+            "days_online": 2,
+        }
+        result = self.filt.run(data)
+        assert any("récente" in p.lower() for p in result.details["points_forts"])
+        assert result.details["days_online"] == 2
+
+    def test_old_ad_is_point_faible(self):
+        """Annonce de plus de 60 jours = point faible."""
+        data = {
+            "description": "Vehicule en bon etat general, revision a jour. " * 5,
+            "phone": "0612345678",
+            "location": {"city": "Lyon"},
+            "image_count": 5,
+            "days_online": 75,
+        }
+        result = self.filt.run(data)
+        assert any("en vente depuis" in p.lower() for p in result.details["points_faibles"])
+
+    def test_medium_age_ad_neutral(self):
+        """Annonce entre 4 et 60 jours = neutre (pas de signal)."""
+        data = {
+            "description": "Vehicule en bon etat general, revision a jour. " * 5,
+            "phone": "0612345678",
+            "location": {"city": "Lyon"},
+            "image_count": 5,
+            "days_online": 15,
+        }
+        result = self.filt.run(data)
+        assert not any("en vente" in p.lower() for p in result.details.get("points_faibles", []))
+        assert not any("récente" in p.lower() for p in result.details.get("points_forts", []))
+
+    def test_republished_old_ad_warns(self):
+        """Annonce republied + >30 jours = signal point faible avec mention republication."""
+        data = {
+            "description": "Vehicule en bon etat general, revision a jour. " * 5,
+            "phone": "0612345678",
+            "location": {"city": "Lyon"},
+            "image_count": 5,
+            "days_online": 45,
+            "republished": True,
+        }
+        result = self.filt.run(data)
+        faibles = result.details["points_faibles"]
+        assert any("republié" in p.lower() for p in faibles)
+
     def test_empty_data(self):
         result = self.filt.run({})
         assert result.filter_id == "L9"

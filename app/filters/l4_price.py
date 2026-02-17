@@ -110,7 +110,21 @@ class L4PriceFilter(BaseFilter):
             status = "fail"
             score = 0.1
             direction = "au-dessus" if delta_pct > 0 else "en dessous"
-            message = f"Prix {abs(delta_pct):.0f}% {direction} de la référence -- anomalie prix"
+            message = f"Prix {abs(delta_pct):.0f}% {direction} de la référence — anomalie prix"
+
+        # Signal "anguille sous roche" : prix en dessous de la reference MAIS
+        # l'annonce est en ligne depuis >30 jours. Si c'etait vraiment une bonne
+        # affaire, elle serait partie. Les acheteurs n'ont pas franchi le pas.
+        days_online = data.get("days_online")
+        if days_online is not None and days_online > 30 and delta_pct < -10:
+            details["stale_below_market"] = True
+            details["days_online"] = days_online
+            if status == "pass":
+                status = "warning"
+                score = 0.5
+            message += (
+                f" — en ligne depuis {days_online} jours, les acheteurs n'ont pas franchi le pas"
+            )
 
         return FilterResult(
             filter_id=self.filter_id,

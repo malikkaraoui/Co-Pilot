@@ -66,6 +66,25 @@ class L9GlobalAssessmentFilter(BaseFilter):
             phone_login_hint = "Connectez-vous sur LeBonCoin pour révéler le numéro"
         # Pas de penalite si absent : presque toutes les annonces ont un tel cache
 
+        # Anciennete de l'annonce
+        days_online = data.get("days_online")
+        republished = data.get("republished", False)
+        if days_online is not None:
+            if days_online <= 3 and not republished:
+                points_forts.append(
+                    f"Annonce récente ({days_online} jour{'s' if days_online > 1 else ''})"
+                )
+            elif days_online > 60:
+                msg = f"En vente depuis {days_online} jours"
+                if republished:
+                    msg += " (republié pour paraître récent)"
+                points_faibles.append(msg)
+            elif days_online > 30 and republished:
+                points_faibles.append(
+                    f"En vente depuis {days_online} jours (republié pour paraître récent)"
+                )
+            # 4-30 jours sans republication : neutre, pas de signal
+
         # Localisation disponible
         location = data.get("location") or {}
         if location.get("city"):
@@ -99,5 +118,7 @@ class L9GlobalAssessmentFilter(BaseFilter):
                 "points_forts": points_forts,
                 "points_faibles": points_faibles,
                 **({"phone_login_hint": phone_login_hint} if phone_login_hint else {}),
+                **({"days_online": days_online} if days_online is not None else {}),
+                **({"republished": True} if republished else {}),
             },
         )

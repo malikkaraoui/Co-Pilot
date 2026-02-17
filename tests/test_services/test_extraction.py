@@ -55,6 +55,43 @@ class TestExtractAdData:
         with pytest.raises(ExtractionError, match="must be a dict"):
             extract_ad_data("not a dict")
 
+    def test_publication_date_extracted(self):
+        result = extract_ad_data(VALID_AD_NEXT_DATA)
+        assert result["publication_date"] == "2026-01-10 14:30:00"
+        assert isinstance(result["days_online"], int)
+        assert result["days_online"] >= 0
+        # Meme date first_pub et index → pas republished
+        assert result["republished"] is False
+
+    def test_publication_date_missing(self):
+        result = extract_ad_data(MINIMAL_AD_NEXT_DATA)
+        assert result["publication_date"] is None
+        assert result["days_online"] is None
+        assert result["republished"] is False
+
+    def test_republished_detection(self):
+        """Annonce avec first_publication et index_date differents = republished."""
+        data = {
+            "props": {
+                "pageProps": {
+                    "ad": {
+                        "list_id": 123,
+                        "subject": "Test",
+                        "price": 10000,
+                        "first_publication_date": "2025-06-01 10:00:00",
+                        "index_date": "2026-02-14 04:30:00",
+                        "attributes": [
+                            {"key": "Marque", "value": "Peugeot"},
+                            {"key": "Modèle", "value": "208"},
+                        ],
+                    }
+                }
+            }
+        }
+        result = extract_ad_data(data)
+        assert result["republished"] is True
+        assert result["days_online"] > 200  # depuis juin 2025
+
     def test_raw_attributes_preserved(self):
         result = extract_ad_data(VALID_AD_NEXT_DATA)
         assert "Marque" in result["raw_attributes"]

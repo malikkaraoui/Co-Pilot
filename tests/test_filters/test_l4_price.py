@@ -78,6 +78,44 @@ class TestL4PriceFilter:
             result = self.filt.run(self._base_data())
         assert result.status == "skip"
 
+    def test_stale_below_market_warns(self):
+        """Prix en dessous de la ref + >30 jours = signal anguille sous roche."""
+        data = self._base_data(13000)
+        data["days_online"] = 45
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
+            patch("app.services.argus.get_argus_price", return_value=self.argus),
+        ):
+            result = self.filt.run(data)
+        assert result.details.get("stale_below_market") is True
+        assert "45 jours" in result.message
+        assert "acheteurs" in result.message
+
+    def test_recent_below_market_no_stale_signal(self):
+        """Prix en dessous de la ref mais annonce recente = pas de signal stale."""
+        data = self._base_data(13000)
+        data["days_online"] = 5
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
+            patch("app.services.argus.get_argus_price", return_value=self.argus),
+        ):
+            result = self.filt.run(data)
+        assert "stale_below_market" not in result.details
+
+    def test_stale_above_market_no_stale_signal(self):
+        """Prix au-dessus de la ref + >30 jours = pas de signal anguille."""
+        data = self._base_data(22000)
+        data["days_online"] = 45
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=None),
+            patch("app.services.argus.get_argus_price", return_value=self.argus),
+        ):
+            result = self.filt.run(data)
+        assert "stale_below_market" not in result.details
+
 
 class TestL4MarketPriceFallback:
     """Tests du fallback MarketPrice -> ArgusPrice dans L4."""

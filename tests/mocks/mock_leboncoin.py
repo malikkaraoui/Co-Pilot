@@ -6,6 +6,8 @@ VALID_AD_NEXT_DATA = {
             "ad": {
                 "subject": "Peugeot 3008 1.6 BlueHDi 120ch Active",
                 "price": [18500],
+                "first_publication_date": "2026-01-10 14:30:00",
+                "index_date": "2026-01-10 14:30:00",
                 "body": "Vehicule en excellent etat, revision faite.",
                 "location": {
                     "city": "Lyon",
