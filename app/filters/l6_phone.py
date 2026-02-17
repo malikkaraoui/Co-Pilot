@@ -55,6 +55,15 @@ class L6PhoneFilter(BaseFilter):
         phone = data.get("phone")
 
         if not phone:
+            # LBC cache le tel derriere "Voir le numero" (API authentifiee)
+            if data.get("has_phone"):
+                return FilterResult(
+                    filter_id=self.filter_id,
+                    status="skip",
+                    score=0.0,
+                    message="Connectez-vous sur LeBonCoin pour reveler le numero",
+                    details={"phone_login_hint": True},
+                )
             return self.skip("Pas de numero de telephone dans l'annonce")
 
         # Normalisation : suppression des espaces, tirets, points

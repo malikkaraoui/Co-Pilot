@@ -263,13 +263,16 @@
 
   /** Construit le HTML des details d'un filtre (depliable). */
   function buildDetailsHTML(details) {
-    // phone_login_hint : affiche directement (pas dans le depliable)
+    // phone_login_hint : bandeau invite a se connecter sur LBC
     let phoneHintHTML = "";
     if (details.phone_login_hint) {
+      const hintText = typeof details.phone_login_hint === "string"
+        ? details.phone_login_hint
+        : "Connectez-vous sur LeBonCoin pour acc\u00e9der au num\u00e9ro";
       phoneHintHTML = `
         <div class="copilot-phone-login-hint">
           <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
-          <span>${escapeHTML(details.phone_login_hint)}</span>
+          <span>${escapeHTML(hintText)}</span>
           <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
              class="copilot-phone-login-link">Se connecter</a>
         </div>
@@ -550,6 +553,58 @@
   }
 
   /**
+   * Detecte si l'utilisateur est connecte sur LeBonCoin.
+   * LBC affiche "Se connecter" dans le header si non connecte.
+   */
+  function isUserLoggedIn() {
+    const header = document.querySelector("header");
+    if (!header) return false;
+    const text = header.textContent.toLowerCase();
+    return !text.includes("se connecter") && !text.includes("s'identifier");
+  }
+
+  /**
+   * Revele le numero de telephone en cliquant "Voir le numero" sur la page LBC.
+   * A appeler UNIQUEMENT si l'utilisateur est connecte (sinon redirect login).
+   * Retourne le numero (string) ou null si indisponible.
+   */
+  async function revealPhoneNumber() {
+    const candidates = document.querySelectorAll('button, a, [role="button"]');
+    let phoneBtn = null;
+
+    for (const el of candidates) {
+      const text = (el.textContent || "").toLowerCase().trim();
+      if (text.includes("voir le numéro") || text.includes("voir le numero")
+          || text.includes("afficher le numéro") || text.includes("afficher le numero")) {
+        phoneBtn = el;
+        break;
+      }
+    }
+
+    if (!phoneBtn) return null;
+
+    phoneBtn.click();
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await sleep(500);
+
+      const telLinks = document.querySelectorAll('a[href^="tel:"]');
+      for (const link of telLinks) {
+        const phone = link.href.replace("tel:", "").trim();
+        if (phone && phone.length >= 10) return phone;
+      }
+
+      const container = phoneBtn.closest("div") || phoneBtn.parentElement;
+      if (container) {
+        const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+        if (match) return match[0].replace(/[\s.-]/g, "");
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Lance l'analyse : extrait les donnees, collecte les prix SI besoin
    * (AVANT l'analyse pour que L4/L5 aient des donnees fraiches),
    * puis appelle l'API et affiche les resultats.
@@ -561,6 +616,16 @@
     if (!nextData) {
       showPopup(buildErrorPopup("Impossible de lire les données de cette page. Vérifiez que vous êtes sur une annonce Leboncoin."));
       return;
+    }
+
+    // Reveler le telephone SI l'utilisateur est connecte (sinon hint login dans L6/L9)
+    const ad = nextData?.props?.pageProps?.ad;
+    if (ad?.has_phone && isUserLoggedIn()) {
+      const phone = await revealPhoneNumber();
+      if (phone) {
+        if (!ad.owner) ad.owner = {};
+        ad.owner.phone = phone;
+      }
     }
 
     // Collecte des prix AVANT l'analyse (silencieuse, ~1-2s)
@@ -815,6 +880,8 @@
     module.exports = {
       extractVehicleFromNextData,
       extractRegionFromNextData,
+      isUserLoggedIn,
+      revealPhoneNumber,
       isStaleData,
       isAdPage,
       scoreColor,
