@@ -226,7 +226,7 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         "first_registration": (
             attrs.get("Date de première mise en circulation") or attrs.get("Mise en circulation")
         ),
-        "color": attrs.get("Couleur"),
+        "color": attrs.get("Couleur") or attrs.get("vehicule_color") or attrs.get("color"),
         "power_fiscal_cv": _coerce_int(attrs.get("Puissance fiscale")),
         "power_din_hp": _coerce_int(attrs.get("Puissance DIN")),
         "location": location,

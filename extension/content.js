@@ -564,11 +564,20 @@
   }
 
   /**
-   * Revele le numero de telephone en cliquant "Voir le numero" sur la page LBC.
-   * A appeler UNIQUEMENT si l'utilisateur est connecte (sinon redirect login).
+   * Recupere le numero de telephone sur la page LBC.
+   * 1. Verifie si un lien tel: existe deja (numero deja revele)
+   * 2. Sinon clique "Voir le numero" (utilisateur connecte uniquement)
    * Retourne le numero (string) ou null si indisponible.
    */
   async function revealPhoneNumber() {
+    // 1. Le numero est peut-etre deja visible (revele lors d'un precedent scan)
+    const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
+    for (const link of existingTelLinks) {
+      const phone = link.href.replace("tel:", "").trim();
+      if (phone && phone.length >= 10) return phone;
+    }
+
+    // 2. Sinon chercher le bouton "Voir le numero" et cliquer
     const candidates = document.querySelectorAll('button, a, [role="button"]');
     let phoneBtn = null;
 
@@ -585,6 +594,7 @@
 
     phoneBtn.click();
 
+    // 3. Attendre que le DOM se mette a jour
     for (let attempt = 0; attempt < 5; attempt++) {
       await sleep(500);
 

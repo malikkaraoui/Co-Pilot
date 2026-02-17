@@ -26,6 +26,10 @@ class L1ExtractionFilter(BaseFilter):
 
         for field in SECONDARY_FIELDS:
             if data.get(field) is None:
+                # phone est cache derriere "Voir le numero" sur LBC ;
+                # has_phone=True signifie qu'il existe mais n'est pas revele.
+                if field == "phone" and data.get("has_phone"):
+                    continue
                 missing_secondary.append(field)
 
         total_fields = len(CRITICAL_FIELDS) + len(SECONDARY_FIELDS)
@@ -42,8 +46,12 @@ class L1ExtractionFilter(BaseFilter):
             status = "pass"
             message = "Toutes les donnees de l'annonce sont presentes"
 
-        logger.info("L1: %s (critical_missing=%d, secondary_missing=%d)",
-                     status, len(missing_critical), len(missing_secondary))
+        logger.info(
+            "L1: %s (critical_missing=%d, secondary_missing=%d)",
+            status,
+            len(missing_critical),
+            len(missing_secondary),
+        )
 
         return FilterResult(
             filter_id=self.filter_id,
