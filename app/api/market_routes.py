@@ -40,6 +40,7 @@ class MarketPricesRequest(BaseModel):
     region: str = Field(min_length=1, max_length=80)
     prices: list[int] = Field(min_length=MIN_SAMPLE_COUNT)
     category: str | None = Field(default=None, max_length=40)
+    fuel: str | None = Field(default=None, max_length=30)
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -122,6 +123,7 @@ def submit_market_prices():
             year=req.year,
             region=req.region,
             prices=valid_prices,
+            fuel=req.fuel,
         )
     except (ValueError, TypeError, OSError) as exc:
         logger.error("Failed to store market prices: %s", exc)

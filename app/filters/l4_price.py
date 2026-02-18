@@ -43,14 +43,22 @@ class L4PriceFilter(BaseFilter):
         if not region:
             return self.skip("Région non disponible dans l'annonce")
 
+        fuel = (data.get("fuel") or "").strip() or None
         ref_price = None
         source = None
         details: dict[str, Any] = {"price_annonce": price, "region": region}
 
         # 1. MarketPrice (crowdsource) : pas besoin du referentiel vehicule,
-        #    la recherche se fait par make/model/year/region en texte.
-        logger.info("L4 lookup: make=%r model=%r year=%d region=%r", make, model, year, region)
-        market = get_market_stats(make, model, year, region)
+        #    la recherche se fait par make/model/year/region/fuel en texte.
+        logger.info(
+            "L4 lookup: make=%r model=%r year=%d region=%r fuel=%r",
+            make,
+            model,
+            year,
+            region,
+            fuel,
+        )
+        market = get_market_stats(make, model, year, region, fuel=fuel)
         if market and market.sample_count >= self.MARKET_MIN_SAMPLES:
             ref_price = market.price_median
             source = "marche_leboncoin"

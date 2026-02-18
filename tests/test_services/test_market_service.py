@@ -87,6 +87,89 @@ class TestStoreMarketPrices:
             assert abs(delta.total_seconds() - 86400) < 2  # ~24h
 
 
+class TestStoreWithFuel:
+    """Tests de store_market_prices avec le parametre fuel."""
+
+    def test_stores_fuel(self, app):
+        """store_market_prices stocke le fuel normalise."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Ile-de-France",
+                prices=[20000, 22000, 24000],
+                fuel="Diesel",
+            )
+            assert mp.fuel == "diesel"
+
+    def test_separate_records_per_fuel(self, app):
+        """Deux appels avec fuel different creent deux enregistrements."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Bretagne",
+                prices=[20000, 22000, 24000],
+                fuel="diesel",
+            )
+            mp2 = store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Bretagne",
+                prices=[18000, 19000, 20000],
+                fuel="essence",
+            )
+            assert mp1.id != mp2.id
+            assert mp1.fuel == "diesel"
+            assert mp2.fuel == "essence"
+
+    def test_upserts_same_fuel(self, app):
+        """Deux appels avec meme fuel mettent a jour le meme enregistrement."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Corse",
+                prices=[20000, 22000, 24000],
+                fuel="diesel",
+            )
+            mp2 = store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Corse",
+                prices=[21000, 23000, 25000],
+                fuel="diesel",
+            )
+            assert mp1.id == mp2.id
+
+    def test_no_fuel_separate_from_fuel(self, app):
+        """Un enregistrement sans fuel et un avec fuel sont distincts."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Grand Est",
+                prices=[15000, 16000, 17000],
+            )
+            mp2 = store_market_prices(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Grand Est",
+                prices=[14000, 15000, 16000],
+                fuel="essence",
+            )
+            assert mp1.id != mp2.id
+            assert mp1.fuel is None
+            assert mp2.fuel == "essence"
+
+
 class TestGetMarketStats:
     """Tests de get_market_stats."""
 
@@ -130,6 +213,59 @@ class TestGetMarketStats:
         with app.app_context():
             result = get_market_stats("Ferrari", "F40", 1990, "Corse")
             assert result is None
+
+    def test_returns_fuel_match_first(self, app):
+        """get_market_stats prefere le match avec fuel."""
+        with app.app_context():
+            store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Normandie",
+                prices=[15000, 16000, 17000],
+            )
+            store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2025,
+                region="Normandie",
+                prices=[20000, 22000, 24000],
+                fuel="essence",
+            )
+            result = get_market_stats("Renault", "Clio", 2025, "Normandie", fuel="essence")
+            assert result is not None
+            assert result.fuel == "essence"
+            assert result.price_median == 22000
+
+    def test_falls_back_to_no_fuel(self, app):
+        """get_market_stats tombe en fallback quand le fuel demande n'existe pas."""
+        with app.app_context():
+            store_market_prices(
+                make="Fiat",
+                model="500",
+                year=2021,
+                region="PACA",
+                prices=[10000, 11000, 12000],
+            )
+            result = get_market_stats("Fiat", "500", 2021, "PACA", fuel="diesel")
+            assert result is not None
+            assert result.price_median == 11000
+
+    def test_approx_year_with_fuel(self, app):
+        """get_market_stats trouve une annee proche avec fuel match."""
+        with app.app_context():
+            store_market_prices(
+                make="Toyota",
+                model="Yaris",
+                year=2022,
+                region="Bretagne",
+                prices=[14000, 15000, 16000],
+                fuel="hybride",
+            )
+            result = get_market_stats("Toyota", "Yaris", 2023, "Bretagne", fuel="hybride")
+            assert result is not None
+            assert result.year == 2022
+            assert result.fuel == "hybride"
 
 
 class TestFilterOutliersIQR:

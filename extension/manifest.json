@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Co-Pilot - Analyse Leboncoin",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Analyse les annonces auto Leboncoin et donne un score de confiance de 0 a 100.",
   "permissions": [
     "activeTab",

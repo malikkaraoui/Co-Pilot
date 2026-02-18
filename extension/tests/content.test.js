@@ -10,6 +10,7 @@
 const {
   extractVehicleFromNextData,
   extractRegionFromNextData,
+  extractMileageFromNextData,
   isStaleData,
   isAdPage,
   scoreColor,
@@ -18,6 +19,8 @@ const {
   filterLabel,
   maybeCollectMarketPrices,
   LBC_REGIONS,
+  LBC_FUEL_CODES,
+  getMileageRange,
   COLLECT_COOLDOWN_MS,
   SIMULATED_FILTERS,
   API_URL,
@@ -271,6 +274,74 @@ describe('extractRegionFromNextData', () => {
 
 
 // ═══════════════════════════════════════════════════════════════════
+// 4b. Extraction kilometrage depuis __NEXT_DATA__
+// ═══════════════════════════════════════════════════════════════════
+
+describe('extractMileageFromNextData', () => {
+  it('extrait le kilometrage depuis l\'attribut mileage', () => {
+    const nextData = makeNextData({
+      attributes: [
+        { key: 'brand', value: 'Renault' },
+        { key: 'model', value: 'Clio' },
+        { key: 'regdate', value: '2020' },
+        { key: 'mileage', value: '45000' },
+      ],
+    });
+    expect(extractMileageFromNextData(nextData)).toBe(45000);
+  });
+
+  it('retourne 0 quand nextData est null', () => {
+    expect(extractMileageFromNextData(null)).toBe(0);
+  });
+
+  it('retourne 0 quand attribut mileage absent', () => {
+    const nextData = makeNextData({ attributes: [{ key: 'brand', value: 'Peugeot' }] });
+    expect(extractMileageFromNextData(nextData)).toBe(0);
+  });
+
+  it('parse des valeurs avec espaces (ex: "45 000")', () => {
+    const nextData = makeNextData({
+      attributes: [{ key: 'mileage', value: '45 000' }],
+    });
+    expect(extractMileageFromNextData(nextData)).toBe(45000);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 4c. getMileageRange helper
+// ═══════════════════════════════════════════════════════════════════
+
+describe('getMileageRange', () => {
+  it('retourne null pour km <= 0 ou absent', () => {
+    expect(getMileageRange(0)).toBeNull();
+    expect(getMileageRange(null)).toBeNull();
+    expect(getMileageRange(undefined)).toBeNull();
+  });
+
+  it('quasi-neuf: 0-30000 pour km <= 20000', () => {
+    expect(getMileageRange(5000)).toBe('0-30000');
+    expect(getMileageRange(20000)).toBe('0-30000');
+  });
+
+  it('usage normal: 10000-80000 pour 20001-60000', () => {
+    expect(getMileageRange(20001)).toBe('10000-80000');
+    expect(getMileageRange(60000)).toBe('10000-80000');
+  });
+
+  it('usage intensif: 40000-150000 pour 60001-120000', () => {
+    expect(getMileageRange(60001)).toBe('40000-150000');
+    expect(getMileageRange(120000)).toBe('40000-150000');
+  });
+
+  it('haute frequentation: 100000-max pour > 120000', () => {
+    expect(getMileageRange(120001)).toBe('100000-max');
+    expect(getMileageRange(250000)).toBe('100000-max');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
 // 5. Detection de donnees SPA perimees
 // ═══════════════════════════════════════════════════════════════════
 
@@ -354,10 +425,18 @@ describe('Constants', () => {
     expect(LBC_REGIONS).toHaveProperty('Corse');
   });
 
-  it('LBC_REGIONS values suivent le pattern r_N', () => {
+  it('LBC_REGIONS values suivent le pattern rn_N (region + voisines)', () => {
     Object.values(LBC_REGIONS).forEach((v) => {
-      expect(v).toMatch(/^r_\d+$/);
+      expect(v).toMatch(/^rn_\d+$/);
     });
+  });
+
+  it('LBC_FUEL_CODES mappe les 4 energies principales', () => {
+    expect(LBC_FUEL_CODES['essence']).toBe(1);
+    expect(LBC_FUEL_CODES['diesel']).toBe(2);
+    expect(LBC_FUEL_CODES['electrique']).toBe(4);
+    expect(LBC_FUEL_CODES['électrique']).toBe(4);
+    expect(LBC_FUEL_CODES['hybride']).toBe(6);
   });
 });
 
@@ -367,7 +446,7 @@ describe('Constants', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('maybeCollectMarketPrices', () => {
-  const currentVehicle = { make: 'Peugeot', model: '3008', year: '2021' };
+  const currentVehicle = { make: 'Peugeot', model: '3008', year: '2021', fuel: 'diesel' };
 
   beforeEach(() => {
     localStorage.clear();
@@ -650,6 +729,7 @@ describe('maybeCollectMarketPrices', () => {
       expect(body.model).toBe('3008');
       expect(body.year).toBe(2021); // parseInt applique
       expect(body.prices).toEqual([12000, 13000, 14000, 15000]);
+      expect(body.fuel).toBe('diesel');
     });
 
     it('filtre les prix <= 500 de la recherche LBC', async () => {
@@ -679,6 +759,34 @@ describe('maybeCollectMarketPrices', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
+    it('utilise u_car_brand et u_car_model dans URL de recherche LBC', async () => {
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle),
+        searchHTML: makeSearchHTML([12000, 13000, 14000]),
+        submitOk: true,
+      });
+
+      await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      const searchUrl = fetchMock.mock.calls[1][0];
+      expect(searchUrl).toContain('u_car_brand=PEUGEOT');
+      expect(searchUrl).toContain('u_car_model=PEUGEOT_3008');
+      expect(searchUrl).not.toContain('text=');
+    });
+
+    it('ajoute fuel= a URL de recherche LBC pour vehicule courant', async () => {
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle),
+        searchHTML: makeSearchHTML([12000, 13000, 14000]),
+        submitOk: true,
+      });
+
+      await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      const searchUrl = fetchMock.mock.calls[1][0];
+      expect(searchUrl).toContain('fuel=2'); // diesel = 2
+    });
+
     it('ajoute le parametre region a URL de recherche LBC', async () => {
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
@@ -689,7 +797,7 @@ describe('maybeCollectMarketPrices', () => {
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       const searchUrl = fetchMock.mock.calls[1][0];
-      expect(searchUrl).toContain('locations=r_12');
+      expect(searchUrl).toContain('locations=rn_12');
     });
   });
 

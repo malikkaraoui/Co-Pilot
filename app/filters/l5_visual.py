@@ -21,6 +21,8 @@ class L5VisualFilter(BaseFilter):
     @staticmethod
     def _collect_market_prices(data: dict[str, Any], min_samples: int) -> np.ndarray | None:
         """Collecte les prix de reference depuis MarketPrice (pas besoin du referentiel)."""
+        from sqlalchemy import func
+
         from app.models.market_price import MarketPrice
         from app.services.market_service import market_text_key, market_text_key_expr
 
@@ -38,11 +40,29 @@ class L5VisualFilter(BaseFilter):
         except (ValueError, TypeError):
             return None
 
-        records = MarketPrice.query.filter(
+        base_filters = [
             market_text_key_expr(MarketPrice.make) == market_text_key(make),
             market_text_key_expr(MarketPrice.model) == market_text_key(model),
             MarketPrice.sample_count >= min_samples,
-        ).all()
+        ]
+
+        # Tenter d'abord avec fuel (plus precis)
+        fuel = (data.get("fuel") or "").strip().lower() or None
+        if fuel:
+            records = MarketPrice.query.filter(
+                *base_filters,
+                func.lower(MarketPrice.fuel) == fuel,
+            ).all()
+            if records:
+                prices = []
+                for r in records:
+                    prices.extend([r.price_min, r.price_median, r.price_max])
+                ref = np.array([p for p in prices if p], dtype=float)
+                if len(ref) >= 3:
+                    return ref
+
+        # Fallback sans fuel
+        records = MarketPrice.query.filter(*base_filters).all()
         if records:
             prices = []
             for r in records:

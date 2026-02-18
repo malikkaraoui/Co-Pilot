@@ -862,23 +862,45 @@
 
   // ── Collecte crowdsourcee des prix du marche ────────────────────
 
-  /** Mapping des regions LeBonCoin (valeurs du parametre locations).
+  /** Mapping des regions LeBonCoin → codes rn_ (region + voisines).
+   *  Les codes rn_ utilisent l'ancienne nomenclature regionale LBC (pre-2016).
+   *  Avantage: rayon elargi = plus d'annonces comparables pour l'argus.
    *  Les cles correspondent aux region_name retournees par l'API LBC (avec accents). */
   const LBC_REGIONS = {
-    "Île-de-France": "r_12",
-    "Auvergne-Rhône-Alpes": "r_1",
-    "Provence-Alpes-Côte d'Azur": "r_21",
-    "Occitanie": "r_16",
-    "Nouvelle-Aquitaine": "r_54",
-    "Hauts-de-France": "r_22",
-    "Grand Est": "r_44",
-    "Bretagne": "r_6",
-    "Pays de la Loire": "r_18",
-    "Normandie": "r_28",
-    "Bourgogne-Franche-Comté": "r_27",
-    "Centre-Val de Loire": "r_7",
-    "Corse": "r_9",
+    "Île-de-France": "rn_12",
+    "Auvergne-Rhône-Alpes": "rn_22",   // Rhone-Alpes + voisines
+    "Provence-Alpes-Côte d'Azur": "rn_21",
+    "Occitanie": "rn_16",              // Midi-Pyrenees + voisines
+    "Nouvelle-Aquitaine": "rn_20",     // Poitou-Charentes + voisines
+    "Hauts-de-France": "rn_17",        // Nord-Pas-de-Calais + voisines
+    "Grand Est": "rn_8",               // Champagne-Ardenne + voisines
+    "Bretagne": "rn_6",
+    "Pays de la Loire": "rn_18",
+    "Normandie": "rn_4",               // Basse-Normandie + voisines
+    "Bourgogne-Franche-Comté": "rn_5", // Bourgogne + voisines
+    "Centre-Val de Loire": "rn_7",
+    "Corse": "rn_9",
   };
+
+  /** Mapping fuel LBC : texte → code URL.
+   *  Valeurs extraites de l'interface LBC (février 2026). */
+  const LBC_FUEL_CODES = {
+    "essence": 1,
+    "diesel": 2,
+    "electrique": 4,
+    "électrique": 4,
+    "hybride": 6,
+  };
+
+  /** Calcule le range de kilometrage pour la recherche LBC.
+   *  Overlap volontaire pour avoir assez d'annonces comparables. */
+  function getMileageRange(km) {
+    if (!km || km <= 0) return null;
+    if (km <= 20000) return "0-30000";
+    if (km <= 60000) return "10000-80000";
+    if (km <= 120000) return "40000-150000";
+    return "100000-max";
+  }
 
   /** Cooldown entre deux collectes (anti-ban). */
   const COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
@@ -888,6 +910,20 @@
     if (!nextData) return "";
     const loc = nextData?.props?.pageProps?.ad?.location;
     return loc?.region_name || loc?.region || "";
+  }
+
+  /** Extrait le kilometrage (en km) depuis les donnees __NEXT_DATA__. Retourne 0 si absent. */
+  function extractMileageFromNextData(nextData) {
+    const ad = nextData?.props?.pageProps?.ad;
+    if (!ad) return 0;
+    const attrs = (ad.attributes || []).reduce((acc, a) => {
+      const key = a.key || a.key_label || a.label || a.name;
+      const val = a.value || a.value_label || a.text || a.value_text;
+      if (key) acc[key] = val;
+      return acc;
+    }, {});
+    const raw = attrs["mileage"] || attrs["Kilométrage"] || attrs["kilometrage"] || "0";
+    return parseInt(String(raw).replace(/\s/g, ""), 10) || 0;
   }
 
   /**
@@ -904,13 +940,16 @@
    * Appelee AVANT l'analyse pour que L4/L5 aient des donnees fraiches.
    */
   async function maybeCollectMarketPrices(vehicle, nextData) {
-    const { make, model, year } = vehicle;
+    const { make, model, year, fuel } = vehicle;
     if (!make || !model || !year) return { submitted: false };
 
     // Ne pas collecter de prix pour les categories non-voiture (motos, etc.)
     const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
     const urlCategory = urlMatch ? urlMatch[1] : null;
     if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) return { submitted: false };
+
+    // Extraire le kilometrage depuis le nextData pour le range de recherche
+    const mileageKm = extractMileageFromNextData(nextData);
 
     // 1. Extraire la region depuis le nextData (pas le DOM qui peut etre stale)
     const region = extractRegionFromNextData(nextData);
@@ -943,20 +982,41 @@
       if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) return { submitted: false };
     }
 
-    // 4. Chercher le vehicule cible sur LeBonCoin (recherche ciblee)
+    // 4. Construire l'URL de recherche LeBonCoin (filtres structures)
     const targetYear = parseInt(target.year, 10) || 0;
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
-
-    // Texte de recherche : marque + modele (sauf modele generique)
-    const searchTerms = modelIsGeneric ? target.make : `${target.make} ${target.model}`;
-    const searchText = encodeURIComponent(searchTerms);
     const regionParam = LBC_REGIONS[targetRegion] || "";
 
-    let searchUrl = `https://www.leboncoin.fr/recherche?category=2&text=${searchText}`;
+    // Preferer u_car_brand + u_car_model (recherche structuree, pas de faux positifs)
+    // Fallback sur text= si le modele est generique
+    const brandUpper = target.make.toUpperCase();
+    let searchUrl = "https://www.leboncoin.fr/recherche?category=2";
+    if (modelIsGeneric) {
+      searchUrl += `&text=${encodeURIComponent(target.make)}`;
+    } else {
+      const modelUpper = `${brandUpper}_${target.model.toUpperCase()}`;
+      searchUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
+      searchUrl += `&u_car_model=${encodeURIComponent(modelUpper)}`;
+    }
+
     if (regionParam) searchUrl += `&locations=${regionParam}`;
+
     // Filtre annee : ±1 an pour avoir des comparables pertinents
     if (targetYear >= 1990) {
       searchUrl += `&regdate=${targetYear - 1}-${targetYear + 1}`;
+    }
+
+    // Filtre fuel (diesel/essence/electrique/hybride)
+    const targetFuel = isCurrentVehicle ? (fuel || "").toLowerCase() : "";
+    const fuelCode = LBC_FUEL_CODES[targetFuel];
+    if (fuelCode) {
+      searchUrl += `&fuel=${fuelCode}`;
+    }
+
+    // Filtre kilometrage (range adapte au km du vehicule courant)
+    if (isCurrentVehicle && mileageKm > 0) {
+      const mileageRange = getMileageRange(mileageKm);
+      if (mileageRange) searchUrl += `&mileage=${mileageRange}`;
     }
 
     let submitted = false;
@@ -1000,6 +1060,7 @@
             region: targetRegion,
             prices: prices,
             category: urlCategory,
+            fuel: fuelCode ? targetFuel : null,
           }),
         });
         submitted = marketResp.ok;
@@ -1049,6 +1110,7 @@
     module.exports = {
       extractVehicleFromNextData,
       extractRegionFromNextData,
+      extractMileageFromNextData,
       isUserLoggedIn,
       revealPhoneNumber,
       isStaleData,
@@ -1059,6 +1121,8 @@
       filterLabel,
       maybeCollectMarketPrices,
       LBC_REGIONS,
+      LBC_FUEL_CODES,
+      getMileageRange,
       COLLECT_COOLDOWN_MS,
       SIMULATED_FILTERS,
       API_URL,

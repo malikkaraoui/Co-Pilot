@@ -93,6 +93,7 @@ def store_market_prices(
     year: int,
     region: str,
     prices: list[int],
+    fuel: str | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -106,6 +107,7 @@ def store_market_prices(
         year: Annee du modele.
         region: Region geographique (ex. "Ile-de-France").
         prices: Liste de prix entiers collectes depuis LeBonCoin.
+        fuel: Type de motorisation (ex. "essence", "diesel"). Optionnel.
 
     Returns:
         L'instance MarketPrice creee ou mise a jour.
@@ -113,6 +115,7 @@ def store_market_prices(
     make = normalize_market_text(make)
     model = normalize_market_text(model)
     region = normalize_market_text(region)
+    fuel = normalize_market_text(fuel).lower() if fuel else None
 
     # Filtrage IQR des outliers
     kept, excluded, iqr_low, iqr_high = _filter_outliers_iqr(prices)
@@ -143,41 +146,51 @@ def store_market_prices(
         "refresh_after": now + timedelta(hours=CACHE_DURATION_HOURS),
     }
 
-    existing = MarketPrice.query.filter(
+    # Recherche existante : si fuel est fourni, chercher par fuel d'abord
+    filters = [
         market_text_key_expr(MarketPrice.make) == market_text_key(make),
         market_text_key_expr(MarketPrice.model) == market_text_key(model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
-    ).first()
+    ]
+    if fuel:
+        filters.append(func.lower(MarketPrice.fuel) == fuel)
+    else:
+        filters.append(MarketPrice.fuel.is_(None))
+
+    existing = MarketPrice.query.filter(*filters).first()
 
     if existing:
         existing.make = make
         existing.model = model
         existing.region = region
+        existing.fuel = fuel
         for key, value in stats.items():
             setattr(existing, key, value)
         db.session.commit()
         logger.info(
-            "Updated MarketPrice %s %s %d %s (%d/%d kept, %d excluded)",
+            "Updated MarketPrice %s %s %d %s fuel=%s (%d/%d kept, %d excluded)",
             make,
             model,
             year,
             region,
+            fuel,
             len(kept),
             len(prices),
             len(excluded),
         )
         return existing
 
-    mp = MarketPrice(make=make, model=model, year=year, region=region, **stats)
+    mp = MarketPrice(make=make, model=model, year=year, region=region, fuel=fuel, **stats)
     db.session.add(mp)
     db.session.commit()
     logger.info(
-        "Created MarketPrice %s %s %d %s (%d/%d kept, %d excluded)",
+        "Created MarketPrice %s %s %d %s fuel=%s (%d/%d kept, %d excluded)",
         make,
         model,
         year,
         region,
+        fuel,
         len(kept),
         len(prices),
         len(excluded),
@@ -185,12 +198,15 @@ def store_market_prices(
     return mp
 
 
-def get_market_stats(make: str, model: str, year: int, region: str) -> MarketPrice | None:
+def get_market_stats(
+    make: str, model: str, year: int, region: str, fuel: str | None = None
+) -> MarketPrice | None:
     """Recupere les stats marche pour un vehicule/region.
 
     Strategie de recherche progressive :
-    1. Match exact (make + model + year + region)
-    2. Fallback : make + model + region, annee la plus proche
+    1. Match exact avec fuel (make + model + year + region + fuel)
+    2. Match exact sans fuel (make + model + year + region)
+    3. Fallback : make + model + region, annee la plus proche (avec puis sans fuel)
 
     Les donnees restent valables indefiniment (argus maison).
     Le champ refresh_after indique seulement si un rafraichissement serait souhaitable.
@@ -200,6 +216,7 @@ def get_market_stats(make: str, model: str, year: int, region: str) -> MarketPri
         model: Modele.
         year: Annee.
         region: Region.
+        fuel: Type de motorisation (ex. "diesel", "essence"). Optionnel.
 
     Returns:
         L'instance MarketPrice si elle existe, None sinon.
@@ -207,13 +224,37 @@ def get_market_stats(make: str, model: str, year: int, region: str) -> MarketPri
     make_key = market_text_key(make)
     model_key = market_text_key(model)
     region_key = market_text_key(region)
+    fuel_key = fuel.strip().lower() if fuel else None
 
-    # 1. Match exact (4 champs)
-    result = MarketPrice.query.filter(
+    base_filters = [
         market_text_key_expr(MarketPrice.make) == make_key,
         market_text_key_expr(MarketPrice.model) == model_key,
-        MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == region_key,
+    ]
+
+    # 1. Match exact avec fuel (5 champs) -- le plus precis
+    if fuel_key:
+        result = MarketPrice.query.filter(
+            *base_filters,
+            MarketPrice.year == year,
+            func.lower(MarketPrice.fuel) == fuel_key,
+        ).first()
+        if result:
+            logger.info(
+                "MarketPrice exact+fuel: %s %s %d %s %s (n=%d)",
+                make,
+                model,
+                year,
+                region,
+                fuel_key,
+                result.sample_count,
+            )
+            return result
+
+    # 2. Match exact sans fuel (4 champs) -- fallback anciennes donnees
+    result = MarketPrice.query.filter(
+        *base_filters,
+        MarketPrice.year == year,
     ).first()
 
     if result:
@@ -222,14 +263,30 @@ def get_market_stats(make: str, model: str, year: int, region: str) -> MarketPri
         )
         return result
 
-    # 2. Fallback : make + model + region, annee la plus proche (±3 ans max)
-    candidates = MarketPrice.query.filter(
-        market_text_key_expr(MarketPrice.make) == make_key,
-        market_text_key_expr(MarketPrice.model) == model_key,
-        market_text_key_expr(MarketPrice.region) == region_key,
-        MarketPrice.year.between(year - 3, year + 3),
-    ).all()
+    # 3. Fallback : annee la plus proche (±3 ans max), avec fuel d'abord
+    year_filters = [*base_filters, MarketPrice.year.between(year - 3, year + 3)]
 
+    if fuel_key:
+        candidates = MarketPrice.query.filter(
+            *year_filters,
+            func.lower(MarketPrice.fuel) == fuel_key,
+        ).all()
+        if candidates:
+            result = min(candidates, key=lambda mp: abs(mp.year - year))
+            logger.info(
+                "MarketPrice approx+fuel: %s %s %d->%d %s %s (n=%d)",
+                make,
+                model,
+                year,
+                result.year,
+                region,
+                fuel_key,
+                result.sample_count,
+            )
+            return result
+
+    # 4. Fallback sans fuel
+    candidates = MarketPrice.query.filter(*year_filters).all()
     if candidates:
         result = min(candidates, key=lambda mp: abs(mp.year - year))
         logger.info(
@@ -243,5 +300,5 @@ def get_market_stats(make: str, model: str, year: int, region: str) -> MarketPri
         )
         return result
 
-    logger.info("No MarketPrice for %s %s %d %s", make, model, year, region)
+    logger.info("No MarketPrice for %s %s %d %s fuel=%s", make, model, year, region, fuel_key)
     return None

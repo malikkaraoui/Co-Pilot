@@ -16,6 +16,7 @@ class MarketPrice(db.Model):
     model = db.Column(db.String(80), nullable=False, index=True)
     year = db.Column(db.Integer, nullable=False)
     region = db.Column(db.String(80), nullable=False)
+    fuel = db.Column(db.String(30), nullable=True)  # essence, diesel, electrique, hybride
 
     price_min = db.Column(db.Integer)
     price_median = db.Column(db.Integer)
@@ -36,7 +37,12 @@ class MarketPrice(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint(
-            "make", "model", "year", "region", name="uq_market_price_vehicle_region"
+            "make",
+            "model",
+            "year",
+            "region",
+            "fuel",
+            name="uq_market_price_vehicle_region_fuel",
         ),
     )
 

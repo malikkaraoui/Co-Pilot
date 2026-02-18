@@ -89,6 +89,36 @@ class TestMarketPricesAPI:
         assert resp.status_code == 400
         assert "prix valides" in resp.get_json()["message"].lower()
 
+    def test_submit_with_fuel(self, app, client):
+        """POST avec fuel stocke la motorisation."""
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Seat",
+                    "model": "Ibiza",
+                    "year": 2024,
+                    "region": "PACA",
+                    "prices": [14000, 15000, 16000],
+                    "fuel": "essence",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        with app.app_context():
+            mp = MarketPrice.query.filter_by(
+                make="Seat",
+                model="Ibiza",
+                year=2024,
+                fuel="essence",
+            ).first()
+            assert mp is not None
+            assert mp.fuel == "essence"
+
     def test_submit_invalid_year_returns_400(self, client):
         """POST avec annee hors limites retourne 400."""
         resp = client.post(
