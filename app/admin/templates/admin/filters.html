@@ -23,6 +23,11 @@
   }
   .badge-real { background: #22c55e; color: #fff; }
   .badge-simulated { background: #8b5cf6; color: #fff; }
+  .badge-planned { background: #d1d5db; color: #6b7280; }
+  .filter-card-planned {
+    opacity: 0.55;
+    border: 2px dashed #d1d5db;
+  }
   .maturity-bar {
     height: 8px;
     border-radius: 4px;
@@ -69,8 +74,8 @@
   </div>
   <div class="col-md-3">
     <div class="stat-card">
-      <div class="stat-value" style="color: #8b5cf6;">{{ simulated_count }}</div>
-      <div class="stat-label">Données simulées</div>
+      <div class="stat-value" style="color: #9ca3af;">{{ planned_count }}</div>
+      <div class="stat-label">En preparation</div>
     </div>
   </div>
   <div class="col-md-3">
@@ -86,14 +91,16 @@
   {% for f in filter_meta %}
   {% set stats = filter_stats.get(f.id, {}) %}
   <div class="col-md-6 col-lg-4">
-    <div class="filter-card">
+    <div class="filter-card {% if f.data_source_type == 'planned' %}filter-card-planned{% endif %}">
       <div class="filter-card-header">
         <div>
           <span class="filter-id">{{ f.id }}</span>
           <h5 class="mb-0 mt-1">{{ f.name }}</h5>
         </div>
-        {% if f.data_source_type == 'simulated' %}
-          <span class="badge badge-simulated">Données simulées</span>
+        {% if f.data_source_type == 'planned' %}
+          <span class="badge badge-planned">En preparation</span>
+        {% elif f.data_source_type == 'simulated' %}
+          <span class="badge badge-simulated">Donnees simulees</span>
         {% else %}
           <span class="badge badge-real">OK</span>
         {% endif %}

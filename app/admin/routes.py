@@ -719,11 +719,13 @@ _FILTER_META = [
     {
         "id": "L2",
         "name": "Modele reconnu",
-        "description": "Verifie si la marque/modele existe dans le referentiel vehicules Co-Pilot.",
-        "data_source": "Referentiel vehicules (base locale)",
+        "description": "Verifie si la marque/modele existe dans le referentiel vehicules Co-Pilot. "
+        "Detecte les modeles generiques LBC (Autres).",
+        "data_source": "Referentiel vehicules (92 modeles, 293 specs)",
         "data_source_type": "real",
-        "maturity": 80,
-        "maturity_note": "Referentiel a enrichir (70 modeles actuellement, objectif 200+)",
+        "maturity": 85,
+        "maturity_note": "92 modeles dont gamme Mercedes complete, auto-promotion 5+ scans, "
+        "detection generique 'Autres'. Objectif 200+",
     },
     {
         "id": "L3",
@@ -738,34 +740,35 @@ _FILTER_META = [
     {
         "id": "L4",
         "name": "Prix vs Argus",
-        "description": "Compare le prix de l'annonce aux donnees argus geolocalisees "
-        "pour detecter les anomalies de prix.",
-        "data_source": "Crowdsource LeBonCoin (fallback seed data)",
-        "data_source_type": "simulated",
-        "maturity": 40,
-        "maturity_note": "Crowdsourcing via extension implemente. Fallback sur seed (39 prix) "
-        "tant que pas assez de donnees reelles collectees.",
+        "description": "Compare le prix de l'annonce aux prix reels collectes sur LeBonCoin "
+        "(meme modele, annee, region). Detecte le signal 'anguille sous roche' "
+        "(prix bas + annonce >30j = acheteurs mefiants).",
+        "data_source": "Crowdsource LeBonCoin (prix reels collectes par les extensions)",
+        "data_source_type": "real",
+        "maturity": 60,
+        "maturity_note": "Crowdsourcing actif via extension. Fallback seed argus quand <5 annonces "
+        "collectees. Maturite croit avec le nombre d'utilisateurs.",
     },
     {
         "id": "L5",
         "name": "Analyse statistique",
         "description": "Analyse par z-scores NumPy pour detecter les prix outliers "
-        "par rapport a la distribution de reference.",
-        "data_source": "Crowdsource LeBonCoin (fallback seed data)",
-        "data_source_type": "simulated",
-        "maturity": 40,
-        "maturity_note": "Crowdsourcing via extension implemente. Fallback sur seed "
-        "tant que pas assez de donnees reelles collectees.",
+        "par rapport a la distribution de reference du marche.",
+        "data_source": "Crowdsource LeBonCoin (prix reels collectes par les extensions)",
+        "data_source_type": "real",
+        "maturity": 60,
+        "maturity_note": "Crowdsourcing actif via extension. Fallback seed quand <5 annonces. "
+        "Precision augmente avec le volume de donnees collectees.",
     },
     {
         "id": "L6",
         "name": "Telephone",
         "description": "Analyse le numero de telephone : format francais, "
         "mobile/fixe, indicatif etranger.",
-        "data_source": "Donnees de l'annonce",
+        "data_source": "Donnees de l'annonce + listes ARCEP",
         "data_source_type": "real",
         "maturity": 100,
-        "maturity_note": "Validation regex, aucune donnee externe",
+        "maturity_note": "Validation regex + bases ARCEP, aucune donnee externe payante",
     },
     {
         "id": "L7",
@@ -781,22 +784,34 @@ _FILTER_META = [
         "id": "L8",
         "name": "Detection import",
         "description": "Detecte les signaux de vehicules importes : mots-cles, "
-        "indicatif etranger, anomalie de prix.",
+        "indicatif etranger, anomalie de prix, texte etranger non traduit.",
         "data_source": "Donnees de l'annonce + heuristiques",
         "data_source_type": "real",
         "maturity": 85,
-        "maturity_note": "Heuristique prix < 3000 EUR trop simpliste, "
-        "a affiner avec des seuils par segment",
+        "maturity_note": "7 signaux independants. Heuristique prix < 3000 EUR a affiner "
+        "avec des seuils par segment",
     },
     {
         "id": "L9",
         "name": "Evaluation globale",
-        "description": "Evalue les signaux de confiance transversaux : qualite de "
-        "description, type de vendeur, completude.",
-        "data_source": "Donnees de l'annonce + resultats des autres filtres",
+        "description": "Evalue les signaux de confiance transversaux : qualite de description, "
+        "type de vendeur, anciennete de l'annonce, detection de republication.",
+        "data_source": "Donnees de l'annonce + dates publication LBC",
         "data_source_type": "real",
-        "maturity": 90,
-        "maturity_note": "Pourrait integrer plus de signaux (photos, historique vendeur)",
+        "maturity": 95,
+        "maturity_note": "Inclut detection republication (vraie date vs date affichee), "
+        "anciennete annonce, rapport Autoviza. Objectif : analyse semantique IA",
+    },
+    {
+        "id": "L10",
+        "name": "Anciennete annonce",
+        "description": "Analyse la liquidite du marche pour le modele : temps moyen de vente, "
+        "scoring par duree de publication, detection des annonces stagnantes.",
+        "data_source": "En preparation",
+        "data_source_type": "planned",
+        "maturity": 0,
+        "maturity_note": "Filtre en cours de conception. Objectif : scoring liquidite "
+        "par modele/region",
     },
 ]
 
@@ -829,12 +844,18 @@ def filters():
         filter_stats[row.filter_id][row.status] = row.cnt
         filter_stats[row.filter_id]["total"] += row.cnt
 
-    # Cartes resume
-    total_filters = len(_FILTER_META)
-    real_count = sum(1 for f in _FILTER_META if f["data_source_type"] == "real")
-    simulated_count = total_filters - real_count
-    avg_maturity = round(
-        sum(f["maturity"] for f in _FILTER_META) / total_filters,
+    # Cartes resume (les filtres "planned" sont exclus des compteurs actifs)
+    active_filters = [f for f in _FILTER_META if f["data_source_type"] != "planned"]
+    planned_filters = [f for f in _FILTER_META if f["data_source_type"] == "planned"]
+    total_filters = len(active_filters)
+    real_count = sum(1 for f in active_filters if f["data_source_type"] == "real")
+    planned_count = len(planned_filters)
+    avg_maturity = (
+        round(
+            sum(f["maturity"] for f in active_filters) / total_filters,
+        )
+        if total_filters
+        else 0
     )
 
     return render_template(
@@ -843,7 +864,7 @@ def filters():
         filter_stats=filter_stats,
         total_filters=total_filters,
         real_count=real_count,
-        simulated_count=simulated_count,
+        planned_count=planned_count,
         avg_maturity=avg_maturity,
     )
 

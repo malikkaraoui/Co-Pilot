@@ -27,6 +27,29 @@ TRANS_MAP = {
     "Automatic": "Automatique",
 }
 
+# Normalisation des noms vers le format CSV Kaggle.
+# Nos noms canoniques (DB/LBC) different du CSV sur certaines marques/modeles.
+CSV_BRAND_NORM: dict[str, str] = {
+    "mercedes": "mercedes-benz",
+}
+
+CSV_MODEL_NORM: dict[str, str] = {
+    # Mercedes : LBC dit "Classe X", CSV dit "X-Class"
+    "classe a": "a-class",
+    "classe b": "b-class",
+    "classe c": "c-class",
+    "classe e": "e-class",
+    "classe s": "s-class",
+    "classe g": "g-class",
+    "gla": "gla-class",
+    "glb": "glb-class",
+    "classe glc": "glc",
+    "glc": "glc",  # CSV a "GLC" directement
+    "classe gle": "gle",
+    "gle": "gle",  # CSV a "GLE" directement
+    "cla": "cla-class",
+}
+
 
 def _int_or_none(val: str) -> int | None:
     if not val or not val.strip():
@@ -66,9 +89,19 @@ def _load_model_index() -> frozenset[tuple[str, str]]:
     return frozenset(pairs)
 
 
+def _normalize_for_csv(brand: str, model: str) -> tuple[str, str]:
+    """Normalise marque/modele vers le format CSV Kaggle."""
+    b = brand.lower().strip()
+    m = model.lower().strip()
+    b = CSV_BRAND_NORM.get(b, b)
+    m = CSV_MODEL_NORM.get(m, m)
+    return b, m
+
+
 def has_specs(brand: str, model: str) -> bool:
     """Verifie rapidement si un vehicule a des specs dans le CSV (O(1) apres chargement)."""
-    return (brand.lower().strip(), model.lower().strip()) in _load_model_index()
+    b, m = _normalize_for_csv(brand, model)
+    return (b, m) in _load_model_index()
 
 
 def lookup_specs(brand: str, model: str) -> list[dict[str, Any]]:
@@ -86,8 +119,7 @@ def lookup_specs(brand: str, model: str) -> list[dict[str, Any]]:
         logger.warning("CSV introuvable : %s", CSV_PATH)
         return []
 
-    brand_lower = brand.lower().strip()
-    model_lower = model.lower().strip()
+    brand_lower, model_lower = _normalize_for_csv(brand, model)
     results: list[dict[str, Any]] = []
     seen_trims: set[str] = set()
 

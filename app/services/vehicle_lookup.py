@@ -11,6 +11,22 @@ from app.models.vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
 
+# Modeles generiques LBC : le vendeur n'a pas precise le modele exact.
+# Ces valeurs ne correspondent pas a un vrai vehicule et doivent etre ignorees.
+GENERIC_MODELS: frozenset[str] = frozenset(
+    {
+        "autres",
+        "autre",
+        "other",
+    }
+)
+
+
+def is_generic_model(model: str) -> bool:
+    """True si le modele est un placeholder generique LBC (ex. 'Autres')."""
+    return _strip_accents(model.strip().lower()) in GENERIC_MODELS
+
+
 # Alias de marques courantes -> nom canonique en base
 BRAND_ALIASES: dict[str, str] = {
     "vw": "volkswagen",
@@ -110,12 +126,44 @@ MODEL_ALIASES: dict[str, str] = {
     "tucson 4": "tucson",
     "tucson iv": "tucson",
     "kona 2": "kona",
-    # Mercedes
-    "gla": "gla",
+    # Mercedes -- nomenclature harmonisee 2015+
+    # Berlines : Classe A/B/C/E
     "classe a": "classe a",
     "class a": "classe a",
     "a-class": "classe a",
     "a-klasse": "classe a",
+    "classe b": "classe b",
+    "class b": "classe b",
+    "b-class": "classe b",
+    "b-klasse": "classe b",
+    "classe c": "classe c",
+    "class c": "classe c",
+    "c-class": "classe c",
+    "c-klasse": "classe c",
+    "classe e": "classe e",
+    "class e": "classe e",
+    "e-class": "classe e",
+    "e-klasse": "classe e",
+    # SUV : GLA/GLB/GLC/GLE
+    "gla": "gla",
+    "classe gla": "gla",
+    "gla-class": "gla",
+    "glb": "glb",
+    "classe glb": "glb",
+    "glb-class": "glb",
+    "glc": "glc",
+    "classe glc": "glc",
+    "glc coupe": "glc",
+    "glc-class": "glc",
+    "gle": "gle",
+    "classe gle": "gle",
+    "gle coupe": "gle",
+    "gle-class": "gle",
+    # Coupe 4 portes
+    "cla": "cla",
+    "classe cla": "cla",
+    "cla coupe": "cla",
+    "cla-class": "cla",
     # Audi
     "a3": "a3",
     "a3 sportback": "a3",
@@ -229,7 +277,7 @@ def find_vehicle(make: str, model: str) -> Vehicle | None:
 
     vehicle = Vehicle.query.filter(
         Vehicle.brand.ilike(brand_norm),
-        Vehicle.model.ilike(f"%{model_norm}%"),
+        Vehicle.model.ilike(model_norm),
     ).first()
 
     if vehicle:

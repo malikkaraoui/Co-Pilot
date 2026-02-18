@@ -21,7 +21,11 @@ class L2ReferentielFilter(BaseFilter):
             return self.skip("Marque ou modèle non disponible dans l'annonce")
 
         # Import local pour eviter les imports circulaires et permettre l'usage hors contexte app dans les tests
-        from app.services.vehicle_lookup import find_vehicle
+        from app.services.vehicle_lookup import find_vehicle, is_generic_model
+
+        # "Autres" = fallback LBC quand le vendeur ne precise pas le modele
+        if is_generic_model(model):
+            return self.skip(f"Modèle non précisé par le vendeur ({make} {model})")
 
         vehicle = find_vehicle(make, model)
 

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from app.filters.l2_referentiel import L2ReferentielFilter
 from app.models.vehicle import Vehicle
+from app.services.vehicle_lookup import is_generic_model
 
 
 class TestL2ReferentielFilter:
@@ -39,3 +40,41 @@ class TestL2ReferentielFilter:
         assert "brand" in result.details
         assert result.details["brand"] == "Tesla"
         assert "make" not in result.details
+
+    def test_generic_model_autres_skips(self):
+        """LBC 'Autres' = modele non precise → skip (pas warning)."""
+        result = self.filt.run({"make": "Honda", "model": "Autres"})
+        assert result.status == "skip"
+        assert "non précisé" in result.message
+
+    def test_generic_model_autre_skips(self):
+        """Variante sans 's' : 'Autre' → skip."""
+        result = self.filt.run({"make": "Mini", "model": "Autre"})
+        assert result.status == "skip"
+
+    def test_generic_model_case_insensitive(self):
+        """Detection generique insensible a la casse."""
+        result = self.filt.run({"make": "BMW", "model": "AUTRES"})
+        assert result.status == "skip"
+
+
+class TestIsGenericModel:
+    """Tests unitaires pour is_generic_model()."""
+
+    def test_autres(self):
+        assert is_generic_model("Autres") is True
+
+    def test_autre(self):
+        assert is_generic_model("Autre") is True
+
+    def test_other(self):
+        assert is_generic_model("Other") is True
+
+    def test_uppercase(self):
+        assert is_generic_model("AUTRES") is True
+
+    def test_real_model(self):
+        assert is_generic_model("3008") is False
+
+    def test_real_model_with_spaces(self):
+        assert is_generic_model("Classe A") is False
