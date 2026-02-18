@@ -213,7 +213,7 @@ def _do_analyze():
 
 
 def _build_engine() -> FilterEngine:
-    """Construit et retourne un FilterEngine avec les 9 filtres enregistres."""
+    """Construit et retourne un FilterEngine avec les 10 filtres enregistres."""
     from app.filters.l1_extraction import L1ExtractionFilter
     from app.filters.l2_referentiel import L2ReferentielFilter
     from app.filters.l3_coherence import L3CoherenceFilter
@@ -223,6 +223,7 @@ def _build_engine() -> FilterEngine:
     from app.filters.l7_siret import L7SiretFilter
     from app.filters.l8_reputation import L8ImportDetectionFilter
     from app.filters.l9_score import L9GlobalAssessmentFilter
+    from app.filters.l10_listing_age import L10ListingAgeFilter
 
     engine = FilterEngine()
     engine.register(L1ExtractionFilter())
@@ -234,6 +235,7 @@ def _build_engine() -> FilterEngine:
     engine.register(L7SiretFilter())
     engine.register(L8ImportDetectionFilter())
     engine.register(L9GlobalAssessmentFilter())
+    engine.register(L10ListingAgeFilter())
     return engine
 
 

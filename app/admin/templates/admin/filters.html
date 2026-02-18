@@ -74,8 +74,13 @@
   </div>
   <div class="col-md-3">
     <div class="stat-card">
+      {% if planned_count > 0 %}
       <div class="stat-value" style="color: #9ca3af;">{{ planned_count }}</div>
       <div class="stat-label">En preparation</div>
+      {% else %}
+      <div class="stat-value" style="color: #22c55e;">{{ real_count }}/{{ total_filters }}</div>
+      <div class="stat-label">Filtres operationnels</div>
+      {% endif %}
     </div>
   </div>
   <div class="col-md-3">

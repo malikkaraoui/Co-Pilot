@@ -572,7 +572,7 @@ class TestFilters:
         assert b"Filtres d" in resp.data
 
     def test_filters_shows_all_ten(self, client, admin_user):
-        """La page affiche les 10 filtres (9 actifs + L10 en preparation)."""
+        """La page affiche les 10 filtres actifs."""
         _login(client)
         resp = client.get("/admin/filters")
         assert resp.status_code == 200
@@ -580,19 +580,20 @@ class TestFilters:
             assert fid in resp.data
 
     def test_filters_shows_no_simulated_badge(self, client, admin_user):
-        """Tous les filtres actifs utilisent des donnees reelles."""
+        """Tous les filtres utilisent des donnees reelles."""
         _login(client)
         resp = client.get("/admin/filters")
         assert resp.status_code == 200
         assert b"Donnees simulees" not in resp.data
+        assert b"En preparation" not in resp.data
 
-    def test_filters_shows_planned_badge(self, client, admin_user):
-        """Le filtre L10 affiche un badge 'En preparation'."""
+    def test_filters_l10_active(self, client, admin_user):
+        """Le filtre L10 est actif avec badge OK."""
         _login(client)
         resp = client.get("/admin/filters")
         assert resp.status_code == 200
         assert b"L10" in resp.data
-        assert b"En preparation" in resp.data
+        assert b"Anciennete annonce" in resp.data
 
     def test_filters_shows_maturity(self, client, admin_user):
         """La page affiche les barres de maturite."""
@@ -601,7 +602,7 @@ class TestFilters:
         assert resp.status_code == 200
         assert b"Maturite" in resp.data
         assert b"100%" in resp.data
-        assert b"60%" in resp.data
+        assert b"70%" in resp.data
 
     def test_filters_shows_execution_stats(self, app, client, admin_user):
         """La page affiche les stats d'execution quand il y a des donnees."""

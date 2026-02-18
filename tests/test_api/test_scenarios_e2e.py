@@ -72,12 +72,12 @@ class TestAllScenariosE2E:
         ALL_SCENARIOS,
         ids=[s["name"] for s in ALL_SCENARIOS],
     )
-    def test_scenario_has_nine_filters(self, client, scenario):
-        """Les 9 filtres L1-L9 sont presents dans chaque reponse."""
+    def test_scenario_has_ten_filters(self, client, scenario):
+        """Les 10 filtres L1-L10 sont presents dans chaque reponse."""
         resp = _analyze(client, scenario)
         body = resp.get_json()
         filter_ids = sorted(f["filter_id"] for f in body["data"]["filters"])
-        assert filter_ids == ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"]
+        assert filter_ids == ["L1", "L10", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"]
 
     @pytest.mark.parametrize(
         "scenario",

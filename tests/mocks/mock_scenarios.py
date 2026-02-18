@@ -59,7 +59,7 @@ SCENARIO_SAIN_3008 = {
 # Prix tres bas, telephone etranger, mots-cles import dans la description.
 SCENARIO_SUSPECT_IMPORT = {
     "name": "Golf VII import suspect (telephone polonais)",
-    "expected_score_range": (30, 70),
+    "expected_score_range": (25, 70),
     "expected_status": {"L6": "warning", "L8": "fail"},
     "payload": {
         "props": {

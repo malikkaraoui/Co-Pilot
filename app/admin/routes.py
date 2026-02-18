@@ -795,23 +795,23 @@ _FILTER_META = [
         "id": "L9",
         "name": "Evaluation globale",
         "description": "Evalue les signaux de confiance transversaux : qualite de description, "
-        "type de vendeur, anciennete de l'annonce, detection de republication.",
-        "data_source": "Donnees de l'annonce + dates publication LBC",
+        "type de vendeur, photos, options payantes, localisation.",
+        "data_source": "Donnees de l'annonce",
         "data_source_type": "real",
         "maturity": 95,
-        "maturity_note": "Inclut detection republication (vraie date vs date affichee), "
-        "anciennete annonce, rapport Autoviza. Objectif : analyse semantique IA",
+        "maturity_note": "Signaux qualitatifs complets. Anciennete deplacee vers L10. "
+        "Objectif : analyse semantique IA",
     },
     {
         "id": "L10",
         "name": "Anciennete annonce",
-        "description": "Analyse la liquidite du marche pour le modele : temps moyen de vente, "
-        "scoring par duree de publication, detection des annonces stagnantes.",
-        "data_source": "En preparation",
-        "data_source_type": "planned",
-        "maturity": 0,
-        "maturity_note": "Filtre en cours de conception. Objectif : scoring liquidite "
-        "par modele/region",
+        "description": "Analyse la duree de mise en vente par rapport au marche. "
+        "Detecte les annonces stagnantes et les republications pour paraitre recent.",
+        "data_source": "ScanLog historique + seuils par segment de prix",
+        "data_source_type": "real",
+        "maturity": 70,
+        "maturity_note": "Scoring contextuel : mediane marche si 5+ scans, sinon seuils "
+        "par prix. Detection republication. Maturite croit avec les scans.",
     },
 ]
 
