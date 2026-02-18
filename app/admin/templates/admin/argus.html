@@ -104,7 +104,7 @@
         {% set details = m.get_calculation_details() %}
         <tr>
           <td style="font-size:12px; white-space:nowrap">
-            {{ m.collected_at.strftime('%d/%m/%Y %H:%M') if m.collected_at else '-' }}
+            {{ (m.collected_at|localtime).strftime('%d/%m/%Y %H:%M') if m.collected_at else '-' }}
           </td>
           <td>
             <strong>{{ m.make }}</strong> {{ m.model }}

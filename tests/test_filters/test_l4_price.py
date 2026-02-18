@@ -64,8 +64,11 @@ class TestL4PriceFilter:
         result = self.filt.run({"make": "Peugeot", "model": "3008"})
         assert result.status == "skip"
 
-    def test_no_vehicle_skips(self):
-        with patch("app.services.vehicle_lookup.find_vehicle", return_value=None):
+    def test_no_vehicle_no_market_skips(self):
+        with (
+            patch("app.services.market_service.get_market_stats", return_value=None),
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=None),
+        ):
             result = self.filt.run(self._base_data())
         assert result.status == "skip"
 
@@ -156,7 +159,7 @@ class TestL4MarketPriceFallback:
         from unittest.mock import MagicMock
 
         market = MagicMock()
-        market.sample_count = 2  # < 5, insuffisant
+        market.sample_count = 2  # < MARKET_MIN_SAMPLES (3), insuffisant
 
         argus = ArgusPrice(
             vehicle_id=1,
@@ -176,3 +179,30 @@ class TestL4MarketPriceFallback:
 
         assert result.status == "pass"
         assert result.details["source"] == "argus_seed"
+
+    def test_market_price_works_without_vehicle_referentiel(self):
+        """L4 utilise MarketPrice meme si le vehicule n'est pas dans le referentiel."""
+        from unittest.mock import MagicMock
+
+        market = MagicMock()
+        market.price_median = 60000
+        market.sample_count = 33
+
+        # find_vehicle retourne None (pas dans le referentiel)
+        # mais MarketPrice existe quand meme
+        with (
+            patch("app.services.market_service.get_market_stats", return_value=market),
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=None),
+        ):
+            data = {
+                "price_eur": 59900,
+                "make": "Porsche",
+                "model": "Cayenne",
+                "year_model": "2019",
+                "location": {"region": "Haute-Normandie"},
+            }
+            result = self.filt.run(data)
+
+        assert result.status == "pass"
+        assert result.details["source"] == "marche_leboncoin"
+        assert result.details["sample_count"] == 33

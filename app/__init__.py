@@ -2,12 +2,53 @@
 
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask
 
 from app.extensions import cors, csrf, db, limiter, login_manager
 from app.logging_config import setup_logging
+from app.version import get_version
 from config import config_by_name
+
+# Fuseau Europe/Paris : UTC+1 (hiver) / UTC+2 (ete)
+# Regles IETF simplifiees : dernier dimanche de mars → dernier dimanche d'octobre
+_CET = timezone(timedelta(hours=1))
+_CEST = timezone(timedelta(hours=2))
+
+
+def _is_summer_time(dt: datetime) -> bool:
+    """True si la date tombe en heure d'ete (CEST) pour l'Europe centrale."""
+    year = dt.year
+    # Dernier dimanche de mars
+    march_last = datetime(year, 3, 31)
+    march_switch = march_last - timedelta(days=march_last.weekday() + 1 % 7)
+    if march_last.weekday() == 6:
+        march_switch = march_last
+    else:
+        march_switch = march_last - timedelta(days=(march_last.weekday() + 1) % 7)
+    march_switch = march_switch.replace(hour=1, tzinfo=timezone.utc)
+
+    # Dernier dimanche d'octobre
+    oct_last = datetime(year, 10, 31)
+    if oct_last.weekday() == 6:
+        oct_switch = oct_last
+    else:
+        oct_switch = oct_last - timedelta(days=(oct_last.weekday() + 1) % 7)
+    oct_switch = oct_switch.replace(hour=1, tzinfo=timezone.utc)
+
+    dt_utc = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return march_switch <= dt_utc < oct_switch
+
+
+def _to_paris(dt: datetime) -> datetime:
+    """Convertit un datetime UTC (ou naive UTC) en heure de Paris."""
+    if dt is None:
+        return dt
+    offset = _CEST if _is_summer_time(dt) else _CET
+    utc_dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return utc_dt.astimezone(offset)
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +76,8 @@ def create_app(config_name: str | None = None) -> Flask:
             raise RuntimeError(
                 "ADMIN_PASSWORD_HASH non defini. Definir la variable d'environnement."
             )
+
+    app.config["APP_VERSION"] = get_version()
 
     setup_logging(app.config.get("LOG_LEVEL", "INFO"))
 
@@ -73,6 +116,11 @@ def create_app(config_name: str | None = None) -> Flask:
     @login_manager.user_loader
     def load_user(user_id):
         return db.session.get(User, int(user_id))
+
+    # Filtre Jinja : convertir les timestamps UTC en heure de Paris
+    @app.template_filter("localtime")
+    def localtime_filter(dt):
+        return _to_paris(dt) if dt else dt
 
     # Enregistrement des blueprints
     from app.admin import admin_bp

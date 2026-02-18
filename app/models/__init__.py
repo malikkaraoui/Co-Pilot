@@ -8,3 +8,4 @@ from app.models.pipeline_run import PipelineRun  # noqa: F401
 from app.models.scan import ScanLog  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.vehicle import Vehicle, VehicleSpec  # noqa: F401
+from app.models.youtube import YouTubeTranscript, YouTubeVideo  # noqa: F401

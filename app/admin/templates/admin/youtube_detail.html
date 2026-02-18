@@ -1,0 +1,147 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ video.title[:60] }} - YouTube - Co-Pilot Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .transcript-text {
+    max-height: 500px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="{{ url_for('admin.youtube') }}" class="text-muted" style="font-size:13px">&larr; Retour a la liste</a>
+</div>
+
+<h3 class="mb-1">{{ video.title }}</h3>
+<p class="text-muted mb-4">{{ video.channel_name or 'Chaine inconnue' }}</p>
+
+<!-- Metadata -->
+<div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:18px">
+        <a href="https://youtube.com/watch?v={{ video.video_id }}" target="_blank" rel="noopener">
+          {{ video.video_id }}
+        </a>
+      </div>
+      <div class="stat-label">ID YouTube</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:18px">
+        {% if video.duration_seconds %}
+          {{ (video.duration_seconds // 60) }}:{{ "%02d"|format(video.duration_seconds % 60) }}
+        {% else %}
+          -
+        {% endif %}
+      </div>
+      <div class="stat-label">Duree</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:18px">
+        {% if video.vehicle %}
+          {{ video.vehicle.brand }} {{ video.vehicle.model }}
+        {% else %}
+          <span class="text-muted">-</span>
+        {% endif %}
+      </div>
+      <div class="stat-label">Vehicule</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:18px">
+        {% if transcript and transcript.status == 'extracted' %}
+          <span style="color: #22c55e">{{ transcript.status }}</span>
+        {% elif transcript %}
+          <span style="color: #f59e0b">{{ transcript.status }}</span>
+        {% else %}
+          <span class="text-muted">-</span>
+        {% endif %}
+      </div>
+      <div class="stat-label">Status</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:18px">
+        {% if transcript %}{{ "{:,}".format(transcript.char_count).replace(",", " ") }}{% else %}-{% endif %}
+      </div>
+      <div class="stat-label">Caracteres</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:18px">
+        {% if transcript %}{{ transcript.snippet_count }}{% else %}-{% endif %}
+      </div>
+      <div class="stat-label">Segments</div>
+    </div>
+  </div>
+</div>
+
+<!-- Infos complementaires -->
+{% if transcript %}
+<div class="stat-card mb-4">
+  <div class="row">
+    <div class="col-md-3">
+      <div style="font-size:13px">
+        <strong>Langue :</strong> {{ transcript.language }}
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div style="font-size:13px">
+        <strong>Auto-genere :</strong> {{ "Oui" if transcript.is_generated else "Non (manuel)" }}
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div style="font-size:13px">
+        <strong>Extrait le :</strong> {{ (transcript.extracted_at|localtime).strftime('%d/%m/%Y %H:%M') if transcript.extracted_at else '-' }}
+      </div>
+    </div>
+    <div class="col-md-3 text-end">
+      {% if transcript.status != 'extracted' %}
+      <form method="post" action="{{ url_for('admin.youtube_extract', video_id=video.id) }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-primary">Re-extraire</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% if transcript.error_message %}
+  <div class="alert alert-warning mt-3 mb-0" style="font-size:13px">
+    {{ transcript.error_message }}
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<div class="stat-card mb-4">
+  <p class="text-muted mb-2">Aucun transcript extrait.</p>
+  <form method="post" action="{{ url_for('admin.youtube_extract', video_id=video.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-sm btn-primary">Extraire les sous-titres</button>
+  </form>
+</div>
+{% endif %}
+
+<!-- Transcript text -->
+{% if transcript and transcript.status == 'extracted' and transcript.full_text %}
+<div class="stat-card">
+  <h5 class="mb-3">Transcript complet</h5>
+  <div class="transcript-text">{{ transcript.full_text }}</div>
+</div>
+{% endif %}
+{% endblock %}

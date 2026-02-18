@@ -5,7 +5,7 @@ import re
 import traceback
 
 import httpx
-from flask import jsonify, request
+from flask import current_app, jsonify, request
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
@@ -25,7 +25,15 @@ logger = logging.getLogger(__name__)
 @api_bp.route("/health", methods=["GET"])
 def health():
     """Point de controle de sante de l'API."""
-    return jsonify({"success": True, "data": {"status": "ok"}})
+    return jsonify(
+        {
+            "success": True,
+            "data": {
+                "status": "ok",
+                "version": current_app.config.get("APP_VERSION", "0.0.0"),
+            },
+        }
+    )
 
 
 @api_bp.route("/analyze", methods=["POST"])
@@ -189,17 +197,30 @@ def _do_analyze():
         )
         for r in filter_results
     ]
+    # Recherche de la video featured pour ce vehicule
+    featured_video = None
+    make = ad_data.get("make")
+    model = ad_data.get("model")
+    if make and model:
+        try:
+            from app.services.youtube_service import get_featured_video
+
+            featured_video = get_featured_video(make, model)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug("Featured video lookup failed: %s", exc)
+
     response = AnalyzeResponse(
         score=score,
         is_partial=is_partial,
         filters=filters_out,
         vehicle={
-            "make": ad_data.get("make"),
-            "model": ad_data.get("model"),
+            "make": make,
+            "model": model,
             "year": ad_data.get("year_model"),
             "price": ad_data.get("price_eur"),
             "mileage": ad_data.get("mileage_km"),
         },
+        featured_video=featured_video,
     )
 
     return jsonify(

@@ -37,7 +37,7 @@
       {% endif %}
       {% if p.last_run %}
         <div class="text-muted mt-1" style="font-size:12px">
-          Dernier run : {{ p.last_run.strftime('%d/%m/%Y %H:%M') }}
+          Dernier run : {{ (p.last_run|localtime).strftime('%d/%m/%Y %H:%M') }}
         </div>
       {% endif %}
     </div>
@@ -53,7 +53,7 @@
       <td class="text-muted">Dernier scan</td>
       <td>
         {% if last_scan %}
-          {{ last_scan.created_at.strftime('%d/%m/%Y %H:%M:%S') }}
+          {{ (last_scan.created_at|localtime).strftime('%d/%m/%Y %H:%M:%S') }}
           &middot; Score : {{ last_scan.score }}
         {% else %}
           Aucun scan effectue
@@ -64,7 +64,7 @@
       <td class="text-muted">Derniere erreur pipeline</td>
       <td>
         {% if last_pipeline_error %}
-          {{ last_pipeline_error.created_at.strftime('%d/%m/%Y %H:%M') }}
+          {{ (last_pipeline_error.created_at|localtime).strftime('%d/%m/%Y %H:%M') }}
           &middot; {{ last_pipeline_error.message[:100] }}
         {% else %}
           Aucune erreur

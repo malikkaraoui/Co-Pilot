@@ -124,6 +124,8 @@ if [ "$NEED_SEED" = true ] || [ "$FORCE_SEED" = true ]; then
   ok "Référentiel véhicules (70 modèles)"
   python data/seeds/seed_argus.py
   ok "Cotations Argus (seeds)"
+  # YouTube seeds are long-running (~17 min) -- run manually with:
+  #   python data/seeds/seed_youtube.py
 else
   step "5/6" "Seeds"
   ok "Données déjà en base (utilise --seed pour forcer)"

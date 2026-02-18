@@ -55,7 +55,7 @@
     <div class="row">
       <!-- Sidebar -->
       <div class="col-md-2 sidebar d-none d-md-block">
-        <div class="brand">Co-Pilot Admin</div>
+        <div class="brand">Co-Pilot Admin <small style="font-size:11px;color:#64748b;">v{{ config.APP_VERSION }}</small></div>
         <nav class="nav flex-column mt-3">
           <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
              href="{{ url_for('admin.dashboard') }}">Dashboard</a>
@@ -71,6 +71,8 @@
              href="{{ url_for('admin.filters') }}">Filtres</a>
           <a class="nav-link {% if request.endpoint == 'admin.argus' %}active{% endif %}"
              href="{{ url_for('admin.argus') }}">Argus maison</a>
+          <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.youtube') %}active{% endif %}"
+             href="{{ url_for('admin.youtube') }}">YouTube Tests</a>
           <hr class="border-secondary mx-3">
           <a class="nav-link text-danger" href="{{ url_for('admin.logout') }}">Deconnexion</a>
         </nav>

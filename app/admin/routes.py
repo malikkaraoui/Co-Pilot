@@ -19,6 +19,7 @@ from app.models.pipeline_run import PipelineRun
 from app.models.scan import ScanLog
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.models.youtube import YouTubeTranscript, YouTubeVideo
 
 logger = logging.getLogger(__name__)
 
@@ -636,8 +637,17 @@ def pipelines():
     last_ref = _last_run("referentiel_vehicules")
     last_csv = _last_run("import_csv_specs")
     last_argus = _last_run("argus_geolocalise")
-    last_yt = _last_run("youtube_whisper")
+    last_yt = _last_run("youtube_transcripts")
     last_llm = _last_run("llm_fiches")
+
+    # Stats YouTube
+    yt_video_count = db.session.query(db.func.count(YouTubeVideo.id)).scalar() or 0
+    yt_transcript_count = (
+        db.session.query(db.func.count(YouTubeTranscript.id))
+        .filter(YouTubeTranscript.status == "extracted")
+        .scalar()
+        or 0
+    )
 
     pipeline_status = [
         {
@@ -666,12 +676,15 @@ def pipelines():
             "runs": _run_counts("argus_geolocalise"),
         },
         {
-            "name": "YouTube / Whisper",
-            "description": "Extraction sous-titres et transcription",
-            "count": 0,
-            "status": "non lance" if not last_yt else last_yt.status,
+            "name": "YouTube Transcripts",
+            "description": "Extraction sous-titres francais des tests YouTube",
+            "count": yt_transcript_count,
+            "specs": yt_video_count,
+            "status": "ok"
+            if yt_transcript_count > 0
+            else ("non lance" if not last_yt else last_yt.status),
             "last_run": last_yt.started_at if last_yt else None,
-            "runs": _run_counts("youtube_whisper"),
+            "runs": _run_counts("youtube_transcripts"),
         },
         {
             "name": "LLM fiches vehicules",
@@ -940,6 +953,191 @@ def argus():
         total_results=total_results,
         now=now,
     )
+
+
+# ── YouTube Tests ────────────────────────────────────────────────
+
+
+@admin_bp.route("/youtube")
+@login_required
+def youtube():
+    """Page d'administration des videos YouTube et transcripts."""
+    # Filtres
+    vehicle_filter = request.args.get("vehicle_id", "")
+    status_filter = request.args.get("status", "")
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = 25
+
+    # Stats globales
+    total_videos = db.session.query(db.func.count(YouTubeVideo.id)).scalar() or 0
+    total_transcripts = (
+        db.session.query(db.func.count(YouTubeTranscript.id))
+        .filter(YouTubeTranscript.status == "extracted")
+        .scalar()
+        or 0
+    )
+    total_chars = (
+        db.session.query(db.func.coalesce(db.func.sum(YouTubeTranscript.char_count), 0))
+        .filter(YouTubeTranscript.status == "extracted")
+        .scalar()
+    )
+
+    # Couverture vehicules
+    total_vehicle_count = db.session.query(db.func.count(Vehicle.id)).scalar() or 1
+    vehicles_with_transcripts = (
+        db.session.query(db.func.count(db.distinct(YouTubeVideo.vehicle_id)))
+        .join(YouTubeVideo.transcript)
+        .filter(YouTubeTranscript.status == "extracted")
+        .scalar()
+        or 0
+    )
+    coverage_pct = round(100 * vehicles_with_transcripts / total_vehicle_count)
+
+    # Query filtree
+    query = YouTubeVideo.query
+
+    if vehicle_filter:
+        query = query.filter(YouTubeVideo.vehicle_id == int(vehicle_filter))
+
+    if status_filter == "archived":
+        query = query.filter(YouTubeVideo.is_archived.is_(True))
+    elif status_filter:
+        query = query.filter(YouTubeVideo.is_archived.is_(False))
+        query = query.join(YouTubeVideo.transcript).filter(
+            YouTubeTranscript.status == status_filter
+        )
+    else:
+        query = query.filter(YouTubeVideo.is_archived.is_(False))
+
+    query = query.order_by(YouTubeVideo.created_at.desc())
+    total_results = query.count()
+    total_pages = max(1, (total_results + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    videos = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    # Liste vehicules pour les dropdowns
+    vehicle_list = Vehicle.query.order_by(Vehicle.brand, Vehicle.model).all()
+
+    return render_template(
+        "admin/youtube.html",
+        total_videos=total_videos,
+        total_transcripts=total_transcripts,
+        total_chars=total_chars,
+        coverage_pct=coverage_pct,
+        vehicle_filter=vehicle_filter,
+        status_filter=status_filter,
+        videos=videos,
+        vehicle_list=vehicle_list,
+        page=page,
+        total_pages=total_pages,
+        total_results=total_results,
+    )
+
+
+@admin_bp.route("/youtube/<int:video_id>")
+@login_required
+def youtube_detail(video_id: int):
+    """Page de detail d'une video YouTube."""
+    video = YouTubeVideo.query.get_or_404(video_id)
+    return render_template(
+        "admin/youtube_detail.html",
+        video=video,
+        transcript=video.transcript,
+    )
+
+
+@admin_bp.route("/youtube/<int:video_id>/extract", methods=["POST"])
+@login_required
+def youtube_extract(video_id: int):
+    """Extraction manuelle du transcript d'une video."""
+    from app.services.youtube_service import extract_and_store_transcript
+
+    video = YouTubeVideo.query.get_or_404(video_id)
+    try:
+        transcript = extract_and_store_transcript(video)
+        if transcript.status == "extracted":
+            flash(
+                f'Transcript extrait pour "{video.title[:60]}" ({transcript.char_count} caracteres).',
+                "success",
+            )
+        else:
+            flash(
+                f'Pas de sous-titres disponibles pour "{video.title[:60]}".',
+                "warning",
+            )
+    except Exception as exc:
+        flash(f"Erreur d'extraction : {exc}", "error")
+        logger.exception("Erreur extraction transcript video %d", video_id)
+
+    return redirect(request.referrer or url_for("admin.youtube"))
+
+
+@admin_bp.route("/youtube/search", methods=["POST"])
+@login_required
+def youtube_search():
+    """Recherche et extraction de videos pour un vehicule."""
+    from app.services.youtube_service import search_and_extract_for_vehicle
+
+    vehicle_id = request.form.get("vehicle_id", type=int)
+    if not vehicle_id:
+        flash("Veuillez selectionner un vehicule.", "error")
+        return redirect(url_for("admin.youtube"))
+
+    vehicle = Vehicle.query.get_or_404(vehicle_id)
+    try:
+        stats = search_and_extract_for_vehicle(vehicle, max_videos=5)
+        flash(
+            f"{vehicle.brand} {vehicle.model} : {stats['videos_found']} videos trouvees, "
+            f"{stats['transcripts_ok']} transcripts extraits.",
+            "success",
+        )
+    except Exception as exc:
+        flash(f"Erreur de recherche : {exc}", "error")
+        logger.exception("Erreur recherche YouTube pour vehicule %d", vehicle_id)
+
+    return redirect(url_for("admin.youtube", vehicle_id=vehicle_id))
+
+
+@admin_bp.route("/youtube/<int:video_id>/archive", methods=["POST"])
+@login_required
+def youtube_archive(video_id: int):
+    """Toggle l'archivage d'une video."""
+    video = YouTubeVideo.query.get_or_404(video_id)
+    video.is_archived = not video.is_archived
+    db.session.commit()
+
+    action = "archivee" if video.is_archived else "restauree"
+    flash(f'Video {action} : "{video.title[:60]}".', "success")
+    return redirect(request.referrer or url_for("admin.youtube"))
+
+
+@admin_bp.route("/youtube/<int:video_id>/featured", methods=["POST"])
+@login_required
+def youtube_featured(video_id: int):
+    """Toggle le statut featured d'une video.
+
+    Une seule video featured par vehicule : si on marque celle-ci,
+    les autres du meme vehicule perdent leur featured.
+    """
+    video = YouTubeVideo.query.get_or_404(video_id)
+
+    if video.is_featured:
+        # Retirer le featured
+        video.is_featured = False
+        db.session.commit()
+        flash(f'Video retiree du featured : "{video.title[:60]}".', "success")
+    else:
+        # Retirer le featured des autres videos du meme vehicule
+        if video.vehicle_id:
+            YouTubeVideo.query.filter(
+                YouTubeVideo.vehicle_id == video.vehicle_id,
+                YouTubeVideo.is_featured.is_(True),
+            ).update({"is_featured": False})
+        video.is_featured = True
+        db.session.commit()
+        flash(f'Video featured : "{video.title[:60]}".', "success")
+
+    return redirect(request.referrer or url_for("admin.youtube"))
 
 
 # ── Initialisation admin ─────────────────────────────────────────

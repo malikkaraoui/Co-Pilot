@@ -27,6 +27,9 @@ _EXCLUDED_CATEGORIES = frozenset(
     {"motos", "equipement_moto", "caravaning", "nautisme", "utilitaires"}
 )
 
+# Modeles generiques LBC : pas un vrai modele, melange de vehicules differents
+_GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
+
 
 class MarketPricesRequest(BaseModel):
     """Schema de validation pour les prix du marche envoyes par l'extension."""
@@ -70,6 +73,18 @@ def submit_market_prices():
                 "success": False,
                 "error": "VALIDATION_ERROR",
                 "message": "Donnees invalides. Verifiez le format du payload.",
+                "data": None,
+            }
+        ), 400
+
+    # Rejeter les modeles generiques ("Autres") qui melangent des vehicules differents
+    if req.model.strip().lower() in _GENERIC_MODELS:
+        logger.info("Market prices rejected: generic model '%s' (%s)", req.model, req.make)
+        return jsonify(
+            {
+                "success": False,
+                "error": "GENERIC_MODEL",
+                "message": "Le modèle générique n'est pas accepté pour les prix du marché.",
                 "data": None,
             }
         ), 400
@@ -153,6 +168,10 @@ def next_market_job():
     region = request.args.get("region")
 
     if not all([make, model, region]):
+        return jsonify({"success": True, "data": {"collect": False}})
+
+    # Ne pas collecter de prix pour les modeles generiques
+    if model and model.strip().lower() in _GENERIC_MODELS:
         return jsonify({"success": True, "data": {"collect": False}})
 
     if year is not None and not (1990 <= year <= 2030):

@@ -15,9 +15,12 @@ class L5VisualFilter(BaseFilter):
 
     filter_id = "L5"
 
+    # Seuil minimum de samples pour utiliser les donnees MarketPrice
+    MARKET_MIN_SAMPLES = 3
+
     @staticmethod
-    def _collect_ref_prices(data: dict[str, Any], vehicle: Any) -> tuple[np.ndarray, str]:
-        """Collecte les prix de reference : MarketPrice d'abord, sinon ArgusPrice."""
+    def _collect_market_prices(data: dict[str, Any], min_samples: int) -> np.ndarray | None:
+        """Collecte les prix de reference depuis MarketPrice (pas besoin du referentiel)."""
         from app.models.market_price import MarketPrice
         from app.services.market_service import market_text_key, market_text_key_expr
 
@@ -27,33 +30,35 @@ class L5VisualFilter(BaseFilter):
         location = data.get("location") or {}
         region = location.get("region")
 
-        # Essayer MarketPrice (prix reels crowdsources)
-        if make and model and year_str and region:
-            try:
-                year = int(year_str)
-            except (ValueError, TypeError):
-                year = None
+        if not (make and model and year_str and region):
+            return None
 
-            if year is not None:
-                records = MarketPrice.query.filter(
-                    market_text_key_expr(MarketPrice.make) == market_text_key(make),
-                    market_text_key_expr(MarketPrice.model) == market_text_key(model),
-                    MarketPrice.sample_count >= 5,
-                ).all()
-                if records:
-                    prices = []
-                    for r in records:
-                        prices.extend([r.price_min, r.price_median, r.price_max])
-                    ref = np.array([p for p in prices if p], dtype=float)
-                    if len(ref) >= 3:
-                        return ref, "marche_leboncoin"
+        try:
+            int(year_str)
+        except (ValueError, TypeError):
+            return None
 
-        # Fallback : ArgusPrice (seed)
+        records = MarketPrice.query.filter(
+            market_text_key_expr(MarketPrice.make) == market_text_key(make),
+            market_text_key_expr(MarketPrice.model) == market_text_key(model),
+            MarketPrice.sample_count >= min_samples,
+        ).all()
+        if records:
+            prices = []
+            for r in records:
+                prices.extend([r.price_min, r.price_median, r.price_max])
+            ref = np.array([p for p in prices if p], dtype=float)
+            if len(ref) >= 3:
+                return ref
+        return None
+
+    @staticmethod
+    def _collect_argus_prices(vehicle_id: int) -> np.ndarray:
+        """Collecte les prix de reference depuis ArgusPrice (seed)."""
         from app.models.argus import ArgusPrice
 
-        argus_records = ArgusPrice.query.filter_by(vehicle_id=vehicle.id).all()
-        ref = np.array([r.price_mid for r in argus_records if r.price_mid], dtype=float)
-        return ref, "argus_seed"
+        argus_records = ArgusPrice.query.filter_by(vehicle_id=vehicle_id).all()
+        return np.array([r.price_mid for r in argus_records if r.price_mid], dtype=float)
 
     def run(self, data: dict[str, Any]) -> FilterResult:
         price = data.get("price_eur")
@@ -62,21 +67,26 @@ class L5VisualFilter(BaseFilter):
         if price is None and mileage is None:
             return self.skip("Ni prix ni kilométrage disponibles")
 
-        # Recuperation des donnees de reference pour ce type de vehicule
-        from app.services.vehicle_lookup import find_vehicle
-
         make = data.get("make")
         model = data.get("model")
 
         if not make or not model:
             return self.skip("Marque ou modèle non disponible")
 
-        vehicle = find_vehicle(make, model)
-        if not vehicle:
-            return self.skip("Modèle non reconnu — analyse statistique impossible")
+        # 1. MarketPrice (crowdsource) : pas besoin du referentiel vehicule
+        market_ref = self._collect_market_prices(data, self.MARKET_MIN_SAMPLES)
+        if market_ref is not None:
+            ref_prices = market_ref
+            source = "marche_leboncoin"
+        else:
+            # 2. Fallback ArgusPrice (seed) : necessite le vehicule dans le referentiel
+            from app.services.vehicle_lookup import find_vehicle
 
-        # Source de prix : MarketPrice (crowdsource) en priorite, sinon ArgusPrice (seed)
-        ref_prices, source = self._collect_ref_prices(data, vehicle)
+            vehicle = find_vehicle(make, model)
+            if not vehicle:
+                return self.skip("Modèle non reconnu — analyse statistique impossible")
+            ref_prices = self._collect_argus_prices(vehicle.id)
+            source = "argus_seed"
 
         if len(ref_prices) < 3:
             return self.skip("Pas assez de prix de référence")

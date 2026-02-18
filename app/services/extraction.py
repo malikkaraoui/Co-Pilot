@@ -97,6 +97,87 @@ def _normalize_attributes(ad: dict) -> dict[str, Any]:
     return out
 
 
+# Modeles generiques LBC : le vendeur n'a pas choisi de modele specifique,
+# ou LBC ne connait pas encore ce modele dans sa liste.
+_GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
+
+# Mots parasites a retirer du titre lors de l'extraction du modele
+_TITLE_NOISE = frozenset(
+    {
+        "neuf",
+        "neuve",
+        "occasion",
+        "tbe",
+        "garantie",
+        "garantié",
+        "full",
+        "options",
+        "option",
+        "pack",
+        "premium",
+        "edition",
+        "limited",
+        "sport",
+        "line",
+        "style",
+        "business",
+        "confort",
+        "first",
+        "life",
+        "zen",
+        "intens",
+        "intense",
+        "initiale",
+        "paris",
+        "riviera",
+        "alpine",
+        "esprit",
+        "techno",
+        "evolution",
+        "iconic",
+        "rs",
+        "gt",
+        "gtline",
+        "gt-line",
+    }
+)
+
+
+def _extract_model_from_title(title: str, make: str) -> str | None:
+    """Tente d'extraire le nom du modele depuis le titre de l'annonce.
+
+    Quand LBC met 'Autres' comme modele, le vrai nom est souvent dans le titre :
+    'Renault Symbioz Esprit Alpine 2025' → 'Symbioz'
+    'Peugeot E-5008 GT 2025' → 'E-5008'
+
+    Retourne le premier mot significatif apres la marque, ou None.
+    """
+    if not title or not make:
+        return None
+
+    # Retirer la marque du debut du titre (case-insensitive)
+    cleaned = title.strip()
+    make_lower = make.strip().lower()
+    if cleaned.lower().startswith(make_lower):
+        cleaned = cleaned[len(make_lower) :].strip()
+
+    # Retirer l'annee (4 chiffres)
+    cleaned = re.sub(r"\b(19|20)\d{2}\b", "", cleaned).strip()
+
+    # Prendre le premier mot non-parasite, non-numerique
+    for word in cleaned.split():
+        word_clean = word.strip(" ,-./()").strip()
+        if not word_clean:
+            continue
+        if word_clean.lower() in _TITLE_NOISE:
+            continue
+        if word_clean.isdigit():
+            continue
+        return word_clean
+
+    return None
+
+
 def _coerce_int(value: Any) -> int | None:
     """Tente de convertir un entier depuis differents formats."""
     if value is None:
@@ -251,11 +332,24 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
     # Dates de publication (premiere + derniere republication)
     pub_dates = _extract_publication_dates(ad)
 
+    make = attrs.get("Marque") or attrs.get("brand")
+    model_raw = attrs.get("Modèle") or attrs.get("modele") or attrs.get("model")
+
+    # Fallback : si LBC renvoie un modele generique ("Autres"), on tente
+    # d'extraire le vrai nom depuis le titre de l'annonce.
+    if model_raw and model_raw.strip().lower() in _GENERIC_MODELS and title and make:
+        extracted = _extract_model_from_title(title, make)
+        if extracted:
+            logger.info(
+                "Generic model '%s' replaced by '%s' (from title '%s')", model_raw, extracted, title
+            )
+            model_raw = extracted
+
     result = {
         "title": title,
         "price_eur": price,
-        "make": attrs.get("Marque") or attrs.get("brand"),
-        "model": (attrs.get("Modèle") or attrs.get("modele") or attrs.get("model")),
+        "make": make,
+        "model": model_raw,
         "year_model": str(y)
         if (
             y := (

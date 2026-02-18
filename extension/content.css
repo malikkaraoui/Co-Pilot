@@ -483,6 +483,63 @@
   line-height: 1;
 }
 
+/* ── Banniere YouTube (video featured) ────────────────────── */
+.copilot-youtube-banner {
+  margin: 8px 24px 8px;
+}
+
+.copilot-youtube-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  text-decoration: none;
+  color: #1e293b;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.copilot-youtube-link:hover {
+  border-color: #ef4444;
+  box-shadow: 0 2px 12px rgba(239, 68, 68, 0.15);
+}
+
+.copilot-youtube-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.copilot-youtube-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.copilot-youtube-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #dc2626;
+}
+
+.copilot-youtube-text small {
+  font-size: 11px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-youtube-arrow {
+  font-size: 22px;
+  color: #dc2626;
+  font-weight: 300;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 /* ── Banniere carVertical ────────────────────────────────── */
 .copilot-carvertical-banner {
   margin: 8px 24px 16px;

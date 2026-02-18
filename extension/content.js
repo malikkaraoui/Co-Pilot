@@ -337,6 +337,26 @@
     `;
   }
 
+  /** Construit la banniere YouTube (video de presentation du vehicule). */
+  function buildYouTubeBanner(featuredVideo) {
+    if (!featuredVideo || !featuredVideo.url) return "";
+    const title = featuredVideo.title || "Découvrir ce modèle en vidéo";
+    const channel = featuredVideo.channel || "";
+    return `
+      <div class="copilot-youtube-banner">
+        <a href="${escapeHTML(featuredVideo.url)}" target="_blank" rel="noopener noreferrer"
+           class="copilot-youtube-link">
+          <span class="copilot-youtube-icon">&#x25B6;&#xFE0F;</span>
+          <span class="copilot-youtube-text">
+            <strong>Découvrir ce modèle en vidéo</strong>
+            <small>${escapeHTML(channel)}${channel ? " · " : ""}${escapeHTML(title).substring(0, 50)}</small>
+          </span>
+          <span class="copilot-youtube-arrow">&rsaquo;</span>
+        </a>
+      </div>
+    `;
+  }
+
   /** Construit la banniere Autoviza (rapport gratuit offert par LBC). */
   function buildAutovizaBanner(autovizaUrl) {
     if (!autovizaUrl) return "";
@@ -356,7 +376,7 @@
 
   /** Construit la popup complete des resultats. */
   function buildResultsPopup(data, options = {}) {
-    const { score, is_partial, filters, vehicle } = data;
+    const { score, is_partial, filters, vehicle, featured_video } = data;
     const { autovizaUrl } = options;
     const color = scoreColor(score);
 
@@ -407,6 +427,8 @@
         ${buildPremiumSection()}
 
         ${buildAutovizaBanner(autovizaUrl)}
+
+        ${buildYouTubeBanner(featured_video)}
 
         <div class="copilot-carvertical-banner">
           <a href="https://www.carvertical.com/fr" target="_blank" rel="noopener noreferrer"
@@ -566,12 +588,53 @@
       return acc;
     }, {});
 
+    const make = attrs["brand"] || attrs["Marque"] || "";
+    let model = attrs["model"] || attrs["Modèle"] || attrs["modele"] || "";
+
+    // Si LBC renvoie un modele generique ("Autres"), tenter d'extraire le vrai
+    // nom depuis le titre : "Renault Symbioz Esprit Alpine 2025" → "Symbioz"
+    if (GENERIC_MODELS.includes(model.toLowerCase()) && make) {
+      const title = ad.subject || ad.title || "";
+      const extracted = extractModelFromTitle(title, make);
+      if (extracted) model = extracted;
+    }
+
     return {
-      make: attrs["brand"] || attrs["Marque"] || "",
-      model: attrs["model"] || attrs["Modèle"] || attrs["modele"] || "",
+      make,
+      model,
       year: attrs["regdate"] || attrs["Année modèle"] || attrs["Année"] || attrs["year"] || "",
       fuel: attrs["fuel"] || attrs["Énergie"] || attrs["energie"] || "",
     };
+  }
+
+  /**
+   * Extrait le nom du modele depuis le titre quand LBC met "Autres".
+   * "Renault Symbioz Esprit Alpine 2025" → "Symbioz"
+   */
+  function extractModelFromTitle(title, make) {
+    if (!title || !make) return null;
+    let cleaned = title.trim();
+    // Retirer la marque du debut
+    if (cleaned.toLowerCase().startsWith(make.toLowerCase())) {
+      cleaned = cleaned.slice(make.length).trim();
+    }
+    // Retirer l'annee (4 chiffres)
+    cleaned = cleaned.replace(/\b(19|20)\d{2}\b/g, "").trim();
+    // Premier mot significatif
+    const noise = new Set([
+      "neuf", "neuve", "occasion", "tbe", "garantie",
+      "full", "options", "option", "pack", "premium", "edition",
+      "limited", "sport", "line", "style", "business", "confort",
+      "first", "life", "zen", "intens", "intense", "initiale",
+      "paris", "riviera", "alpine", "esprit", "techno", "evolution",
+      "iconic", "rs", "gt", "gtline", "gt-line",
+    ]);
+    for (const word of cleaned.split(/[\s,\-./()]+/)) {
+      const w = word.trim();
+      if (!w || noise.has(w.toLowerCase()) || /^\d+$/.test(w)) continue;
+      return w;
+    }
+    return null;
   }
 
   /** Modeles generiques a ne pas inclure dans la recherche texte. */
@@ -775,13 +838,12 @@
       if (!result) return;
 
       // Si une collecte vient d'etre soumise pour le vehicule COURANT
-      // et que L4 n'a pas encore de reference, relancer apres un delai.
-      // Le POST /market-prices peut prendre ~1-2s a commiter en base.
+      // et que L4 n'a pas de reference (skip pour n'importe quelle raison),
+      // relancer apres un delai pour laisser le temps au commit en base.
       if (collectInfo.submitted && collectInfo.isCurrentVehicle) {
         const l4 = (result?.data?.filters || []).find((f) => f.filter_id === "L4");
-        const noRefYet = l4 && l4.status === "skip" && /pas de donnees/i.test(l4.message || "");
-        if (noRefYet) {
-          await sleep(1500);
+        if (l4 && l4.status === "skip") {
+          await sleep(2000);
           const retried = await fetchAnalysisOnce();
           if (retried) result = retried;
         }

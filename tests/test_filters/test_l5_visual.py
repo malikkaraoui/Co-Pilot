@@ -1,10 +1,10 @@
 """Tests for L5 Visual/NumPy Filter."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
+import numpy as np
 
 from app.filters.l5_visual import L5VisualFilter
-from app.models.argus import ArgusPrice
-from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
 
 
@@ -13,18 +13,16 @@ class TestL5VisualFilter:
         self.filt = L5VisualFilter()
         self.vehicle = Vehicle(id=1, brand="Peugeot", model="3008")
 
-    def _make_argus_records(self, prices):
-        return [ArgusPrice(vehicle_id=1, region="R", year=2019, price_mid=p) for p in prices]
+    def _make_ref_array(self, prices):
+        return np.array(prices, dtype=float)
 
     def test_normal_price_passes(self):
-        records = self._make_argus_records([17000, 18000, 19000, 17500, 18500])
+        ref = self._make_ref_array([17000, 18000, 19000, 17500, 18500])
         with (
+            patch.object(L5VisualFilter, "_collect_market_prices", return_value=None),
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
-            patch.object(MarketPrice, "query") as mock_mq,
-            patch.object(ArgusPrice, "query") as mock_q,
+            patch.object(L5VisualFilter, "_collect_argus_prices", return_value=ref),
         ):
-            mock_mq.filter.return_value.all.return_value = []
-            mock_q.filter_by.return_value.all.return_value = records
             result = self.filt.run(
                 {
                     "price_eur": 18000,
@@ -36,14 +34,12 @@ class TestL5VisualFilter:
         assert result.details["source"] == "argus_seed"
 
     def test_outlier_price_fails(self):
-        records = self._make_argus_records([17000, 18000, 19000, 17500, 18500])
+        ref = self._make_ref_array([17000, 18000, 19000, 17500, 18500])
         with (
+            patch.object(L5VisualFilter, "_collect_market_prices", return_value=None),
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
-            patch.object(MarketPrice, "query") as mock_mq,
-            patch.object(ArgusPrice, "query") as mock_q,
+            patch.object(L5VisualFilter, "_collect_argus_prices", return_value=ref),
         ):
-            mock_mq.filter.return_value.all.return_value = []
-            mock_q.filter_by.return_value.all.return_value = records
             result = self.filt.run(
                 {
                     "price_eur": 5000,  # way below
@@ -54,14 +50,12 @@ class TestL5VisualFilter:
         assert result.status in ("warning", "fail")
 
     def test_not_enough_data_skips(self):
-        records = self._make_argus_records([17000])
+        ref = self._make_ref_array([17000])
         with (
+            patch.object(L5VisualFilter, "_collect_market_prices", return_value=None),
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
-            patch.object(MarketPrice, "query") as mock_mq,
-            patch.object(ArgusPrice, "query") as mock_q,
+            patch.object(L5VisualFilter, "_collect_argus_prices", return_value=ref),
         ):
-            mock_mq.filter.return_value.all.return_value = []
-            mock_q.filter_by.return_value.all.return_value = records
             result = self.filt.run(
                 {
                     "price_eur": 18000,
@@ -71,8 +65,11 @@ class TestL5VisualFilter:
             )
         assert result.status == "skip"
 
-    def test_no_vehicle_skips(self):
-        with patch("app.services.vehicle_lookup.find_vehicle", return_value=None):
+    def test_no_vehicle_no_market_skips(self):
+        with (
+            patch.object(L5VisualFilter, "_collect_market_prices", return_value=None),
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=None),
+        ):
             result = self.filt.run(
                 {
                     "price_eur": 18000,
@@ -96,17 +93,9 @@ class TestL5MarketPriceFallback:
 
     def test_uses_market_price_when_available(self):
         """L5 utilise MarketPrice quand disponible avec assez de samples."""
-        mp1 = MagicMock(spec=MarketPrice)
-        mp1.price_min = 15000
-        mp1.price_median = 18000
-        mp1.price_max = 21000
-        mp1.sample_count = 10
+        market_ref = np.array([15000, 18000, 21000], dtype=float)
 
-        with (
-            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
-            patch.object(MarketPrice, "query") as mock_mq,
-        ):
-            mock_mq.filter.return_value.all.return_value = [mp1]
+        with patch.object(L5VisualFilter, "_collect_market_prices", return_value=market_ref):
             result = self.filt.run(
                 {
                     "price_eur": 18000,
@@ -114,6 +103,27 @@ class TestL5MarketPriceFallback:
                     "model": "3008",
                     "year_model": "2019",
                     "location": {"region": "Auvergne-Rhone-Alpes"},
+                }
+            )
+
+        assert result.status == "pass"
+        assert result.details["source"] == "marche_leboncoin"
+
+    def test_market_price_works_without_vehicle_referentiel(self):
+        """L5 utilise MarketPrice meme si le vehicule n'est pas dans le referentiel."""
+        market_ref = np.array([55000, 60000, 65000, 58000, 62000], dtype=float)
+
+        with (
+            patch.object(L5VisualFilter, "_collect_market_prices", return_value=market_ref),
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=None),
+        ):
+            result = self.filt.run(
+                {
+                    "price_eur": 59900,
+                    "make": "Porsche",
+                    "model": "Cayenne",
+                    "year_model": "2019",
+                    "location": {"region": "Haute-Normandie"},
                 }
             )
 

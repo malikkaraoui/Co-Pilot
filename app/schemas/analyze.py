@@ -24,3 +24,4 @@ class AnalyzeResponse(BaseModel):
     is_partial: bool = False
     filters: list[FilterResultSchema] = []
     vehicle: dict[str, Any] | None = None
+    featured_video: dict[str, Any] | None = None
