@@ -10,6 +10,9 @@
 const {
   extractVehicleFromNextData,
   extractRegionFromNextData,
+  extractLocationFromNextData,
+  buildLocationParam,
+  DEFAULT_SEARCH_RADIUS,
   extractMileageFromNextData,
   isStaleData,
   isAdPage,
@@ -304,6 +307,97 @@ describe('extractRegionFromNextData', () => {
   it('retourne chaine vide quand location est vide', () => {
     const nextData = { props: { pageProps: { ad: { location: {} } } } };
     expect(extractRegionFromNextData(nextData)).toBe('');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 4a-bis. Extraction localisation complete depuis __NEXT_DATA__
+// ═══════════════════════════════════════════════════════════════════
+
+describe('extractLocationFromNextData', () => {
+  it('extrait city/zipcode/lat/lng/region depuis location', () => {
+    const nextData = makeNextData({
+      location: {
+        city: 'Vienne',
+        zipcode: '38200',
+        lat: 45.52172,
+        lng: 4.87245,
+        region_name: 'Auvergne-Rhône-Alpes',
+      },
+    });
+    const loc = extractLocationFromNextData(nextData);
+    expect(loc).toEqual({
+      city: 'Vienne',
+      zipcode: '38200',
+      lat: 45.52172,
+      lng: 4.87245,
+      region: 'Auvergne-Rhône-Alpes',
+    });
+  });
+
+  it('retourne null quand nextData est null', () => {
+    expect(extractLocationFromNextData(null)).toBeNull();
+  });
+
+  it('retourne null quand location est absente', () => {
+    expect(extractLocationFromNextData({ props: { pageProps: { ad: {} } } })).toBeNull();
+  });
+
+  it('retourne des valeurs vides quand les champs manquent', () => {
+    const nextData = { props: { pageProps: { ad: { location: {} } } } };
+    const loc = extractLocationFromNextData(nextData);
+    expect(loc.city).toBe('');
+    expect(loc.zipcode).toBe('');
+    expect(loc.lat).toBeNull();
+    expect(loc.lng).toBeNull();
+    expect(loc.region).toBe('');
+  });
+
+  it('fallback sur region si region_name absent', () => {
+    const nextData = { props: { pageProps: { ad: { location: { region: 'Corse' } } } } };
+    const loc = extractLocationFromNextData(nextData);
+    expect(loc.region).toBe('Corse');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 4a-ter. buildLocationParam : geo-location > region fallback
+// ═══════════════════════════════════════════════════════════════════
+
+describe('buildLocationParam', () => {
+  it('construit le format geo LBC avec lat/lng', () => {
+    const loc = { city: 'Vienne', zipcode: '38200', lat: 45.52172, lng: 4.87245, region: 'Auvergne-Rhône-Alpes' };
+    expect(buildLocationParam(loc)).toBe('Vienne_38200__45.52172_4.87245_5000_30000');
+  });
+
+  it('utilise un rayon custom si fourni', () => {
+    const loc = { city: 'Lyon', zipcode: '69000', lat: 45.764, lng: 4.8357, region: 'Auvergne-Rhône-Alpes' };
+    expect(buildLocationParam(loc, 50000)).toBe('Lyon_69000__45.764_4.8357_5000_50000');
+  });
+
+  it('fallback sur rn_XX quand lat/lng absents', () => {
+    const loc = { city: '', zipcode: '', lat: null, lng: null, region: 'Bretagne' };
+    expect(buildLocationParam(loc)).toBe(LBC_REGIONS['Bretagne']);
+  });
+
+  it('fallback sur rn_XX quand city absente', () => {
+    const loc = { city: '', zipcode: '38200', lat: 45.52172, lng: 4.87245, region: 'Auvergne-Rhône-Alpes' };
+    expect(buildLocationParam(loc)).toBe(LBC_REGIONS['Auvergne-Rhône-Alpes']);
+  });
+
+  it('retourne chaine vide quand location est null', () => {
+    expect(buildLocationParam(null)).toBe('');
+  });
+
+  it('retourne chaine vide quand region inconnue et pas de geo', () => {
+    const loc = { city: '', zipcode: '', lat: null, lng: null, region: 'Atlantide' };
+    expect(buildLocationParam(loc)).toBe('');
+  });
+
+  it('DEFAULT_SEARCH_RADIUS vaut 30000 metres (30 km)', () => {
+    expect(DEFAULT_SEARCH_RADIUS).toBe(30000);
   });
 });
 
@@ -895,7 +989,7 @@ describe('maybeCollectMarketPrices', () => {
       expect(searchUrl).toContain('horse_power_din=180-max'); // 180ch -> 180-max
     });
 
-    it('ajoute le parametre region a URL de recherche LBC', async () => {
+    it('ajoute le parametre region rn_XX a URL quand pas de geo-location', async () => {
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
         searchHTML: makeSearchHTML([12000, 13000, 14000]),
@@ -906,6 +1000,30 @@ describe('maybeCollectMarketPrices', () => {
 
       const searchUrl = fetchMock.mock.calls[1][0];
       expect(searchUrl).toContain('locations=rn_12');
+    });
+
+    it('utilise geo-location city+rayon quand lat/lng disponibles', async () => {
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle, true, 'Auvergne-Rhône-Alpes'),
+        searchHTML: makeSearchHTML([12000, 13000, 14000]),
+        submitOk: true,
+      });
+
+      const nextData = makeNextData({
+        location: {
+          city: 'Vienne',
+          zipcode: '38200',
+          lat: 45.52172,
+          lng: 4.87245,
+          region_name: 'Auvergne-Rhône-Alpes',
+        },
+      });
+
+      await maybeCollectMarketPrices(currentVehicle, nextData);
+
+      const searchUrl = fetchMock.mock.calls[1][0];
+      expect(searchUrl).toContain('locations=Vienne_38200__45.52172_4.87245_5000_30000');
+      expect(searchUrl).not.toContain('rn_');
     });
   });
 

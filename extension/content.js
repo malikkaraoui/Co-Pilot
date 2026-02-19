@@ -931,6 +931,37 @@
     return loc?.region_name || loc?.region || "";
   }
 
+  /** Extrait les donnees de localisation completes depuis __NEXT_DATA__.
+   *  Retourne { city, zipcode, lat, lng, region } ou null si absent. */
+  function extractLocationFromNextData(nextData) {
+    const loc = nextData?.props?.pageProps?.ad?.location;
+    if (!loc) return null;
+    return {
+      city: loc.city || "",
+      zipcode: loc.zipcode || "",
+      lat: loc.lat || null,
+      lng: loc.lng || null,
+      region: loc.region_name || loc.region || "",
+    };
+  }
+
+  /** Rayon de recherche par defaut en metres (30 km). */
+  const DEFAULT_SEARCH_RADIUS = 30000;
+
+  /** Construit le parametre `locations=` pour une recherche LBC.
+   *  Priorite : geolocalisation (ville + rayon) > region (rn_XX).
+   *  Format geo LBC : City_PostalCode__Lat_Lng_5000_RadiusMeters */
+  function buildLocationParam(location, radiusMeters) {
+    if (!location) return "";
+    const radius = radiusMeters || DEFAULT_SEARCH_RADIUS;
+    // Geo-location : ville + rayon (plus precis, plus de resultats pertinents)
+    if (location.lat && location.lng && location.city && location.zipcode) {
+      return `${location.city}_${location.zipcode}__${location.lat}_${location.lng}_5000_${radius}`;
+    }
+    // Fallback : code region (rn_XX)
+    return LBC_REGIONS[location.region] || "";
+  }
+
   /** Extrait le kilometrage (en km) depuis les donnees __NEXT_DATA__. Retourne 0 si absent. */
   function extractMileageFromNextData(nextData) {
     const ad = nextData?.props?.pageProps?.ad;
@@ -970,8 +1001,9 @@
     // Extraire le kilometrage depuis le nextData pour le range de recherche
     const mileageKm = extractMileageFromNextData(nextData);
 
-    // 1. Extraire la region depuis le nextData (pas le DOM qui peut etre stale)
-    const region = extractRegionFromNextData(nextData);
+    // 1. Extraire la localisation depuis le nextData (pas le DOM qui peut etre stale)
+    const location = extractLocationFromNextData(nextData);
+    const region = location?.region || "";
     if (!region) return { submitted: false };
 
     // 2. Demander au serveur quel vehicule collecter
@@ -1004,7 +1036,8 @@
     // 4. Construire l'URL de recherche LeBonCoin (filtres structures)
     const targetYear = parseInt(target.year, 10) || 0;
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
-    const regionParam = LBC_REGIONS[targetRegion] || "";
+    // Geo-location : ville + rayon (prioritaire) > region rn_XX (fallback)
+    const locationParam = buildLocationParam(location, DEFAULT_SEARCH_RADIUS);
 
     // Preferer u_car_brand + u_car_model (recherche structuree, pas de faux positifs)
     // Fallback sur text= si le modele est generique
@@ -1018,7 +1051,7 @@
       searchUrl += `&u_car_model=${encodeURIComponent(modelUpper)}`;
     }
 
-    if (regionParam) searchUrl += `&locations=${regionParam}`;
+    if (locationParam) searchUrl += `&locations=${locationParam}`;
 
     // Filtre annee : ±1 an pour avoir des comparables pertinents
     if (targetYear >= 1990) {
@@ -1138,6 +1171,9 @@
     module.exports = {
       extractVehicleFromNextData,
       extractRegionFromNextData,
+      extractLocationFromNextData,
+      buildLocationParam,
+      DEFAULT_SEARCH_RADIUS,
       extractMileageFromNextData,
       isUserLoggedIn,
       revealPhoneNumber,
