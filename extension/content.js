@@ -948,6 +948,38 @@
   /** Rayon de recherche par defaut en metres (30 km). */
   const DEFAULT_SEARCH_RADIUS = 30000;
 
+  /** Nombre minimum de prix valides pour constituer un argus. */
+  const MIN_PRICES_FOR_ARGUS = 3;
+
+  /** Fetch une page de recherche LBC et extrait les prix valides.
+   *  Retourne un tableau de prix (entiers > 500) filtrés par annee. */
+  async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
+    const resp = await fetch(searchUrl, {
+      credentials: "same-origin",
+      headers: { "Accept": "text/html" },
+    });
+    const html = await resp.text();
+
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!match) return [];
+
+    const data = JSON.parse(match[1]);
+    const ads = data?.props?.pageProps?.searchData?.ads
+              || data?.props?.pageProps?.initialProps?.searchData?.ads
+              || [];
+
+    return ads
+      .filter((ad) => {
+        if (!ad.price || ad.price[0] <= 500) return false;
+        if (targetYear >= 1990) {
+          const adYear = getAdYear(ad);
+          if (adYear && Math.abs(adYear - targetYear) > yearSpread) return false;
+        }
+        return true;
+      })
+      .map((ad) => ad.price[0]);
+  }
+
   /** Construit le parametre `locations=` pour une recherche LBC.
    *  Priorite : geolocalisation (ville + rayon) > region (rn_XX).
    *  Format geo LBC : City_PostalCode__Lat_Lng_5000_RadiusMeters */
@@ -1036,80 +1068,60 @@
     // 4. Construire l'URL de recherche LeBonCoin (filtres structures)
     const targetYear = parseInt(target.year, 10) || 0;
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
-    // Geo-location : ville + rayon (prioritaire) > region rn_XX (fallback)
-    const locationParam = buildLocationParam(location, DEFAULT_SEARCH_RADIUS);
 
-    // Preferer u_car_brand + u_car_model (recherche structuree, pas de faux positifs)
-    // Fallback sur text= si le modele est generique
+    // URL de base : marque/modele + filtres vehicule (invariants entre strategies)
     const brandUpper = target.make.toUpperCase();
-    let searchUrl = "https://www.leboncoin.fr/recherche?category=2";
+    let baseUrl = "https://www.leboncoin.fr/recherche?category=2";
     if (modelIsGeneric) {
-      searchUrl += `&text=${encodeURIComponent(target.make)}`;
+      baseUrl += `&text=${encodeURIComponent(target.make)}`;
     } else {
       const modelUpper = `${brandUpper}_${target.model.toUpperCase()}`;
-      searchUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
-      searchUrl += `&u_car_model=${encodeURIComponent(modelUpper)}`;
+      baseUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
+      baseUrl += `&u_car_model=${encodeURIComponent(modelUpper)}`;
     }
 
-    if (locationParam) searchUrl += `&locations=${locationParam}`;
-
-    // Filtre annee : ±1 an pour avoir des comparables pertinents
-    if (targetYear >= 1990) {
-      searchUrl += `&regdate=${targetYear - 1}-${targetYear + 1}`;
-    }
-
-    // Filtre fuel (diesel/essence/electrique/hybride)
+    // Filtres vehicule (fuel, km, gearbox, puissance) -- invariants
     const targetFuel = (fuel || "").toLowerCase();
     const fuelCode = LBC_FUEL_CODES[targetFuel];
-    if (fuelCode) {
-      searchUrl += `&fuel=${fuelCode}`;
-    }
-
-    // Filtre kilometrage (range adapte au km reel)
+    if (fuelCode) baseUrl += `&fuel=${fuelCode}`;
     if (mileageKm > 0) {
       const mileageRange = getMileageRange(mileageKm);
-      if (mileageRange) searchUrl += `&mileage=${mileageRange}`;
+      if (mileageRange) baseUrl += `&mileage=${mileageRange}`;
     }
-
-    // Filtre boite de vitesse
     const gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
-    if (gearboxCode) searchUrl += `&gearbox=${gearboxCode}`;
-
-    // Filtre puissance DIN
+    if (gearboxCode) baseUrl += `&gearbox=${gearboxCode}`;
     const hp = parseInt(horse_power, 10) || 0;
     const hpRange = getHorsePowerRange(hp);
-    if (hpRange) searchUrl += `&horse_power_din=${hpRange}`;
+    if (hpRange) baseUrl += `&horse_power_din=${hpRange}`;
+
+    // 5. Escalade progressive : precision d'abord, puis on elargit
+    //    Strategie 1 : geo-location (ville + 30 km) + annee ±1
+    //    Strategie 2 : region + voisines (rn_XX) + annee ±1
+    //    Strategie 3 : region + voisines (rn_XX) + annee ±2
+    const hasGeo = location?.lat && location?.lng && location?.city && location?.zipcode;
+    const geoParam = hasGeo ? buildLocationParam(location, DEFAULT_SEARCH_RADIUS) : "";
+    const regionParam = LBC_REGIONS[region] || "";
+
+    const strategies = [];
+    if (geoParam) strategies.push({ loc: geoParam, yearSpread: 1 });
+    if (regionParam) strategies.push({ loc: regionParam, yearSpread: 1 });
+    if (regionParam) strategies.push({ loc: regionParam, yearSpread: 2 });
 
     let submitted = false;
+    let prices = [];
     try {
-      const resp = await fetch(searchUrl, {
-        credentials: "same-origin",
-        headers: { "Accept": "text/html" },
-      });
-      const html = await resp.text();
+      for (const strategy of strategies) {
+        let searchUrl = baseUrl;
+        if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
+        if (targetYear >= 1990) {
+          searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
+        }
 
-      const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-      if (!match) return { submitted: false };
+        prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+        if (prices.length >= MIN_PRICES_FOR_ARGUS) break;
+      }
 
-      const data = JSON.parse(match[1]);
-      const ads = data?.props?.pageProps?.searchData?.ads
-                || data?.props?.pageProps?.initialProps?.searchData?.ads
-                || [];
-
-      // Filtrer : prix > 500 ET annee dans la fourchette ±1 an
-      const prices = ads
-        .filter((ad) => {
-          if (!ad.price || ad.price[0] <= 500) return false;
-          // Verification annee individuelle par annonce
-          if (targetYear >= 1990) {
-            const adYear = getAdYear(ad);
-            if (adYear && Math.abs(adYear - targetYear) > 1) return false;
-          }
-          return true;
-        })
-        .map((ad) => ad.price[0]);
-
-      if (prices.length >= 3) {
+      if (prices.length >= MIN_PRICES_FOR_ARGUS) {
         const marketUrl = API_URL.replace("/analyze", "/market-prices");
         const marketResp = await fetch(marketUrl, {
           method: "POST",
@@ -1174,6 +1186,8 @@
       extractLocationFromNextData,
       buildLocationParam,
       DEFAULT_SEARCH_RADIUS,
+      MIN_PRICES_FOR_ARGUS,
+      fetchSearchPrices,
       extractMileageFromNextData,
       isUserLoggedIn,
       revealPhoneNumber,

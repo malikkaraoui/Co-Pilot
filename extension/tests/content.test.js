@@ -13,6 +13,8 @@ const {
   extractLocationFromNextData,
   buildLocationParam,
   DEFAULT_SEARCH_RADIUS,
+  MIN_PRICES_FOR_ARGUS,
+  fetchSearchPrices,
   extractMileageFromNextData,
   isStaleData,
   isAdPage,
@@ -607,6 +609,10 @@ describe('Constants', () => {
     expect(LBC_GEARBOX_CODES['automatique']).toBe(2);
   });
 
+  it('MIN_PRICES_FOR_ARGUS vaut 3', () => {
+    expect(MIN_PRICES_FOR_ARGUS).toBe(3);
+  });
+
   it('LBC_FUEL_CODES mappe les 4 energies principales', () => {
     expect(LBC_FUEL_CODES['essence']).toBe(1);
     expect(LBC_FUEL_CODES['diesel']).toBe(2);
@@ -632,12 +638,18 @@ describe('maybeCollectMarketPrices', () => {
   /**
    * Mock global.fetch avec des reponses sequentielles.
    *
-   * maybeCollectMarketPrices fait jusqu'a 3 fetch :
+   * Avec l'escalade progressive, maybeCollectMarketPrices fait :
    *   1. GET  /market-prices/next-job  -> jobResponse (json)
-   *   2. GET  leboncoin.fr/recherche   -> searchHTML (text)
+   *   2. GET  leboncoin.fr/recherche   -> searchHTML (text)  [1 a 3 strategies]
    *   3. POST /market-prices           -> { ok: submitOk }
+   *
+   * @param {object} opts
+   * @param {object} opts.jobResponse - Reponse next-job
+   * @param {string} opts.searchHTML - HTML pour UNE recherche (si assez de prix, pas d'escalade)
+   * @param {string[]} opts.searchHTMLs - HTML pour CHAQUE strategie d'escalade (prioritaire sur searchHTML)
+   * @param {boolean} opts.submitOk - Reponse du POST market-prices
    */
-  function mockFetchSequence({ jobResponse, searchHTML, submitOk = true }) {
+  function mockFetchSequence({ jobResponse, searchHTML, searchHTMLs, submitOk = true }) {
     const fetchMock = vi.fn();
 
     // Appel 1 : next-job
@@ -646,15 +658,16 @@ describe('maybeCollectMarketPrices', () => {
       json: () => Promise.resolve(jobResponse),
     });
 
-    // Appel 2 : recherche LBC (seulement si collect=true)
-    if (searchHTML !== undefined) {
+    // Appels search : 1 par strategie d'escalade tentee
+    const htmls = searchHTMLs || (searchHTML !== undefined ? [searchHTML] : []);
+    for (const html of htmls) {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: () => Promise.resolve(searchHTML),
+        text: () => Promise.resolve(html),
       });
     }
 
-    // Appel 3 : POST market-prices (seulement si >= 3 prix)
+    // POST market-prices (seulement si >= 3 prix)
     if (submitOk !== undefined) {
       fetchMock.mockResolvedValueOnce({ ok: submitOk });
     }
@@ -843,9 +856,10 @@ describe('maybeCollectMarketPrices', () => {
     });
 
     it('sauvegarde le timestamp meme avec moins de 3 prix', async () => {
+      const tooFew = makeSearchHTML([12000, 13000]); // seulement 2
       mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
-        searchHTML: makeSearchHTML([12000, 13000]), // seulement 2
+        searchHTMLs: [tooFew, tooFew], // 2 strategies, aucune suffisante
       });
 
       const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
@@ -923,16 +937,17 @@ describe('maybeCollectMarketPrices', () => {
       expect(body.prices).not.toContain(500);
     });
 
-    it('ne POST pas quand moins de 3 prix valides', async () => {
+    it('ne POST pas quand moins de 3 prix valides (toutes strategies epuisees)', async () => {
+      const tooFew = makeSearchHTML([12000, 13000]);
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
-        searchHTML: makeSearchHTML([12000, 13000]),
+        searchHTMLs: [tooFew, tooFew], // 2 strategies (rn ±1, rn ±2), aucune suffisante
       });
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // Seulement 2 appels (next-job + search), pas de POST
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // next-job + 2 recherches (escalade), pas de POST
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it('utilise u_car_brand et u_car_model dans URL de recherche LBC', async () => {
@@ -1054,6 +1069,110 @@ describe('maybeCollectMarketPrices', () => {
       // Le timestamp doit etre rafraichi
       const newTs = parseInt(localStorage.getItem('copilot_last_collect'), 10);
       expect(newTs).toBeGreaterThan(thirtyMinAgo);
+    });
+  });
+
+
+  // ── Escalade progressive : geo → region → region+annee elargie ──
+
+  describe('escalade progressive', () => {
+    it('utilise geo-location en strategie 1, puis rn_XX si pas assez', async () => {
+      const tooFew = makeSearchHTML([12000, 13000]); // 2 prix = pas assez
+      const enough = makeSearchHTML([12000, 13000, 14000]); // 3 prix = OK
+
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle, true, 'Auvergne-Rhône-Alpes'),
+        searchHTMLs: [tooFew, enough], // strategie 1 echoue, strategie 2 reussit
+        submitOk: true,
+      });
+
+      const nextData = makeNextData({
+        region: 'Auvergne-Rhône-Alpes',
+        location: {
+          city: 'Vienne',
+          zipcode: '38200',
+          lat: 45.52172,
+          lng: 4.87245,
+          region_name: 'Auvergne-Rhône-Alpes',
+        },
+      });
+
+      const result = await maybeCollectMarketPrices(currentVehicle, nextData);
+
+      expect(result.submitted).toBe(true);
+      // 4 appels : next-job + search geo + search rn + POST
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+
+      // Strategie 1 : geo-location
+      const url1 = fetchMock.mock.calls[1][0];
+      expect(url1).toContain('locations=Vienne_38200__45.52172_4.87245_5000_30000');
+
+      // Strategie 2 : region rn_XX (fallback)
+      const url2 = fetchMock.mock.calls[2][0];
+      expect(url2).toContain('locations=rn_');
+    });
+
+    it('elargit les annees en strategie 3 (±2 au lieu de ±1)', async () => {
+      const tooFew = makeSearchHTML([12000, 13000]); // pas assez
+      const enough = makeSearchHTML([11000, 12000, 13000, 14000]); // OK
+
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
+        searchHTMLs: [tooFew, tooFew, enough], // strategies 1+2 echouent, 3 reussit
+        submitOk: true,
+      });
+
+      const nextData = makeNextData({
+        location: {
+          city: 'Paris',
+          zipcode: '75001',
+          lat: 48.8566,
+          lng: 2.3522,
+          region_name: 'Île-de-France',
+        },
+      });
+
+      const result = await maybeCollectMarketPrices(currentVehicle, nextData);
+
+      expect(result.submitted).toBe(true);
+      // 5 appels : next-job + 3 recherches + POST
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+
+      // Strategie 3 : regdate elargi ±2 (2021 → 2019-2023)
+      const url3 = fetchMock.mock.calls[3][0];
+      expect(url3).toContain('regdate=2019-2023');
+      expect(url3).toContain('locations=rn_12');
+    });
+
+    it('stoppe des que la premiere strategie a assez de prix', async () => {
+      const enough = makeSearchHTML([12000, 13000, 14000, 15000]);
+
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
+        searchHTML: enough, // strategie 1 suffit
+        submitOk: true,
+      });
+
+      const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      expect(result.submitted).toBe(true);
+      // 3 appels seulement : next-job + 1 search + POST (pas d'escalade)
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('sans geo-location, 2 strategies seulement (rn ±1, rn ±2)', async () => {
+      const tooFew = makeSearchHTML([12000, 13000]);
+
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
+        searchHTMLs: [tooFew, tooFew], // 2 strategies, aucune suffisante
+      });
+
+      // makeNextData() n'a PAS de lat/lng → pas de strategie geo
+      await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      // 3 appels : next-job + 2 recherches (pas de POST)
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
   });
 });
