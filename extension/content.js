@@ -604,6 +604,8 @@
       model,
       year: attrs["regdate"] || attrs["Année modèle"] || attrs["Année"] || attrs["year"] || "",
       fuel: attrs["fuel"] || attrs["Énergie"] || attrs["energie"] || "",
+      gearbox: attrs["gearbox"] || attrs["Boîte de vitesse"] || attrs["Boite de vitesse"] || attrs["Transmission"] || "",
+      horse_power: attrs["horse_power_din"] || attrs["Puissance DIN"] || "",
     };
   }
 
@@ -892,13 +894,30 @@
     "hybride": 6,
   };
 
+  /** Mapping gearbox LBC : texte → code URL.
+   *  Valeurs extraites de l'interface LBC (février 2026). */
+  const LBC_GEARBOX_CODES = {
+    "manuelle": 1,
+    "automatique": 2,
+  };
+
+  /** Calcule le range de puissance DIN pour la recherche LBC.
+   *  Arrondi a la dizaine inferieure : 136ch → "130-max", 75ch → "70-max".
+   *  Pas de max pour inclure les versions plus puissantes du meme modele. */
+  function getHorsePowerRange(hp) {
+    if (!hp || hp <= 0) return null;
+    const minHp = Math.floor(hp / 10) * 10;
+    return `${minHp}-max`;
+  }
+
   /** Calcule le range de kilometrage pour la recherche LBC.
-   *  Overlap volontaire pour avoir assez d'annonces comparables. */
+   *  Tranches serrees pour des comparables pertinents (meme profil d'usure). */
   function getMileageRange(km) {
     if (!km || km <= 0) return null;
-    if (km <= 20000) return "0-30000";
-    if (km <= 60000) return "10000-80000";
-    if (km <= 120000) return "40000-150000";
+    if (km <= 10000) return "min-20000";
+    if (km <= 30000) return "min-50000";
+    if (km <= 60000) return "20000-80000";
+    if (km <= 120000) return "50000-150000";
     return "100000-max";
   }
 
@@ -940,7 +959,7 @@
    * Appelee AVANT l'analyse pour que L4/L5 aient des donnees fraiches.
    */
   async function maybeCollectMarketPrices(vehicle, nextData) {
-    const { make, model, year, fuel } = vehicle;
+    const { make, model, year, fuel, gearbox, horse_power } = vehicle;
     if (!make || !model || !year) return { submitted: false };
 
     // Ne pas collecter de prix pour les categories non-voiture (motos, etc.)
@@ -1017,6 +1036,19 @@
     if (isCurrentVehicle && mileageKm > 0) {
       const mileageRange = getMileageRange(mileageKm);
       if (mileageRange) searchUrl += `&mileage=${mileageRange}`;
+    }
+
+    // Filtre boite de vitesse (vehicule courant seulement)
+    if (isCurrentVehicle) {
+      const gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
+      if (gearboxCode) searchUrl += `&gearbox=${gearboxCode}`;
+    }
+
+    // Filtre puissance DIN (vehicule courant seulement)
+    if (isCurrentVehicle) {
+      const hp = parseInt(horse_power, 10) || 0;
+      const hpRange = getHorsePowerRange(hp);
+      if (hpRange) searchUrl += `&horse_power_din=${hpRange}`;
     }
 
     let submitted = false;
@@ -1122,7 +1154,9 @@
       maybeCollectMarketPrices,
       LBC_REGIONS,
       LBC_FUEL_CODES,
+      LBC_GEARBOX_CODES,
       getMileageRange,
+      getHorsePowerRange,
       COLLECT_COOLDOWN_MS,
       SIMULATED_FILTERS,
       API_URL,

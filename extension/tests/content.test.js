@@ -20,7 +20,9 @@ const {
   maybeCollectMarketPrices,
   LBC_REGIONS,
   LBC_FUEL_CODES,
+  LBC_GEARBOX_CODES,
   getMileageRange,
+  getHorsePowerRange,
   COLLECT_COOLDOWN_MS,
   SIMULATED_FILTERS,
   API_URL,
@@ -196,6 +198,8 @@ describe('extractVehicleFromNextData', () => {
       model: '3008',
       year: '2021',
       fuel: '',
+      gearbox: '',
+      horse_power: '',
     });
   });
 
@@ -233,6 +237,37 @@ describe('extractVehicleFromNextData', () => {
     expect(result.make).toBe('');
     expect(result.model).toBe('');
     expect(result.year).toBe('');
+  });
+
+  it('extrait gearbox et horse_power depuis les attributs', () => {
+    const nextData = makeNextData({
+      attributes: [
+        { key: 'brand', value: 'Renault' },
+        { key: 'model', value: 'Clio' },
+        { key: 'regdate', value: '2025' },
+        { key: 'fuel', value: 'hybride' },
+        { key: 'gearbox', value: 'Automatique' },
+        { key: 'horse_power_din', value: '130' },
+      ],
+    });
+    const result = extractVehicleFromNextData(nextData);
+    expect(result.gearbox).toBe('Automatique');
+    expect(result.horse_power).toBe('130');
+  });
+
+  it('extrait gearbox depuis cles FR alternatives', () => {
+    const nextData = makeNextData({
+      attributes: [
+        { key: 'brand', value: 'Peugeot' },
+        { key: 'model', value: '208' },
+        { key: 'regdate', value: '2022' },
+        { key: 'Boîte de vitesse', value: 'Manuelle' },
+        { key: 'Puissance DIN', value: '75' },
+      ],
+    });
+    const result = extractVehicleFromNextData(nextData);
+    expect(result.gearbox).toBe('Manuelle');
+    expect(result.horse_power).toBe('75');
   });
 
   it('retourne un objet vide quand ad est absent', () => {
@@ -319,24 +354,66 @@ describe('getMileageRange', () => {
     expect(getMileageRange(undefined)).toBeNull();
   });
 
-  it('quasi-neuf: 0-30000 pour km <= 20000', () => {
-    expect(getMileageRange(5000)).toBe('0-30000');
-    expect(getMileageRange(20000)).toBe('0-30000');
+  it('quasi-neuf: min-20000 pour km <= 10000', () => {
+    expect(getMileageRange(3310)).toBe('min-20000');
+    expect(getMileageRange(10000)).toBe('min-20000');
   });
 
-  it('usage normal: 10000-80000 pour 20001-60000', () => {
-    expect(getMileageRange(20001)).toBe('10000-80000');
-    expect(getMileageRange(60000)).toBe('10000-80000');
+  it('faible km: min-50000 pour 10001-30000', () => {
+    expect(getMileageRange(10001)).toBe('min-50000');
+    expect(getMileageRange(25000)).toBe('min-50000');
+    expect(getMileageRange(30000)).toBe('min-50000');
   });
 
-  it('usage intensif: 40000-150000 pour 60001-120000', () => {
-    expect(getMileageRange(60001)).toBe('40000-150000');
-    expect(getMileageRange(120000)).toBe('40000-150000');
+  it('usage normal: 20000-80000 pour 30001-60000', () => {
+    expect(getMileageRange(30001)).toBe('20000-80000');
+    expect(getMileageRange(50000)).toBe('20000-80000');
+    expect(getMileageRange(60000)).toBe('20000-80000');
+  });
+
+  it('usage intensif: 50000-150000 pour 60001-120000', () => {
+    expect(getMileageRange(60001)).toBe('50000-150000');
+    expect(getMileageRange(100000)).toBe('50000-150000');
+    expect(getMileageRange(120000)).toBe('50000-150000');
   });
 
   it('haute frequentation: 100000-max pour > 120000', () => {
     expect(getMileageRange(120001)).toBe('100000-max');
     expect(getMileageRange(250000)).toBe('100000-max');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 4d. getHorsePowerRange helper
+// ═══════════════════════════════════════════════════════════════════
+
+describe('getHorsePowerRange', () => {
+  it('retourne null pour hp <= 0 ou absent', () => {
+    expect(getHorsePowerRange(0)).toBeNull();
+    expect(getHorsePowerRange(null)).toBeNull();
+    expect(getHorsePowerRange(undefined)).toBeNull();
+    expect(getHorsePowerRange(-10)).toBeNull();
+  });
+
+  it('arrondit a la dizaine inferieure: 130ch -> "130-max"', () => {
+    expect(getHorsePowerRange(130)).toBe('130-max');
+  });
+
+  it('arrondit a la dizaine inferieure: 136ch -> "130-max"', () => {
+    expect(getHorsePowerRange(136)).toBe('130-max');
+  });
+
+  it('arrondit a la dizaine inferieure: 75ch -> "70-max"', () => {
+    expect(getHorsePowerRange(75)).toBe('70-max');
+  });
+
+  it('gere les puissances exactes sur dizaine: 100ch -> "100-max"', () => {
+    expect(getHorsePowerRange(100)).toBe('100-max');
+  });
+
+  it('gere les petites puissances: 45ch -> "40-max"', () => {
+    expect(getHorsePowerRange(45)).toBe('40-max');
   });
 });
 
@@ -431,6 +508,11 @@ describe('Constants', () => {
     });
   });
 
+  it('LBC_GEARBOX_CODES mappe manuelle et automatique', () => {
+    expect(LBC_GEARBOX_CODES['manuelle']).toBe(1);
+    expect(LBC_GEARBOX_CODES['automatique']).toBe(2);
+  });
+
   it('LBC_FUEL_CODES mappe les 4 energies principales', () => {
     expect(LBC_FUEL_CODES['essence']).toBe(1);
     expect(LBC_FUEL_CODES['diesel']).toBe(2);
@@ -446,7 +528,7 @@ describe('Constants', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('maybeCollectMarketPrices', () => {
-  const currentVehicle = { make: 'Peugeot', model: '3008', year: '2021', fuel: 'diesel' };
+  const currentVehicle = { make: 'Peugeot', model: '3008', year: '2021', fuel: 'diesel', gearbox: 'Automatique', horse_power: '180' };
 
   beforeEach(() => {
     localStorage.clear();
@@ -785,6 +867,32 @@ describe('maybeCollectMarketPrices', () => {
 
       const searchUrl = fetchMock.mock.calls[1][0];
       expect(searchUrl).toContain('fuel=2'); // diesel = 2
+    });
+
+    it('ajoute gearbox= a URL de recherche LBC pour vehicule courant', async () => {
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle),
+        searchHTML: makeSearchHTML([12000, 13000, 14000]),
+        submitOk: true,
+      });
+
+      await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      const searchUrl = fetchMock.mock.calls[1][0];
+      expect(searchUrl).toContain('gearbox=2'); // automatique = 2
+    });
+
+    it('ajoute horse_power_din= a URL de recherche LBC pour vehicule courant', async () => {
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(currentVehicle),
+        searchHTML: makeSearchHTML([12000, 13000, 14000]),
+        submitOk: true,
+      });
+
+      await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      const searchUrl = fetchMock.mock.calls[1][0];
+      expect(searchUrl).toContain('horse_power_din=180-max'); // 180ch -> 180-max
     });
 
     it('ajoute le parametre region a URL de recherche LBC', async () => {
