@@ -31,6 +31,7 @@ const {
   COLLECT_COOLDOWN_MS,
   SIMULATED_FILTERS,
   API_URL,
+  getAdDetails,
 } = require('../content.js');
 
 
@@ -76,9 +77,18 @@ function makePrices(n, base = 10000, step = 500) {
   return Array.from({ length: n }, (_, i) => base + i * step);
 }
 
-/** Construit un HTML de recherche LBC avec __NEXT_DATA__ contenant des prix. */
+/** Construit un HTML de recherche LBC avec __NEXT_DATA__ contenant des prix.
+ *  Chaque prix peut etre un int (legacy) ou {price, year, km, fuel}. */
 function makeSearchHTML(prices) {
-  const ads = prices.map((p) => ({ price: [p], title: 'annonce test' }));
+  const ads = prices.map((p) => {
+    const priceInt = typeof p === 'object' ? p.price : p;
+    const attrs = [
+      { key: 'regdate', value: String(typeof p === 'object' && p.year ? p.year : 2021) },
+      { key: 'mileage', value: String(typeof p === 'object' && p.km ? p.km : 50000) },
+      { key: 'fuel', value_label: typeof p === 'object' && p.fuel ? p.fuel : 'Diesel' },
+    ];
+    return { price: [priceInt], title: 'annonce test', attributes: attrs };
+  });
   const data = { props: { pageProps: { searchData: { ads } } } };
   return `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></html>`;
 }
@@ -629,6 +639,74 @@ describe('Constants', () => {
 
 
 // ═══════════════════════════════════════════════════════════════════
+// 6b. getAdDetails : extraction des details d'une annonce LBC
+// ═══════════════════════════════════════════════════════════════════
+
+describe('getAdDetails', () => {
+  it('extrait price, year, km, fuel', () => {
+    const ad = {
+      price: [18000],
+      attributes: [
+        { key: 'regdate', value: '2022' },
+        { key: 'mileage', value: '45000' },
+        { key: 'fuel', value_label: 'Essence' },
+      ],
+    };
+    const details = getAdDetails(ad);
+    expect(details.price).toBe(18000);
+    expect(details.year).toBe(2022);
+    expect(details.km).toBe(45000);
+    expect(details.fuel).toBe('Essence');
+  });
+
+  it('gere les attributs absents', () => {
+    const ad = { price: [12000], attributes: [] };
+    const details = getAdDetails(ad);
+    expect(details.price).toBe(12000);
+    expect(details.year).toBeUndefined();
+    expect(details.km).toBeUndefined();
+    expect(details.fuel).toBeUndefined();
+  });
+
+  it('gere les cles alternatives (annee, kilometrage, energie)', () => {
+    const ad = {
+      price: [15000],
+      attributes: [
+        { key: 'année modèle', value: '2020' },
+        { key: 'kilométrage', value: '80 000' },
+        { key: 'énergie', value_label: 'Diesel' },
+      ],
+    };
+    const details = getAdDetails(ad);
+    expect(details.year).toBe(2020);
+    expect(details.km).toBe(80000);
+    expect(details.fuel).toBe('Diesel');
+  });
+
+  it('gere un format attributes non tableau sans planter', () => {
+    const ad = {
+      price: [17000],
+      attributes: { regdate: '2021' },
+    };
+    const details = getAdDetails(ad);
+    expect(details.price).toBe(17000);
+    expect(details.year).toBeUndefined();
+    expect(details.km).toBeUndefined();
+    expect(details.fuel).toBeUndefined();
+  });
+
+  it('normalise un prix string avec separateurs', () => {
+    const ad = {
+      price: ['12 900 €'],
+      attributes: [],
+    };
+    const details = getAdDetails(ad);
+    expect(details.price).toBe(12900);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
 // 7. Collecte crowdsourcee : cooldown, localStorage, fetch
 // ═══════════════════════════════════════════════════════════════════
 
@@ -929,6 +1007,12 @@ describe('maybeCollectMarketPrices', () => {
       expect(body.year).toBe(2021); // parseInt applique
       expect(body.prices).toEqual(prices20);
       expect(body.fuel).toBe('diesel');
+      // price_details contient les objets enrichis
+      expect(body.price_details).toBeDefined();
+      expect(body.price_details.length).toBe(20);
+      expect(body.price_details[0]).toHaveProperty('price');
+      expect(body.price_details[0]).toHaveProperty('year');
+      expect(body.price_details[0]).toHaveProperty('km');
     });
 
     it('filtre les prix <= 500 de la recherche LBC', async () => {
@@ -942,9 +1026,12 @@ describe('maybeCollectMarketPrices', () => {
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       const body = JSON.parse(fetchMock.mock.calls[2][1].body);
+      // prices is int array extracted from objects
       expect(body.prices).toEqual(validPrices);
       expect(body.prices).not.toContain(100);
       expect(body.prices).not.toContain(500);
+      // price_details matches prices length
+      expect(body.price_details.length).toBe(validPrices.length);
     });
 
     it('ne POST pas quand moins de 20 prix valides (toutes strategies epuisees)', async () => {

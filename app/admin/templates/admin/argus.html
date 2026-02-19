@@ -199,6 +199,30 @@
           <!-- Prix gardes -->
           <div class="mb-3">
             <h6>Prix retenus ({{ details.get('kept_count', 0) }})</h6>
+            {% if details.get('kept_details') %}
+            <div class="table-responsive" style="max-height:300px; overflow-y:auto">
+              <table class="table table-sm table-striped mb-0" style="font-size:12px">
+                <thead class="table-light">
+                  <tr>
+                    <th>Prix</th>
+                    <th>Annee</th>
+                    <th>Km</th>
+                    <th>Motorisation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for d in details.get('kept_details', []) %}
+                  <tr>
+                    <td><strong>{{ "{:,}".format(d.get('price', 0)).replace(",", " ") }} &euro;</strong></td>
+                    <td>{{ d.get('year', '-') or '-' }}</td>
+                    <td>{{ "{:,}".format(d.get('km', 0)).replace(",", " ") ~ ' km' if d.get('km') else '-' }}</td>
+                    <td>{{ d.get('fuel', '-') or '-' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
             <div class="d-flex flex-wrap gap-1">
               {% for p in details.get('kept_prices', []) %}
               <span class="badge bg-success bg-opacity-75" style="font-size:12px">
@@ -206,12 +230,37 @@
               </span>
               {% endfor %}
             </div>
+            {% endif %}
           </div>
 
           <!-- Prix exclus -->
           {% if details.get('excluded_prices') %}
           <div class="mb-3">
             <h6>Prix exclus (outliers)</h6>
+            {% if details.get('excluded_details') %}
+            <div class="table-responsive">
+              <table class="table table-sm mb-0" style="font-size:12px">
+                <thead class="table-light">
+                  <tr>
+                    <th>Prix</th>
+                    <th>Annee</th>
+                    <th>Km</th>
+                    <th>Motorisation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for d in details.get('excluded_details', []) %}
+                  <tr class="text-decoration-line-through text-danger">
+                    <td><strong>{{ "{:,}".format(d.get('price', 0)).replace(",", " ") }} &euro;</strong></td>
+                    <td>{{ d.get('year', '-') or '-' }}</td>
+                    <td>{{ "{:,}".format(d.get('km', 0)).replace(",", " ") ~ ' km' if d.get('km') else '-' }}</td>
+                    <td>{{ d.get('fuel', '-') or '-' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
             <div class="d-flex flex-wrap gap-1">
               {% for p in details.get('excluded_prices', []) %}
               <span class="badge bg-danger bg-opacity-75" style="font-size:12px; text-decoration: line-through">
@@ -219,6 +268,7 @@
               </span>
               {% endfor %}
             </div>
+            {% endif %}
           </div>
           {% endif %}
 

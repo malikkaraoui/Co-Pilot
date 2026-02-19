@@ -973,8 +973,31 @@
    *  En-dessous de 20, l'IQR est trop instable pour etre significatif. */
   const MIN_PRICES_FOR_ARGUS = 20;
 
+  /** Extrait les details d'une annonce LBC (prix, annee, km, fuel).
+   *  Utilise pour la transparence de l'argus. */
+  function getAdDetails(ad) {
+    const rawPrice = Array.isArray(ad?.price) ? ad.price[0] : ad?.price;
+    const parsedPrice = typeof rawPrice === "number"
+      ? rawPrice
+      : parseInt(String(rawPrice || "0").replace(/[^\d]/g, ""), 10);
+    const attrs = Array.isArray(ad?.attributes) ? ad.attributes : [];
+    const details = { price: Number.isFinite(parsedPrice) ? parsedPrice : 0 };
+    for (const a of attrs) {
+      if (!a || typeof a !== "object") continue;
+      const key = (a.key || a.key_label || "").toLowerCase();
+      if (key === "regdate" || key === "année modèle" || key === "année") {
+        details.year = parseInt(a.value || a.value_label, 10) || null;
+      } else if (key === "mileage" || key === "kilométrage" || key === "kilometrage") {
+        details.km = parseInt(String(a.value || a.value_label || "0").replace(/\s/g, ""), 10) || null;
+      } else if (key === "fuel" || key === "énergie" || key === "energie") {
+        details.fuel = a.value_label || a.value || null;
+      }
+    }
+    return details;
+  }
+
   /** Fetch une page de recherche LBC et extrait les prix valides.
-   *  Retourne un tableau de prix (entiers > 500) filtrés par annee. */
+   *  Retourne un tableau de {price, year, km, fuel} filtre par annee. */
   async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
     const resp = await fetch(searchUrl, {
       credentials: "same-origin",
@@ -992,14 +1015,18 @@
 
     return ads
       .filter((ad) => {
-        if (!ad.price || ad.price[0] <= 500) return false;
+        const rawPrice = Array.isArray(ad?.price) ? ad.price[0] : ad?.price;
+        const priceInt = typeof rawPrice === "number"
+          ? rawPrice
+          : parseInt(String(rawPrice || "0").replace(/[^\d]/g, ""), 10);
+        if (!Number.isFinite(priceInt) || priceInt <= 500) return false;
         if (targetYear >= 1990) {
           const adYear = getAdYear(ad);
           if (adYear && Math.abs(adYear - targetYear) > yearSpread) return false;
         }
         return true;
       })
-      .map((ad) => ad.price[0]);
+      .map((ad) => getAdDetails(ad));
   }
 
   /** Construit le parametre `locations=` pour une recherche LBC.
@@ -1174,6 +1201,11 @@
       }
 
       if (prices.length >= MIN_PRICES_FOR_ARGUS) {
+        const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
+        const priceInts = priceDetails.map((p) => p.price);
+        if (priceInts.length < MIN_PRICES_FOR_ARGUS) {
+          return { submitted: false, isCurrentVehicle };
+        }
         const marketUrl = API_URL.replace("/analyze", "/market-prices");
         const marketResp = await fetch(marketUrl, {
           method: "POST",
@@ -1183,7 +1215,8 @@
             model: target.model,
             year: parseInt(target.year, 10),
             region: targetRegion,
-            prices: prices,
+            prices: priceInts,
+            price_details: priceDetails,
             category: urlCategory,
             fuel: fuelCode ? targetFuel : null,
             precision: collectedPrecision,
@@ -1191,7 +1224,10 @@
         });
         submitted = marketResp.ok;
       }
-    } catch {
+    } catch (err) {
+      if (typeof console !== "undefined" && typeof console.debug === "function") {
+        console.debug("[CoPilot] market collection failed", err);
+      }
       // Silencieux -- ne pas perturber l'experience utilisateur
     }
 
@@ -1261,6 +1297,7 @@
       API_URL,
       formatPrecisionStars,
       PRECISION_LABELS,
+      getAdDetails,
     };
   }
 })();

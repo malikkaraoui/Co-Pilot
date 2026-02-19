@@ -121,6 +121,41 @@ class TestMarketPricesAPI:
             assert mp is not None
             assert mp.fuel == "essence"
 
+    def test_submit_with_price_details(self, app, client):
+        """POST avec price_details stocke les details par prix."""
+        prices_20 = list(range(12000, 22000, 500))
+        price_details = [
+            {"price": p, "year": 2021, "km": 40000 + i * 1000, "fuel": "Diesel"}
+            for i, p in enumerate(prices_20)
+        ]
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Renault",
+                    "model": "Captur",
+                    "year": 2021,
+                    "region": "Bretagne",
+                    "prices": prices_20,
+                    "price_details": price_details,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            mp = MarketPrice.query.filter_by(make="Renault", model="Captur", year=2021).first()
+            assert mp is not None
+            details = mp.get_calculation_details()
+            assert details is not None
+            assert details["kept_details"] is not None
+            assert len(details["kept_details"]) > 0
+            first = details["kept_details"][0]
+            assert "year" in first
+            assert "km" in first
+            assert "fuel" in first
+
     def test_submit_invalid_year_returns_400(self, client):
         """POST avec annee hors limites retourne 400."""
         resp = client.post(

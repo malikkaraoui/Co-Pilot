@@ -96,6 +96,7 @@ def store_market_prices(
     prices: list[int],
     fuel: str | None = None,
     precision: int | None = None,
+    price_details: list[dict] | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -124,10 +125,36 @@ def store_market_prices(
     arr = np.array(kept, dtype=float)
     now = datetime.now(timezone.utc)
 
+    # Construire un index price→details pour retrouver year/km/fuel par prix
+    details_by_price: dict[int, list[dict]] = {}
+    if price_details:
+        for d in price_details:
+            p = d.get("price", 0)
+            details_by_price.setdefault(p, []).append(d)
+
+    def _enrich(price_list: list[int]) -> list[dict]:
+        """Associe chaque prix a ses details (year, km, fuel) si disponibles."""
+        enriched = []
+        used: dict[int, int] = {}  # price → index consumed
+        for p in price_list:
+            idx = used.get(p, 0)
+            candidates = details_by_price.get(p, [])
+            if idx < len(candidates):
+                enriched.append(candidates[idx])
+                used[p] = idx + 1
+            else:
+                enriched.append({"price": p})
+        return enriched
+
+    kept_details = _enrich(kept) if price_details else None
+    excluded_details = _enrich(excluded) if price_details else None
+
     details = {
         "raw_prices": sorted(prices),
         "kept_prices": kept,
         "excluded_prices": excluded,
+        "kept_details": kept_details,
+        "excluded_details": excluded_details,
         "iqr_low": round(iqr_low, 0),
         "iqr_high": round(iqr_high, 0),
         "raw_count": len(prices),

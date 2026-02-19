@@ -343,6 +343,50 @@ class TestStoreWithIQR:
             assert details["excluded_count"] >= 1
             assert 2990 in details["raw_prices"]
 
+    def test_stores_price_details(self, app):
+        """Les price_details (year, km, fuel) sont stockes dans calculation_details."""
+        with app.app_context():
+            price_details = [
+                {"price": 16000, "year": 2022, "km": 45000, "fuel": "Diesel"},
+                {"price": 17000, "year": 2021, "km": 60000, "fuel": "Diesel"},
+                {"price": 18000, "year": 2023, "km": 30000, "fuel": "Essence"},
+                {"price": 19000, "year": 2022, "km": 50000, "fuel": "Diesel"},
+                {"price": 20000, "year": 2021, "km": 55000, "fuel": "Essence"},
+            ]
+            mp = store_market_prices(
+                make="TestDetails",
+                model="WithDetails",
+                year=2022,
+                region="TestRegion",
+                prices=[16000, 17000, 18000, 19000, 20000],
+                price_details=price_details,
+            )
+            details = mp.get_calculation_details()
+            assert details is not None
+            assert details["kept_details"] is not None
+            assert len(details["kept_details"]) == 5
+            # Chaque element doit avoir price, year, km, fuel
+            first = details["kept_details"][0]
+            assert "price" in first
+            assert "year" in first
+            assert "km" in first
+            assert "fuel" in first
+
+    def test_no_price_details_keeps_none(self, app):
+        """Sans price_details, kept_details et excluded_details sont None."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="TestNoDetails",
+                model="WithoutDetails",
+                year=2022,
+                region="TestRegion",
+                prices=[16000, 17000, 18000, 19000, 20000],
+            )
+            details = mp.get_calculation_details()
+            assert details is not None
+            assert details["kept_details"] is None
+            assert details["excluded_details"] is None
+
     def test_outlier_excluded_from_stats(self, app):
         """Les stats sont calculees sur les prix filtres, pas les bruts."""
         with app.app_context():

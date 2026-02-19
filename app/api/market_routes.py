@@ -31,6 +31,15 @@ _EXCLUDED_CATEGORIES = frozenset(
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
 
+class PriceDetail(BaseModel):
+    """Detail d'un prix individuel collecte (annonce LBC)."""
+
+    price: int
+    year: int | None = None
+    km: int | None = None
+    fuel: str | None = None
+
+
 class MarketPricesRequest(BaseModel):
     """Schema de validation pour les prix du marche envoyes par l'extension."""
 
@@ -39,6 +48,7 @@ class MarketPricesRequest(BaseModel):
     year: int = Field(ge=1990, le=2030)
     region: str = Field(min_length=1, max_length=80)
     prices: list[int] = Field(min_length=MIN_SAMPLE_COUNT)
+    price_details: list[PriceDetail] | None = None
     category: str | None = Field(default=None, max_length=40)
     fuel: str | None = Field(default=None, max_length=30)
     precision: int | None = Field(default=None, ge=1, le=5)
@@ -117,6 +127,11 @@ def submit_market_prices():
             }
         ), 400
 
+    # Convertir price_details en liste de dicts pour le stockage JSON
+    raw_details = None
+    if req.price_details:
+        raw_details = [d.model_dump() for d in req.price_details]
+
     try:
         mp = store_market_prices(
             make=req.make,
@@ -126,6 +141,7 @@ def submit_market_prices():
             prices=valid_prices,
             fuel=req.fuel,
             precision=req.precision,
+            price_details=raw_details,
         )
     except (ValueError, TypeError, OSError) as exc:
         logger.error("Failed to store market prices: %s", exc)
