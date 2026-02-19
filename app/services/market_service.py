@@ -282,11 +282,17 @@ def get_market_stats(
             )
             return result
 
-    # 2. Match exact sans fuel (4 champs) -- fallback anciennes donnees
-    result = MarketPrice.query.filter(
+    # 2. Match exact sans fuel (4 champs) -- fallback anciennes donnees ou generique
+    filters_no_fuel = [
         *base_filters,
         MarketPrice.year == year,
-    ).first()
+    ]
+    # FIX: Si un fuel est demande, on ne doit pas tomber sur un fuel different (ex: diesel → essence)
+    # On autorise seulement le fallback sur fuel=None (donnees generiques/anciennes)
+    if fuel_key:
+        filters_no_fuel.append(MarketPrice.fuel.is_(None))
+
+    result = MarketPrice.query.filter(*filters_no_fuel).first()
 
     if result:
         logger.info(
@@ -316,8 +322,12 @@ def get_market_stats(
             )
             return result
 
-    # 4. Fallback sans fuel
-    candidates = MarketPrice.query.filter(*year_filters).all()
+    # 4. Fallback sans fuel (uniquement generic si fuel demande)
+    filters_approx_no_fuel = [*year_filters]
+    if fuel_key:
+        filters_approx_no_fuel.append(MarketPrice.fuel.is_(None))
+
+    candidates = MarketPrice.query.filter(*filters_approx_no_fuel).all()
     if candidates:
         result = min(candidates, key=lambda mp: abs(mp.year - year))
         logger.info(

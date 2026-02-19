@@ -15,6 +15,11 @@ const {
   DEFAULT_SEARCH_RADIUS,
   MIN_PRICES_FOR_ARGUS,
   fetchSearchPrices,
+  fetchSearchPricesViaApi,
+  fetchSearchPricesViaHtml,
+  buildApiFilters,
+  parseRange,
+  filterAndMapSearchAds,
   extractMileageFromNextData,
   isStaleData,
   isAdPage,
@@ -237,7 +242,7 @@ describe('extractVehicleFromNextData', () => {
     expect(result.year).toBe('2020');
   });
 
-  it('utilise value_label en fallback si value est absent', () => {
+  it('utilise value_label quand value est absent', () => {
     const nextData = makeNextData({
       attributes: [
         { key: 'brand', value_label: 'Bmw' },
@@ -249,6 +254,24 @@ describe('extractVehicleFromNextData', () => {
     expect(result.make).toBe('Bmw');
     expect(result.model).toBe('X1');
     expect(result.year).toBe('2023');
+  });
+
+  it('prefere value_label sur value quand les deux sont presents', () => {
+    const nextData = makeNextData({
+      attributes: [
+        { key: 'brand', value: 'BMW', value_label: 'Bmw' },
+        { key: 'model', value: 'X1', value_label: 'X1' },
+        { key: 'regdate', value: '2024', value_label: '2024' },
+        { key: 'fuel', value: '1', value_label: 'Essence' },
+        { key: 'gearbox', value: '2', value_label: 'Automatique' },
+        { key: 'horse_power_din', value: '136', value_label: '136 ch' },
+      ],
+    });
+    const result = extractVehicleFromNextData(nextData);
+    expect(result.make).toBe('Bmw');
+    expect(result.fuel).toBe('Essence');
+    expect(result.gearbox).toBe('Automatique');
+    expect(result.horse_power).toBe('136 ch');
   });
 
   it('retourne des chaines vides quand les attributs manquent', () => {
@@ -451,6 +474,13 @@ describe('extractMileageFromNextData', () => {
     });
     expect(extractMileageFromNextData(nextData)).toBe(45000);
   });
+
+  it('prefere value_label sur value (ex: "45 000 km")', () => {
+    const nextData = makeNextData({
+      attributes: [{ key: 'mileage', value: '45000', value_label: '45 000 km' }],
+    });
+    expect(extractMileageFromNextData(nextData)).toBe(45000);
+  });
 });
 
 
@@ -596,8 +626,8 @@ describe('Constants', () => {
     expect(API_URL).toBe('http://localhost:5001/api/analyze');
   });
 
-  it('LBC_REGIONS contient 13 regions metropolitaines', () => {
-    expect(Object.keys(LBC_REGIONS)).toHaveLength(13);
+  it('LBC_REGIONS contient 29 regions (13 post-2016 + 16 pre-2016)', () => {
+    expect(Object.keys(LBC_REGIONS)).toHaveLength(29);
   });
 
   it('LBC_REGIONS a les accents francais corrects', () => {
@@ -723,10 +753,13 @@ describe('maybeCollectMarketPrices', () => {
   /**
    * Mock global.fetch avec des reponses sequentielles.
    *
-   * Avec l'escalade progressive, maybeCollectMarketPrices fait :
-   *   1. GET  /market-prices/next-job  -> jobResponse (json)
-   *   2. GET  leboncoin.fr/recherche   -> searchHTML (text)  [1 a 3 strategies]
-   *   3. POST /market-prices           -> { ok: submitOk }
+   * Avec le dual-fetch (API + HTML fallback) et l'escalade progressive,
+   * maybeCollectMarketPrices fait :
+   *   1. GET  /market-prices/next-job      -> jobResponse (json)
+   *   2. POST api.leboncoin.fr/finder/search -> { ads: [] } (force HTML fallback)
+   *      GET  leboncoin.fr/recherche        -> searchHTML (text)
+   *      [repete 2 appels par strategie d'escalade]
+   *   3. POST /market-prices               -> { ok: submitOk }
    *
    * @param {object} opts
    * @param {object} opts.jobResponse - Reponse next-job
@@ -743,16 +776,22 @@ describe('maybeCollectMarketPrices', () => {
       json: () => Promise.resolve(jobResponse),
     });
 
-    // Appels search : 1 par strategie d'escalade tentee
+    // Appels search : 2 par strategie (API finder → vide, HTML → fallback)
     const htmls = searchHTMLs || (searchHTML !== undefined ? [searchHTML] : []);
     for (const html of htmls) {
+      // API LBC finder/search (retourne 0 ads → force fallback HTML)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ads: [] }),
+      });
+      // HTML scraping (fallback avec __NEXT_DATA__)
       fetchMock.mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(html),
       });
     }
 
-    // POST market-prices (seulement si >= 3 prix)
+    // POST market-prices (seulement si >= MIN_PRICES_FOR_ARGUS prix)
     if (submitOk !== undefined) {
       fetchMock.mockResolvedValueOnce({ ok: submitOk });
     }
@@ -831,7 +870,7 @@ describe('maybeCollectMarketPrices', () => {
       // NE DOIT PAS etre bloque par le cooldown
       expect(result.submitted).toBe(true);
       expect(result.isCurrentVehicle).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
     it('bloque la collecte pour un AUTRE vehicule quand cooldown actif', async () => {
@@ -866,7 +905,7 @@ describe('maybeCollectMarketPrices', () => {
 
       expect(result.submitted).toBe(true);
       expect(result.isCurrentVehicle).toBe(false);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
     it('traite absence de localStorage comme cooldown expire', async () => {
@@ -943,6 +982,7 @@ describe('maybeCollectMarketPrices', () => {
     it('sauvegarde le timestamp meme avec moins de 20 prix (toutes strategies)', async () => {
       const tooFew = makeSearchHTML([12000, 13000]); // seulement 2
       // Sans geo, avec region : 6 strategies (rn ±1, rn ±2, nat ×4)
+      // Chaque strategie = 2 appels (API + HTML)
       mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
         searchHTMLs: Array(6).fill(tooFew),
@@ -996,9 +1036,9 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // 3eme appel = POST (strategie 1 suffit)
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      const postCall = fetchMock.mock.calls[2];
+      // 4eme appel = POST (next-job + API + HTML + POST)
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      const postCall = fetchMock.mock.calls[3];
       expect(postCall[1].method).toBe('POST');
 
       const body = JSON.parse(postCall[1].body);
@@ -1025,7 +1065,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const body = JSON.parse(fetchMock.mock.calls[2][1].body);
+      const body = JSON.parse(fetchMock.mock.calls[3][1].body);
       // prices is int array extracted from objects
       expect(body.prices).toEqual(validPrices);
       expect(body.prices).not.toContain(100);
@@ -1044,8 +1084,8 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // next-job + 6 recherches (escalade complete), pas de POST
-      expect(fetchMock).toHaveBeenCalledTimes(7);
+      // next-job + 6 recherches × 2 (API + HTML), pas de POST
+      expect(fetchMock).toHaveBeenCalledTimes(13);
     });
 
     it('utilise u_car_brand et u_car_model dans URL de recherche LBC', async () => {
@@ -1057,7 +1097,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const searchUrl = fetchMock.mock.calls[1][0];
+      const searchUrl = fetchMock.mock.calls[2][0];
       expect(searchUrl).toContain('u_car_brand=PEUGEOT');
       expect(searchUrl).toContain('u_car_model=PEUGEOT_3008');
       expect(searchUrl).not.toContain('text=');
@@ -1072,7 +1112,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const searchUrl = fetchMock.mock.calls[1][0];
+      const searchUrl = fetchMock.mock.calls[2][0];
       expect(searchUrl).toContain('fuel=2'); // diesel = 2
     });
 
@@ -1085,7 +1125,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const searchUrl = fetchMock.mock.calls[1][0];
+      const searchUrl = fetchMock.mock.calls[2][0];
       expect(searchUrl).toContain('gearbox=2'); // automatique = 2
     });
 
@@ -1098,7 +1138,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const searchUrl = fetchMock.mock.calls[1][0];
+      const searchUrl = fetchMock.mock.calls[2][0];
       expect(searchUrl).toContain('horse_power_din=180-max'); // 180ch -> 180-max
     });
 
@@ -1111,7 +1151,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const searchUrl = fetchMock.mock.calls[1][0];
+      const searchUrl = fetchMock.mock.calls[2][0];
       expect(searchUrl).toContain('locations=rn_12');
     });
 
@@ -1134,7 +1174,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, nextData);
 
-      const searchUrl = fetchMock.mock.calls[1][0];
+      const searchUrl = fetchMock.mock.calls[2][0];
       expect(searchUrl).toContain('locations=Vienne_38200__45.52172_4.87245_5000_30000');
       expect(searchUrl).not.toContain('rn_');
     });
@@ -1162,7 +1202,7 @@ describe('maybeCollectMarketPrices', () => {
       // Assertions critiques pour le fix
       expect(result.submitted).toBe(true);
       expect(result.isCurrentVehicle).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
 
       // Le timestamp doit etre rafraichi
       const newTs = parseInt(localStorage.getItem('copilot_last_collect'), 10);
@@ -1198,15 +1238,15 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 4 appels : next-job + search geo + search rn + POST
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      // 6 appels : next-job + 2×(API+HTML) + POST
+      expect(fetchMock).toHaveBeenCalledTimes(6);
 
-      // Strategie 1 : geo-location
-      const url1 = fetchMock.mock.calls[1][0];
+      // Strategie 1 : geo-location (HTML at index 2)
+      const url1 = fetchMock.mock.calls[2][0];
       expect(url1).toContain('locations=Vienne_38200__45.52172_4.87245_5000_30000');
 
-      // Strategie 2 : region rn_XX (fallback)
-      const url2 = fetchMock.mock.calls[2][0];
+      // Strategie 2 : region rn_XX (HTML at index 4)
+      const url2 = fetchMock.mock.calls[4][0];
       expect(url2).toContain('locations=rn_');
     });
 
@@ -1233,11 +1273,11 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 5 appels : next-job + 3 recherches + POST
-      expect(fetchMock).toHaveBeenCalledTimes(5);
+      // 8 appels : next-job + 3×(API+HTML) + POST
+      expect(fetchMock).toHaveBeenCalledTimes(8);
 
-      // Strategie 3 : regdate elargi ±2 (2021 → 2019-2023)
-      const url3 = fetchMock.mock.calls[3][0];
+      // Strategie 3 : regdate elargi ±2 (2021 → 2019-2023) (HTML at index 6)
+      const url3 = fetchMock.mock.calls[6][0];
       expect(url3).toContain('regdate=2019-2023');
       expect(url3).toContain('locations=rn_12');
     });
@@ -1266,11 +1306,11 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 6 appels : next-job + 4 recherches + POST
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      // 10 appels : next-job + 4×(API+HTML) + POST
+      expect(fetchMock).toHaveBeenCalledTimes(10);
 
-      // Strategie 4 : national (pas de locations=)
-      const url4 = fetchMock.mock.calls[4][0];
+      // Strategie 4 : national (pas de locations=) (HTML at index 8)
+      const url4 = fetchMock.mock.calls[8][0];
       expect(url4).not.toContain('locations=');
       expect(url4).toContain('regdate=2020-2022'); // ±1
     });
@@ -1306,16 +1346,16 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 9 appels : next-job + 7 recherches + POST
-      expect(fetchMock).toHaveBeenCalledTimes(9);
+      // 16 appels : next-job + 7×(API+HTML) + POST
+      expect(fetchMock).toHaveBeenCalledTimes(16);
 
-      // Strategie 6 (index 6) : national, sans hp
-      const url6 = fetchMock.mock.calls[6][0];
+      // Strategie 6 (HTML at index 12) : national, sans hp
+      const url6 = fetchMock.mock.calls[12][0];
       expect(url6).not.toContain('horse_power_din=');
       expect(url6).toContain('mileage='); // km toujours present
 
-      // Strategie 7 (index 7) : national, sans hp ni km
-      const url7 = fetchMock.mock.calls[7][0];
+      // Strategie 7 (HTML at index 14) : national, sans hp ni km
+      const url7 = fetchMock.mock.calls[14][0];
       expect(url7).not.toContain('horse_power_din=');
       expect(url7).not.toContain('mileage=');
       expect(url7).toContain('regdate=2018-2024'); // ±3
@@ -1333,8 +1373,8 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       expect(result.submitted).toBe(true);
-      // 3 appels seulement : next-job + 1 search + POST (pas d'escalade)
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      // 4 appels : next-job + 1×(API+HTML) + POST (pas d'escalade)
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
     it('sans geo-location, 6 strategies (rn + national + relax)', async () => {
@@ -1349,8 +1389,632 @@ describe('maybeCollectMarketPrices', () => {
       // makeNextData() n'a PAS de lat/lng → pas de strategie geo
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // 7 appels : next-job + 6 recherches (pas de POST)
-      expect(fetchMock).toHaveBeenCalledTimes(7);
+      // 13 appels : next-job + 6×(API+HTML) (pas de POST)
+      expect(fetchMock).toHaveBeenCalledTimes(13);
     });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 8. parseRange : parsing de ranges URL LBC ("min-max", "2020-2022")
+// ═══════════════════════════════════════════════════════════════════
+
+describe('parseRange', () => {
+  it('retourne null pour une valeur vide ou null', () => {
+    expect(parseRange(null)).toBeNull();
+    expect(parseRange(undefined)).toBeNull();
+    expect(parseRange('')).toBeNull();
+  });
+
+  it('parse une range complete "2020-2022"', () => {
+    expect(parseRange('2020-2022')).toEqual({ min: 2020, max: 2022 });
+  });
+
+  it('parse une range km "50000-150000"', () => {
+    expect(parseRange('50000-150000')).toEqual({ min: 50000, max: 150000 });
+  });
+
+  it('parse "min-20000" (pas de borne inf)', () => {
+    expect(parseRange('min-20000')).toEqual({ max: 20000 });
+  });
+
+  it('parse "100000-max" (pas de borne sup)', () => {
+    expect(parseRange('100000-max')).toEqual({ min: 100000 });
+  });
+
+  it('parse "min-max" → null (aucune borne utile)', () => {
+    expect(parseRange('min-max')).toBeNull();
+  });
+
+  it('parse une range horse_power "130-max"', () => {
+    expect(parseRange('130-max')).toEqual({ min: 130 });
+  });
+
+  it('parse "2019-2023" (range elargie annees)', () => {
+    expect(parseRange('2019-2023')).toEqual({ min: 2019, max: 2023 });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 9. buildApiFilters : conversion URL LBC → objet filtres API finder
+// ═══════════════════════════════════════════════════════════════════
+
+describe('buildApiFilters', () => {
+  it('construit les filtres de base (category + price min)', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2';
+    const filters = buildApiFilters(url);
+    expect(filters.category).toEqual({ id: '2' });
+    expect(filters.enums.ad_type).toEqual(['offer']);
+    expect(filters.ranges.price).toEqual({ min: 500 });
+  });
+
+  it('ajoute brand et model comme enums', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=PEUGEOT&u_car_model=PEUGEOT_3008';
+    const filters = buildApiFilters(url);
+    expect(filters.enums.u_car_brand).toEqual(['PEUGEOT']);
+    expect(filters.enums.u_car_model).toEqual(['PEUGEOT_3008']);
+  });
+
+  it('ajoute fuel et gearbox comme enums', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&fuel=2&gearbox=2';
+    const filters = buildApiFilters(url);
+    expect(filters.enums.fuel).toEqual(['2']);
+    expect(filters.enums.gearbox).toEqual(['2']);
+  });
+
+  it('ajoute regdate comme range', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&regdate=2020-2022';
+    const filters = buildApiFilters(url);
+    expect(filters.ranges.regdate).toEqual({ min: 2020, max: 2022 });
+  });
+
+  it('ajoute mileage comme range', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&mileage=50000-150000';
+    const filters = buildApiFilters(url);
+    expect(filters.ranges.mileage).toEqual({ min: 50000, max: 150000 });
+  });
+
+  it('ajoute horse_power_din comme range', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&horse_power_din=130-max';
+    const filters = buildApiFilters(url);
+    expect(filters.ranges.horse_power_din).toEqual({ min: 130 });
+  });
+
+  it('gere une URL complete realiste (Peugeot 3008 Diesel Auto 180ch IDF)', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2'
+      + '&u_car_brand=PEUGEOT&u_car_model=PEUGEOT_3008'
+      + '&fuel=2&gearbox=2'
+      + '&regdate=2020-2022&mileage=20000-80000&horse_power_din=180-max'
+      + '&locations=rn_12';
+    const filters = buildApiFilters(url);
+
+    expect(filters.enums.u_car_brand).toEqual(['PEUGEOT']);
+    expect(filters.enums.u_car_model).toEqual(['PEUGEOT_3008']);
+    expect(filters.enums.fuel).toEqual(['2']);
+    expect(filters.enums.gearbox).toEqual(['2']);
+    expect(filters.ranges.regdate).toEqual({ min: 2020, max: 2022 });
+    expect(filters.ranges.mileage).toEqual({ min: 20000, max: 80000 });
+    expect(filters.ranges.horse_power_din).toEqual({ min: 180 });
+    expect(filters.location).toEqual({ regions: ['12'] });
+  });
+
+  it('gere la location region rn_XX', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&locations=rn_6';
+    const filters = buildApiFilters(url);
+    expect(filters.location).toEqual({ regions: ['6'] });
+  });
+
+  it('gere la location geo City_Zip__Lat_Lng_5000_Radius', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&locations=Vienne_38200__45.52172_4.87245_5000_30000';
+    const filters = buildApiFilters(url);
+    expect(filters.location).toEqual({
+      area: {
+        lat: 45.52172,
+        lng: 4.87245,
+        radius: 30000,
+      },
+    });
+  });
+
+  it('ajoute keywords.text si param text present', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&text=Tesla+Model+3';
+    const filters = buildApiFilters(url);
+    expect(filters.keywords).toEqual({ text: 'Tesla Model 3' });
+  });
+
+  it('ignore les params vides sans planter', () => {
+    const url = 'https://www.leboncoin.fr/recherche?category=2&fuel=&regdate=';
+    const filters = buildApiFilters(url);
+    expect(filters.enums.fuel).toBeUndefined();
+    expect(filters.ranges.regdate).toBeUndefined();
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 10. filterAndMapSearchAds : filtrage + mapping d'annonces LBC API
+// ═══════════════════════════════════════════════════════════════════
+
+describe('filterAndMapSearchAds', () => {
+  /** Fabrique une annonce LBC API realiste. */
+  function makeLbcAd({ price = 18000, year = 2021, km = 50000, fuel = 'Diesel' } = {}) {
+    return {
+      price: [price],
+      title: `Peugeot 3008 ${year} ${km}km`,
+      attributes: [
+        { key: 'regdate', value: String(year) },
+        { key: 'mileage', value: String(km) },
+        { key: 'fuel', value_label: fuel },
+      ],
+    };
+  }
+
+  it('filtre les annonces avec prix <= 500', () => {
+    const ads = [
+      makeLbcAd({ price: 100 }),   // filtree (trop bas)
+      makeLbcAd({ price: 500 }),   // filtree (= 500)
+      makeLbcAd({ price: 501 }),   // gardee
+      makeLbcAd({ price: 18000 }), // gardee
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1);
+    expect(result).toHaveLength(2);
+    expect(result[0].price).toBe(501);
+    expect(result[1].price).toBe(18000);
+  });
+
+  it('filtre les annonces hors year spread', () => {
+    const ads = [
+      makeLbcAd({ year: 2018, price: 15000 }), // filtree (|2018-2021| = 3 > 1)
+      makeLbcAd({ year: 2020, price: 17000 }), // gardee (|2020-2021| = 1)
+      makeLbcAd({ year: 2021, price: 18000 }), // gardee
+      makeLbcAd({ year: 2022, price: 19000 }), // gardee (|2022-2021| = 1)
+      makeLbcAd({ year: 2024, price: 22000 }), // filtree (|2024-2021| = 3 > 1)
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1);
+    expect(result).toHaveLength(3);
+    expect(result.map(r => r.year)).toEqual([2020, 2021, 2022]);
+  });
+
+  it('avec yearSpread=3, garde les annees 2018-2024 pour target 2021', () => {
+    const ads = [
+      makeLbcAd({ year: 2017, price: 12000 }), // filtree (|2017-2021| = 4 > 3)
+      makeLbcAd({ year: 2018, price: 15000 }), // gardee
+      makeLbcAd({ year: 2024, price: 22000 }), // gardee
+      makeLbcAd({ year: 2025, price: 25000 }), // filtree (|2025-2021| = 4 > 3)
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 3);
+    expect(result).toHaveLength(2);
+  });
+
+  it('mappe les details avec getAdDetails (price, year, km, fuel)', () => {
+    const ads = [makeLbcAd({ price: 23500, year: 2022, km: 35000, fuel: 'Essence' })];
+    const result = filterAndMapSearchAds(ads, 2022, 1);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      price: 23500,
+      year: 2022,
+      km: 35000,
+      fuel: 'Essence',
+    });
+  });
+
+  it('gere un prix sous forme de string "12 900 €"', () => {
+    const ads = [{
+      price: ['12 900 €'],
+      attributes: [{ key: 'regdate', value: '2020' }],
+    }];
+    const result = filterAndMapSearchAds(ads, 2020, 1);
+    expect(result).toHaveLength(1);
+    expect(result[0].price).toBe(12900);
+  });
+
+  it('gere un prix numeric direct (pas un tableau)', () => {
+    const ads = [{
+      price: 15000,
+      attributes: [{ key: 'regdate', value: '2021' }],
+    }];
+    const result = filterAndMapSearchAds(ads, 2021, 1);
+    expect(result).toHaveLength(1);
+    expect(result[0].price).toBe(15000);
+  });
+
+  it('retourne un tableau vide quand toutes les annonces sont filtrees', () => {
+    const ads = [
+      makeLbcAd({ price: 100 }),
+      makeLbcAd({ price: 200 }),
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1);
+    expect(result).toHaveLength(0);
+  });
+
+  it('retourne un tableau vide pour un input vide', () => {
+    expect(filterAndMapSearchAds([], 2021, 1)).toEqual([]);
+  });
+
+  it('ne filtre pas par annee si targetYear < 1990', () => {
+    const ads = [
+      makeLbcAd({ year: 2000, price: 5000 }),
+      makeLbcAd({ year: 2024, price: 25000 }),
+    ];
+    // targetYear = 0 (pas de filtre annee)
+    const result = filterAndMapSearchAds(ads, 0, 1);
+    expect(result).toHaveLength(2);
+  });
+
+  it('gere les annonces sans attribut regdate (pas de filtre annee)', () => {
+    const ads = [{
+      price: [18000],
+      attributes: [{ key: 'mileage', value: '45000' }],
+    }];
+    // adYear = null → pas de filtre annee applique
+    const result = filterAndMapSearchAds(ads, 2021, 1);
+    expect(result).toHaveLength(1);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 11. fetchSearchPricesViaApi : appel API LBC finder/search
+// ═══════════════════════════════════════════════════════════════════
+
+describe('fetchSearchPricesViaApi', () => {
+  const searchUrl = 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=PEUGEOT&u_car_model=PEUGEOT_3008&regdate=2020-2022';
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // S'assurer que chrome n'est pas defini (mode test, fallback direct fetch)
+    delete global.chrome;
+  });
+
+  afterEach(() => {
+    delete global.fetch;
+    delete global.chrome;
+  });
+
+  it('appelle l API LBC en POST avec les bons filtres (fallback direct fetch)', async () => {
+    const mockAds = [
+      { price: [18000], attributes: [{ key: 'regdate', value: '2021' }] },
+      { price: [19000], attributes: [{ key: 'regdate', value: '2022' }] },
+    ];
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ads: mockAds }),
+    });
+
+    const result = await fetchSearchPricesViaApi(searchUrl);
+
+    expect(result).toEqual(mockAds);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://api.leboncoin.fr/finder/search');
+    expect(opts.method).toBe('POST');
+    expect(opts.credentials).toBe('include');
+
+    const body = JSON.parse(opts.body);
+    expect(body.limit).toBe(35);
+    expect(body.sort_by).toBe('time');
+    expect(body.sort_order).toBe('desc');
+    expect(body.owner_type).toBe('all');
+    expect(body.filters.enums.u_car_brand).toEqual(['PEUGEOT']);
+    expect(body.filters.enums.u_car_model).toEqual(['PEUGEOT_3008']);
+    expect(body.filters.ranges.regdate).toEqual({ min: 2020, max: 2022 });
+    expect(body.filters.enums.country_id).toEqual(['FR']);
+  });
+
+  it('retourne null quand la reponse HTTP est en erreur', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({ ok: false, status: 403 });
+    const result = await fetchSearchPricesViaApi(searchUrl);
+    expect(result).toBeNull();
+  });
+
+  it('retourne tableau vide quand API retourne ads=[]', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ads: [] }),
+    });
+    const result = await fetchSearchPricesViaApi(searchUrl);
+    expect(result).toEqual([]);
+  });
+
+  it('accepte le format results au lieu de ads', async () => {
+    const mockAds = [{ price: [15000], attributes: [] }];
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ results: mockAds }),
+    });
+    const result = await fetchSearchPricesViaApi(searchUrl);
+    expect(result).toEqual(mockAds);
+  });
+
+  it('utilise chrome.runtime.sendMessage en priorite si disponible', async () => {
+    const mockAds = [
+      { price: [20000], attributes: [{ key: 'regdate', value: '2021' }] },
+    ];
+    global.chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValueOnce({
+          ok: true,
+          data: { ads: mockAds },
+        }),
+      },
+    };
+    global.fetch = vi.fn(); // ne devrait PAS etre appele
+
+    const result = await fetchSearchPricesViaApi(searchUrl);
+
+    expect(result).toEqual(mockAds);
+    expect(global.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    const msg = global.chrome.runtime.sendMessage.mock.calls[0][0];
+    expect(msg.action).toBe('lbc_api_search');
+    const body = JSON.parse(msg.body);
+    expect(body.filters.enums.u_car_brand).toEqual(['PEUGEOT']);
+  });
+
+  it('fallback sur direct fetch si chrome.runtime echoue', async () => {
+    global.chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockRejectedValueOnce(new Error('extension context invalidated')),
+      },
+    };
+    const mockAds = [{ price: [16000], attributes: [] }];
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ads: mockAds }),
+    });
+
+    const result = await fetchSearchPricesViaApi(searchUrl);
+
+    expect(result).toEqual(mockAds);
+    expect(global.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fallback sur direct fetch si chrome.runtime retourne ok=false', async () => {
+    global.chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValueOnce({ ok: false, error: 'no tab id' }),
+      },
+    };
+    const mockAds = [{ price: [17000], attributes: [] }];
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ads: mockAds }),
+    });
+
+    const result = await fetchSearchPricesViaApi(searchUrl);
+
+    expect(result).toEqual(mockAds);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retourne null si MAIN world retourne 0 ads', async () => {
+    global.chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValueOnce({
+          ok: true,
+          data: { ads: [] },
+        }),
+      },
+    };
+
+    const result = await fetchSearchPricesViaApi(searchUrl);
+
+    // MAIN world retourne 0 ads → null (pas fallback direct fetch car ok=true)
+    expect(result).toBeNull();
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 12. fetchSearchPricesViaHtml : scraping __NEXT_DATA__ en fallback
+// ═══════════════════════════════════════════════════════════════════
+
+describe('fetchSearchPricesViaHtml', () => {
+  const searchUrl = 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=PEUGEOT';
+
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  it('extrait les ads depuis searchData dans __NEXT_DATA__', async () => {
+    const html = makeSearchHTML([15000, 18000, 22000]);
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(html),
+    });
+
+    const result = await fetchSearchPricesViaHtml(searchUrl);
+
+    expect(result).toHaveLength(3);
+    expect(result[0].price).toEqual([15000]);
+    expect(result[1].price).toEqual([18000]);
+    expect(result[2].price).toEqual([22000]);
+    expect(global.fetch).toHaveBeenCalledWith(searchUrl, {
+      credentials: 'same-origin',
+      headers: { Accept: 'text/html' },
+    });
+  });
+
+  it('retourne [] quand __NEXT_DATA__ absent du HTML', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve('<html><body>Pas de next data</body></html>'),
+    });
+
+    const result = await fetchSearchPricesViaHtml(searchUrl);
+    expect(result).toEqual([]);
+  });
+
+  it('extrait les ads depuis initialProps.searchData (format alternatif)', async () => {
+    const ads = [{ price: [12000], attributes: [] }];
+    const data = { props: { pageProps: { initialProps: { searchData: { ads } } } } };
+    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></html>`;
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(html),
+    });
+
+    const result = await fetchSearchPricesViaHtml(searchUrl);
+    expect(result).toHaveLength(1);
+    expect(result[0].price).toEqual([12000]);
+  });
+
+  it('extrait les ads depuis adSearch.ads (format alternatif)', async () => {
+    const ads = [{ price: [25000], attributes: [] }];
+    const data = { props: { pageProps: { adSearch: { ads } } } };
+    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></html>`;
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(html),
+    });
+
+    const result = await fetchSearchPricesViaHtml(searchUrl);
+    expect(result).toHaveLength(1);
+  });
+
+  it('extrait les ads depuis pageProps.ads (format direct)', async () => {
+    const ads = [{ price: [9000], attributes: [] }, { price: [11000], attributes: [] }];
+    const data = { props: { pageProps: { ads } } };
+    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></html>`;
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(html),
+    });
+
+    const result = await fetchSearchPricesViaHtml(searchUrl);
+    expect(result).toHaveLength(2);
+  });
+
+  it('retourne [] quand pageProps est vide (CSR, pas de SSR)', async () => {
+    const data = { props: { pageProps: {} } };
+    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></html>`;
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(html),
+    });
+
+    const result = await fetchSearchPricesViaHtml(searchUrl);
+    expect(result).toEqual([]);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 13. fetchSearchPrices : dual-path (API first, HTML fallback)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('fetchSearchPrices', () => {
+  const searchUrl = 'https://www.leboncoin.fr/recherche?category=2&u_car_brand=RENAULT&u_car_model=RENAULT_CLIO&regdate=2019-2021';
+  const targetYear = 2020;
+  const yearSpread = 1;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    delete global.chrome;
+  });
+
+  afterEach(() => {
+    delete global.fetch;
+    delete global.chrome;
+  });
+
+  it('retourne les prix de l API quand elle repond avec des ads', async () => {
+    const apiAds = [
+      { price: [15000], attributes: [{ key: 'regdate', value: '2020' }, { key: 'mileage', value: '45000' }, { key: 'fuel', value_label: 'Essence' }] },
+      { price: [17000], attributes: [{ key: 'regdate', value: '2021' }, { key: 'mileage', value: '30000' }, { key: 'fuel', value_label: 'Essence' }] },
+    ];
+    // 1er appel = API POST (retourne des ads) → pas de 2eme appel HTML
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ads: apiAds }),
+    });
+
+    const result = await fetchSearchPrices(searchUrl, targetYear, yearSpread);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ price: 15000, year: 2020, km: 45000, fuel: 'Essence' });
+    expect(result[1]).toEqual({ price: 17000, year: 2021, km: 30000, fuel: 'Essence' });
+    // Seulement 1 appel (API), pas de fallback HTML
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fallback sur HTML quand API retourne 0 ads', async () => {
+    // 1er appel = API POST (retourne vide)
+    // 2eme appel = HTML GET (retourne des ads)
+    const htmlPrices = makePrices(5, 14000, 1000);
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ads: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(makeSearchHTML(htmlPrices)),
+      });
+
+    const result = await fetchSearchPrices(searchUrl, targetYear, yearSpread);
+
+    expect(result).toHaveLength(5);
+    expect(result[0].price).toBe(14000);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('fallback sur HTML quand API retourne null (erreur HTTP)', async () => {
+    const htmlPrices = [12000, 14000, 16000];
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(makeSearchHTML(htmlPrices)),
+      });
+
+    const result = await fetchSearchPrices(searchUrl, targetYear, yearSpread);
+
+    expect(result).toHaveLength(3);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('retourne [] quand API et HTML sont tous les deux vides', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ads: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve('<html><body>No data</body></html>'),
+      });
+
+    const result = await fetchSearchPrices(searchUrl, targetYear, yearSpread);
+
+    expect(result).toEqual([]);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('filtre par prix et annee (ads API avec prix <= 500 exclus)', async () => {
+    const apiAds = [
+      { price: [300], attributes: [{ key: 'regdate', value: '2020' }] },   // filtree (prix)
+      { price: [500], attributes: [{ key: 'regdate', value: '2020' }] },   // filtree (prix = 500)
+      { price: [15000], attributes: [{ key: 'regdate', value: '2017' }] }, // filtree (annee hors spread)
+      { price: [18000], attributes: [{ key: 'regdate', value: '2020' }] }, // gardee
+    ];
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ads: apiAds }),
+    });
+
+    const result = await fetchSearchPrices(searchUrl, targetYear, yearSpread);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].price).toBe(18000);
   });
 });

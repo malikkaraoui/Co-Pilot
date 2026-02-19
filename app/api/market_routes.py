@@ -238,6 +238,7 @@ def next_market_job():
     )
 
     # LEFT JOIN Vehicle avec la sous-requete pour trouver les vehicules stale/absents
+    # Exclure les modeles generiques ("Autres") qui ne sont pas de vrais modeles
     candidates = (
         db.session.query(
             Vehicle.brand,
@@ -253,11 +254,16 @@ def next_market_job():
                 func.lower(Vehicle.model) == latest_mp.c.mp_model,
             ),
         )
-        .filter(Vehicle.year_start.isnot(None))
+        .filter(
+            Vehicle.year_start.isnot(None),
+            ~func.lower(Vehicle.model).in_(list(_GENERIC_MODELS)),
+        )
         .order_by(
             # Priorite : jamais collecte (NULL) d'abord, puis le plus ancien
             case((latest_mp.c.latest_at.is_(None), 0), else_=1),
             latest_mp.c.latest_at.asc(),
+            # Ordre deterministe pour eviter un resultat aleatoire entre vehicules equitables
+            Vehicle.id.asc(),
         )
         .limit(1)
         .all()
@@ -282,6 +288,7 @@ def next_market_job():
                 "success": True,
                 "data": {
                     "collect": True,
+                    "redirect": True,
                     "vehicle": {
                         "make": best_candidate[0],
                         "model": best_candidate[1],

@@ -96,3 +96,91 @@ class TestExtractAdData:
         result = extract_ad_data(VALID_AD_NEXT_DATA)
         assert "Marque" in result["raw_attributes"]
         assert result["raw_attributes"]["Marque"] == "Peugeot"
+
+    def test_dual_model_attributes_uses_machine_key(self):
+        """LBC envoie parfois deux attributs avec le meme key_label 'Modele'.
+
+        Ex: Audi A6 Allroad → key="model" donne "A6" (modele de base),
+        mais un second attribut avec key_label="Modele" donne "A6 Allroad".
+        L'extraction doit preferer la cle machine ("model") pour rester
+        coherente avec l'extension Chrome.
+        """
+        data = {
+            "props": {
+                "pageProps": {
+                    "ad": {
+                        "list_id": 999,
+                        "subject": "Audi A6 allroad quattro",
+                        "price": 25000,
+                        "attributes": [
+                            {
+                                "key": "brand",
+                                "key_label": "Marque",
+                                "value": "AUDI",
+                                "value_label": "Audi",
+                            },
+                            {
+                                "key": "model",
+                                "key_label": "Modèle",
+                                "value": "A6",
+                                "value_label": "A6",
+                            },
+                            {
+                                "key": "vehicle_model_variant",
+                                "key_label": "Modèle",
+                                "value": "A6_ALLROAD",
+                                "value_label": "A6 Allroad",
+                            },
+                            {
+                                "key": "regdate",
+                                "key_label": "Année modèle",
+                                "value": "2015",
+                                "value_label": "2015",
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+        result = extract_ad_data(data)
+        assert result["make"] == "Audi"
+        assert result["model"] == "A6", (
+            "model doit etre 'A6' (cle machine), pas 'A6 Allroad' (key_label ecrase)"
+        )
+
+    def test_key_label_first_wins_no_overwrite(self):
+        """Quand deux attributs partagent le meme key_label, le premier gagne."""
+        data = {
+            "props": {
+                "pageProps": {
+                    "ad": {
+                        "list_id": 888,
+                        "subject": "Test",
+                        "price": 10000,
+                        "attributes": [
+                            {
+                                "key": "brand",
+                                "key_label": "Marque",
+                                "value_label": "Audi",
+                            },
+                            {
+                                "key": "model",
+                                "key_label": "Modèle",
+                                "value_label": "A6",
+                            },
+                            {
+                                "key": "variant",
+                                "key_label": "Modèle",
+                                "value_label": "A6 Allroad",
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+        result = extract_ad_data(data)
+        # raw_attributes stocke la cle machine pour chaque attribut
+        assert result["raw_attributes"]["model"] == "A6"
+        assert result["raw_attributes"]["variant"] == "A6 Allroad"
+        # Mais le key_label "Modele" doit garder la premiere valeur (first-wins)
+        assert result["raw_attributes"]["Modèle"] == "A6"

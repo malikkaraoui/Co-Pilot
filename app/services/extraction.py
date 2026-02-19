@@ -89,10 +89,16 @@ def _normalize_attributes(ad: dict) -> dict[str, Any]:
         )
         if isinstance(key, str) and key.strip():
             out[key.strip()] = val
-            # Stocker aussi sous key_label pour que les lookups par nom francais marchent
+            # Stocker aussi sous key_label pour que les lookups par nom francais marchent.
+            # IMPORTANT : first-wins -- si un key_label est deja present (ex: deux attributs
+            # avec key_label="Modèle"), on garde la premiere valeur pour eviter qu'un
+            # attribut secondaire (ex: modele detaille "A6 Allroad") ecrase le modele
+            # de base ("A6") utilise par le reste du pipeline.
             key_label = attr.get("key_label")
             if key_label and isinstance(key_label, str) and key_label.strip() != key.strip():
-                out[key_label.strip()] = val
+                lbl = key_label.strip()
+                if lbl not in out:
+                    out[lbl] = val
 
     return out
 
@@ -332,8 +338,10 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
     # Dates de publication (premiere + derniere republication)
     pub_dates = _extract_publication_dates(ad)
 
-    make = attrs.get("Marque") or attrs.get("brand")
-    model_raw = attrs.get("Modèle") or attrs.get("modele") or attrs.get("model")
+    # Priorite : cle machine d'abord (coherent avec extractVehicleFromNextData cote extension)
+    # Cela evite les incoherences quand LBC envoie deux attributs avec le meme key_label.
+    make = attrs.get("brand") or attrs.get("Marque")
+    model_raw = attrs.get("model") or attrs.get("Modèle") or attrs.get("modele")
 
     # Fallback : si LBC renvoie un modele generique ("Autres"), on tente
     # d'extraire le vrai nom depuis le titre de l'annonce.

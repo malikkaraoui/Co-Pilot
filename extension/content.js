@@ -604,7 +604,9 @@
 
     const attrs = (ad.attributes || []).reduce((acc, a) => {
       const key = a.key || a.key_label || a.label || a.name;
-      const val = a.value || a.value_label || a.text || a.value_text;
+      // Preferer value_label (texte lisible, ex: "Essence") a value (code LBC, ex: "1")
+      // Coherent avec le serveur (extraction.py _normalize_attributes)
+      const val = a.value_label || a.value || a.text || a.value_text;
       if (key) acc[key] = val;
       return acc;
     }, {});
@@ -803,9 +805,11 @@
 
     const nextData = await extractNextData();
     if (!nextData) {
+      console.warn("[CoPilot] extractNextData() → null. Pas de __NEXT_DATA__ trouvé.");
       showPopup(buildErrorPopup("Impossible de lire les données de cette page. Vérifiez que vous êtes sur une annonce Leboncoin."));
       return;
     }
+    console.log("[CoPilot] nextData OK, ad id:", nextData?.props?.pageProps?.ad?.list_id);
 
     // Reveler le telephone SI l'utilisateur est connecte (sinon hint login dans L6/L9)
     const ad = nextData?.props?.pageProps?.ad;
@@ -821,11 +825,19 @@
     // Permet a L4/L5 d'avoir des donnees fraiches pour ce vehicule
     let collectInfo = { submitted: false };
     const vehicle = extractVehicleFromNextData(nextData);
+    console.log("[CoPilot] vehicle extrait:", JSON.stringify(vehicle));
     if (vehicle.make && vehicle.model && vehicle.year) {
-      collectInfo = await maybeCollectMarketPrices(vehicle, nextData).catch(() => ({ submitted: false }));
+      collectInfo = await maybeCollectMarketPrices(vehicle, nextData).catch((err) => {
+        console.error("[CoPilot] maybeCollectMarketPrices erreur:", err);
+        return { submitted: false };
+      });
+      console.log("[CoPilot] collectInfo:", JSON.stringify(collectInfo));
+    } else {
+      console.warn("[CoPilot] vehicle incomplet, pas de collecte:", vehicle);
     }
 
     async function fetchAnalysisOnce() {
+      console.log("[CoPilot] fetchAnalysisOnce → POST", API_URL);
       const response = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -834,6 +846,7 @@
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
+        console.warn("[CoPilot] API reponse NOT OK:", response.status, errorData);
         if (errorData?.error === "NOT_A_VEHICLE") {
           showPopup(buildNotAVehiclePopup(errorData.message, errorData.data?.category));
           return null;
@@ -850,9 +863,18 @@
       const result = await response.json();
 
       if (!result.success) {
+        console.warn("[CoPilot] API success=false:", result);
         showPopup(buildErrorPopup(result.message || getRandomErrorMessage()));
         return null;
       }
+
+      // Log L4/L5 pour diagnostiquer l'argus
+      const filters = result?.data?.filters || [];
+      const l4 = filters.find((f) => f.filter_id === "L4");
+      const l5 = filters.find((f) => f.filter_id === "L5");
+      console.log("[CoPilot] L4:", l4 ? `${l4.status} | ${l4.message}` : "absent", l4?.details || {});
+      console.log("[CoPilot] L5:", l5 ? `${l5.status} | ${l5.message}` : "absent", l5?.details || {});
+
       return result;
     }
 
@@ -866,6 +888,7 @@
       if (collectInfo.submitted && collectInfo.isCurrentVehicle) {
         const l4 = (result?.data?.filters || []).find((f) => f.filter_id === "L4");
         if (l4 && l4.status === "skip") {
+          console.log("[CoPilot] L4=skip + collecte soumise → retry dans 2s...");
           await sleep(2000);
           const retried = await fetchAnalysisOnce();
           if (retried) result = retried;
@@ -887,22 +910,40 @@
 
   /** Mapping des regions LeBonCoin → codes rn_ (region + voisines).
    *  Les codes rn_ utilisent l'ancienne nomenclature regionale LBC (pre-2016).
-   *  Avantage: rayon elargi = plus d'annonces comparables pour l'argus.
-   *  Les cles correspondent aux region_name retournees par l'API LBC (avec accents). */
+   *  Inclut AUSSI les anciens noms de region (LBC retourne parfois les anciens
+   *  noms dans region_name, ex: "Nord-Pas-de-Calais" au lieu de "Hauts-de-France"). */
   const LBC_REGIONS = {
+    // Regions post-2016
     "Île-de-France": "rn_12",
-    "Auvergne-Rhône-Alpes": "rn_22",   // Rhone-Alpes + voisines
+    "Auvergne-Rhône-Alpes": "rn_22",
     "Provence-Alpes-Côte d'Azur": "rn_21",
-    "Occitanie": "rn_16",              // Midi-Pyrenees + voisines
-    "Nouvelle-Aquitaine": "rn_20",     // Poitou-Charentes + voisines
-    "Hauts-de-France": "rn_17",        // Nord-Pas-de-Calais + voisines
-    "Grand Est": "rn_8",               // Champagne-Ardenne + voisines
+    "Occitanie": "rn_16",
+    "Nouvelle-Aquitaine": "rn_20",
+    "Hauts-de-France": "rn_17",
+    "Grand Est": "rn_8",
     "Bretagne": "rn_6",
     "Pays de la Loire": "rn_18",
-    "Normandie": "rn_4",               // Basse-Normandie + voisines
-    "Bourgogne-Franche-Comté": "rn_5", // Bourgogne + voisines
+    "Normandie": "rn_4",
+    "Bourgogne-Franche-Comté": "rn_5",
     "Centre-Val de Loire": "rn_7",
     "Corse": "rn_9",
+    // Anciennes regions (pre-2016) -- LBC retourne parfois ces noms
+    "Nord-Pas-de-Calais": "rn_17",
+    "Picardie": "rn_17",
+    "Rhône-Alpes": "rn_22",
+    "Auvergne": "rn_22",
+    "Midi-Pyrénées": "rn_16",
+    "Languedoc-Roussillon": "rn_16",
+    "Aquitaine": "rn_20",
+    "Poitou-Charentes": "rn_20",
+    "Limousin": "rn_20",
+    "Alsace": "rn_8",
+    "Lorraine": "rn_8",
+    "Champagne-Ardenne": "rn_8",
+    "Basse-Normandie": "rn_4",
+    "Haute-Normandie": "rn_4",
+    "Bourgogne": "rn_5",
+    "Franche-Comté": "rn_5",
   };
 
   /** Mapping fuel LBC : texte → code URL.
@@ -913,6 +954,12 @@
     "electrique": 4,
     "électrique": 4,
     "hybride": 6,
+    "hybride rechargeable": 7,
+    "gpl": 3,
+    "électrique & essence": 6,
+    "electrique & essence": 6,
+    "électrique & diesel": 6,
+    "electrique & diesel": 6,
   };
 
   /** Mapping gearbox LBC : texte → code URL.
@@ -996,23 +1043,68 @@
     return details;
   }
 
-  /** Fetch une page de recherche LBC et extrait les prix valides.
-   *  Retourne un tableau de {price, year, km, fuel} filtre par annee. */
-  async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
-    const resp = await fetch(searchUrl, {
-      credentials: "same-origin",
-      headers: { "Accept": "text/html" },
-    });
-    const html = await resp.text();
+  /** Parse une range URL "min-max" en objet {min?, max?}.
+   *  "min" et "max" sont des mots-cles indiquant pas de borne. */
+  function parseRange(rangeStr) {
+    if (!rangeStr) return null;
+    const [minStr, maxStr] = rangeStr.split("-");
+    const range = {};
+    if (minStr && minStr !== "min") range.min = parseInt(minStr, 10);
+    if (maxStr && maxStr !== "max") range.max = parseInt(maxStr, 10);
+    return Object.keys(range).length > 0 ? range : null;
+  }
 
-    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-    if (!match) return [];
+  /** Convertit les params URL de recherche LBC en filtres pour l'API finder. */
+  function buildApiFilters(searchUrl) {
+    const url = new URL(searchUrl);
+    const params = url.searchParams;
 
-    const data = JSON.parse(match[1]);
-    const ads = data?.props?.pageProps?.searchData?.ads
-              || data?.props?.pageProps?.initialProps?.searchData?.ads
-              || [];
+    const filters = {
+      category: { id: params.get("category") || "2" },
+      enums: { ad_type: ["offer"], country_id: ["FR"] },
+      ranges: { price: { min: 500 } },
+    };
 
+    // Enums (brand, model, fuel, gearbox)
+    for (const key of ["u_car_brand", "u_car_model", "fuel", "gearbox"]) {
+      const val = params.get(key);
+      if (val) filters.enums[key] = [val];
+    }
+
+    // Text search (modeles generiques)
+    const text = params.get("text");
+    if (text) filters.keywords = { text };
+
+    // Ranges (regdate, mileage, horse_power_din)
+    for (const key of ["regdate", "mileage", "horse_power_din"]) {
+      const range = parseRange(params.get(key));
+      if (range) filters.ranges[key] = range;
+    }
+
+    // Location
+    const loc = params.get("locations");
+    if (loc) {
+      if (loc.startsWith("rn_")) {
+        filters.location = { regions: [loc.replace("rn_", "")] };
+      } else if (loc.includes("__")) {
+        // Format geo: City_Zip__Lat_Lng_5000_Radius
+        const [, geoPart] = loc.split("__");
+        const geoParts = geoPart.split("_");
+        filters.location = {
+          area: {
+            lat: parseFloat(geoParts[0]),
+            lng: parseFloat(geoParts[1]),
+            radius: parseInt(geoParts[3]) || 30000,
+          },
+        };
+      }
+    }
+
+    return filters;
+  }
+
+  /** Filtre et mappe les ads bruts en tableau de {price, year, km, fuel}. */
+  function filterAndMapSearchAds(ads, targetYear, yearSpread) {
     return ads
       .filter((ad) => {
         const rawPrice = Array.isArray(ad?.price) ? ad.price[0] : ad?.price;
@@ -1027,6 +1119,113 @@
         return true;
       })
       .map((ad) => getAdDetails(ad));
+  }
+
+  /** Fetch les prix via l'API LBC finder/search (methode principale).
+   *  LBC ne pre-rend plus les resultats dans __NEXT_DATA__ (CSR depuis ~2026).
+   *
+   *  En production : route via background → MAIN world (meme session/cookies
+   *  que le JavaScript LBC, pas de CORS ni api_key necessaire).
+   *  En tests (pas de chrome.runtime) : direct fetch fallback. */
+  async function fetchSearchPricesViaApi(searchUrl) {
+    const filters = buildApiFilters(searchUrl);
+    // LBC detecte les bots qui demandent trop d'annonces ou trient differemment
+    const body = JSON.stringify({
+      filters,
+      limit: 35, // Identique au site web (etait 100 -> detecte comme bot)
+      sort_by: "time", // Tri par date plus naturel que prix
+      sort_order: "desc",
+      owner_type: "all", // Ajout explicite
+    });
+
+    // 1. Via background → MAIN world (production : cookies LBC natifs)
+    if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+      try {
+        const result = await chrome.runtime.sendMessage({
+          action: "lbc_api_search",
+          body: body,
+        });
+        if (result?.ok) {
+          const ads = result.data?.ads || result.data?.results || [];
+          console.log("[CoPilot] API finder (MAIN world): %d ads bruts", ads.length);
+          return ads.length > 0 ? ads : null;
+        }
+        console.warn("[CoPilot] API finder (MAIN): %s", result?.error || `HTTP ${result?.status}`);
+      } catch (err) {
+        console.debug("[CoPilot] chrome.runtime.sendMessage echoue:", err.message);
+      }
+    }
+
+    // 2. Fallback : direct fetch (tests + si background indisponible)
+    const resp = await fetch("https://api.leboncoin.fr/finder/search", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: body,
+    });
+
+    if (!resp.ok) {
+      console.warn("[CoPilot] API finder (direct): HTTP %d", resp.status);
+      return null;
+    }
+
+    const data = await resp.json();
+    return data.ads || data.results || [];
+  }
+
+  /** Fetch les prix via HTML scraping __NEXT_DATA__ (fallback). */
+  async function fetchSearchPricesViaHtml(searchUrl) {
+    const resp = await fetch(searchUrl, {
+      credentials: "same-origin",
+      headers: { "Accept": "text/html" },
+    });
+    const html = await resp.text();
+
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!match) return [];
+
+    const data = JSON.parse(match[1]);
+    const pp = data?.props?.pageProps || {};
+    return pp?.searchData?.ads
+        || pp?.initialProps?.searchData?.ads
+        || pp?.ads
+        || pp?.adSearch?.ads
+        || [];
+  }
+
+  /** Fetch une page de recherche LBC et extrait les prix valides.
+   *  Strategie : API finder d'abord (fiable), puis fallback HTML.
+   *  Retourne un tableau de {price, year, km, fuel} filtre par annee. */
+  async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
+    let ads = null;
+
+    // 1. API LBC finder/search (methode principale depuis que LBC est CSR)
+    try {
+      ads = await fetchSearchPricesViaApi(searchUrl);
+      if (ads && ads.length > 0) {
+        console.log("[CoPilot] fetchSearchPrices (API): %d ads bruts", ads.length);
+        return filterAndMapSearchAds(ads, targetYear, yearSpread);
+      }
+    } catch (err) {
+      console.debug("[CoPilot] API finder indisponible:", err.message);
+    }
+
+    // 2. Fallback HTML __NEXT_DATA__ (au cas ou l'API ne marche pas)
+    try {
+      ads = await fetchSearchPricesViaHtml(searchUrl);
+      if (ads && ads.length > 0) {
+        console.log("[CoPilot] fetchSearchPrices (HTML): %d ads bruts", ads.length);
+        return filterAndMapSearchAds(ads, targetYear, yearSpread);
+      }
+      console.log("[CoPilot] fetchSearchPrices: 0 ads (API + HTML)");
+    } catch (err) {
+      console.debug("[CoPilot] HTML scraping failed:", err.message);
+    }
+
+    return [];
   }
 
   /** Construit le parametre `locations=` pour une recherche LBC.
@@ -1049,7 +1248,8 @@
     if (!ad) return 0;
     const attrs = (ad.attributes || []).reduce((acc, a) => {
       const key = a.key || a.key_label || a.label || a.name;
-      const val = a.value || a.value_label || a.text || a.value_text;
+      // Preferer value_label (coherent avec extractVehicleFromNextData)
+      const val = a.value_label || a.value || a.text || a.value_text;
       if (key) acc[key] = val;
       return acc;
     }, {});
@@ -1077,7 +1277,10 @@
     // Ne pas collecter de prix pour les categories non-voiture (motos, etc.)
     const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
     const urlCategory = urlMatch ? urlMatch[1] : null;
-    if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) return { submitted: false };
+    if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) {
+      console.log("[CoPilot] collecte ignoree: categorie exclue", urlCategory);
+      return { submitted: false };
+    }
 
     // Extraire le kilometrage depuis le nextData pour le range de recherche
     const mileageKm = extractMileageFromNextData(nextData);
@@ -1085,7 +1288,11 @@
     // 1. Extraire la localisation depuis le nextData (pas le DOM qui peut etre stale)
     const location = extractLocationFromNextData(nextData);
     const region = location?.region || "";
-    if (!region) return { submitted: false };
+    if (!region) {
+      console.warn("[CoPilot] collecte ignoree: pas de region dans nextData");
+      return { submitted: false };
+    }
+    console.log("[CoPilot] collecte: region=%s, location=%o, km=%d", region, location, mileageKm);
 
     // 2. Demander au serveur quel vehicule collecter
     const jobUrl = API_URL.replace("/analyze", "/market-prices/next-job")
@@ -1094,14 +1301,21 @@
 
     let jobResp;
     try {
+      console.log("[CoPilot] next-job →", jobUrl);
       jobResp = await fetch(jobUrl).then((r) => r.json());
-    } catch {
+      console.log("[CoPilot] next-job ←", JSON.stringify(jobResp));
+    } catch (err) {
+      console.warn("[CoPilot] next-job erreur:", err);
       return { submitted: false }; // serveur injoignable -- silencieux
     }
-    if (!jobResp?.data?.collect) return { submitted: false };
+    if (!jobResp?.data?.collect) {
+      console.log("[CoPilot] next-job: collect=false, rien a faire");
+      return { submitted: false };
+    }
 
     const target = jobResp.data.vehicle;
     const targetRegion = jobResp.data.region;
+    const isRedirect = !!jobResp.data.redirect;
 
     // 3. Cooldown 24h -- uniquement pour les collectes d'AUTRES vehicules
     //    Le vehicule courant est toujours collecte (le serveur gere la fraicheur)
@@ -1111,8 +1325,12 @@
 
     if (!isCurrentVehicle) {
       const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
-      if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) return { submitted: false };
+      if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) {
+        console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte");
+        return { submitted: false };
+      }
     }
+    console.log("[CoPilot] collecte cible: %s %s %d (isCurrentVehicle=%s, redirect=%s)", target.make, target.model, target.year, isCurrentVehicle, isRedirect);
 
     // 4. Construire l'URL de recherche LeBonCoin (filtres structures)
     const targetYear = parseInt(target.year, 10) || 0;
@@ -1131,23 +1349,36 @@
       coreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
     }
 
-    // Filtres vehicule individuels (pour escalade progressive)
-    const targetFuel = (fuel || "").toLowerCase();
-    const fuelCode = LBC_FUEL_CODES[targetFuel];
-    const fuelParam = fuelCode ? `&fuel=${fuelCode}` : "";
-
+    // GARDE-FOU : quand le serveur redirige vers un AUTRE vehicule du referentiel,
+    // on ne doit PAS utiliser le fuel/gearbox/hp/km du vehicule courant
+    // (un A6 diesel 218ch n'a rien a voir avec un 208 essence 75ch).
+    // On cherche sans filtres vehicule specifiques → recherche plus large mais correcte.
+    let fuelParam = "";
     let mileageParam = "";
-    if (mileageKm > 0) {
-      const mileageRange = getMileageRange(mileageKm);
-      if (mileageRange) mileageParam = `&mileage=${mileageRange}`;
+    let gearboxParam = "";
+    let hpParam = "";
+    let targetFuel = null;
+    let fuelCode = null;
+    let gearboxCode = null;
+    let hp = 0;
+    let hpRange = null;
+    if (!isRedirect) {
+      targetFuel = (fuel || "").toLowerCase();
+      fuelCode = LBC_FUEL_CODES[targetFuel];
+      fuelParam = fuelCode ? `&fuel=${fuelCode}` : "";
+
+      if (mileageKm > 0) {
+        const mileageRange = getMileageRange(mileageKm);
+        if (mileageRange) mileageParam = `&mileage=${mileageRange}`;
+      }
+
+      gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
+      gearboxParam = gearboxCode ? `&gearbox=${gearboxCode}` : "";
+
+      hp = parseInt(horse_power, 10) || 0;
+      hpRange = getHorsePowerRange(hp);
+      hpParam = hpRange ? `&horse_power_din=${hpRange}` : "";
     }
-
-    const gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
-    const gearboxParam = gearboxCode ? `&gearbox=${gearboxCode}` : "";
-
-    const hp = parseInt(horse_power, 10) || 0;
-    const hpRange = getHorsePowerRange(hp);
-    const hpParam = hpRange ? `&horse_power_din=${hpRange}` : "";
 
     // Niveaux de filtrage (du plus precis au plus large)
     const fullFilters = fuelParam + mileageParam + gearboxParam + hpParam;
@@ -1177,6 +1408,11 @@
     strategies.push({ loc: "", yearSpread: 2, filters: noHpFilters, precision: 2 });
     strategies.push({ loc: "", yearSpread: 3, filters: minFilters,  precision: 1 });
 
+    console.log("[CoPilot] fuel=%s → fuelCode=%s | gearbox=%s → gearboxCode=%s | hp=%d → hpRange=%s | km=%d",
+      targetFuel, fuelCode, (gearbox || "").toLowerCase(), gearboxCode, hp, hpRange, mileageKm);
+    console.log("[CoPilot] coreUrl:", coreUrl);
+    console.log("[CoPilot] %d strategies, geoParam=%s, regionParam=%s", strategies.length, geoParam || "(vide)", regionParam || "(vide)");
+
     let submitted = false;
     let prices = [];
     let collectedPrecision = null;
@@ -1194,8 +1430,11 @@
         }
 
         prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+        console.log("[CoPilot] strategie %d (precision=%d): %d prix trouvés | %s",
+          i + 1, strategy.precision, prices.length, searchUrl.substring(0, 150));
         if (prices.length >= MIN_PRICES_FOR_ARGUS) {
           collectedPrecision = strategy.precision;
+          console.log("[CoPilot] ✓ assez de prix (%d >= %d), precision=%d", prices.length, MIN_PRICES_FOR_ARGUS, collectedPrecision);
           break;
         }
       }
@@ -1204,30 +1443,44 @@
         const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
         const priceInts = priceDetails.map((p) => p.price);
         if (priceInts.length < MIN_PRICES_FOR_ARGUS) {
-          return { submitted: false, isCurrentVehicle };
+          console.warn("[CoPilot] apres filtrage >500: %d prix valides (< %d requis)", priceInts.length, MIN_PRICES_FOR_ARGUS);
+          // Si on a quand meme > 5 prix, on tente l'envoi "degradé" (precision faible)
+          if (priceInts.length >= 5) {
+             console.log("[CoPilot] envoi degradé avec %d prix (min 5)", priceInts.length);
+          } else {
+             return { submitted: false, isCurrentVehicle };
+          }
         }
         const marketUrl = API_URL.replace("/analyze", "/market-prices");
+        const payload = {
+          make: target.make,
+          model: target.model,
+          year: parseInt(target.year, 10),
+          region: targetRegion,
+          prices: priceInts,
+          price_details: priceDetails,
+          category: urlCategory,
+          fuel: fuelCode ? targetFuel : null,
+          precision: collectedPrecision,
+        };
+        console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
         const marketResp = await fetch(marketUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            make: target.make,
-            model: target.model,
-            year: parseInt(target.year, 10),
-            region: targetRegion,
-            prices: priceInts,
-            price_details: priceDetails,
-            category: urlCategory,
-            fuel: fuelCode ? targetFuel : null,
-            precision: collectedPrecision,
-          }),
+          body: JSON.stringify(payload),
         });
         submitted = marketResp.ok;
+        if (!marketResp.ok) {
+          const errBody = await marketResp.json().catch(() => null);
+          console.warn("[CoPilot] POST /api/market-prices FAILED:", marketResp.status, errBody);
+        } else {
+          console.log("[CoPilot] POST /api/market-prices OK, submitted=true");
+        }
+      } else {
+        console.log(`[CoPilot] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
       }
     } catch (err) {
-      if (typeof console !== "undefined" && typeof console.debug === "function") {
-        console.debug("[CoPilot] market collection failed", err);
-      }
+      console.error("[CoPilot] market collection failed:", err);
       // Silencieux -- ne pas perturber l'experience utilisateur
     }
 
@@ -1277,6 +1530,11 @@
       DEFAULT_SEARCH_RADIUS,
       MIN_PRICES_FOR_ARGUS,
       fetchSearchPrices,
+      fetchSearchPricesViaApi,
+      fetchSearchPricesViaHtml,
+      buildApiFilters,
+      parseRange,
+      filterAndMapSearchAds,
       extractMileageFromNextData,
       isUserLoggedIn,
       revealPhoneNumber,
