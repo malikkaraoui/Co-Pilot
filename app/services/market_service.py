@@ -15,7 +15,8 @@ from app.models.market_price import MarketPrice
 logger = logging.getLogger(__name__)
 
 CACHE_DURATION_HOURS = 24
-MIN_SAMPLE_COUNT = 3
+MIN_SAMPLE_COUNT = 20  # Minimum de prix acceptes par l'API
+IQR_MIN_KEEP = 3  # Seuil de securite IQR : ne pas descendre en-dessous
 IQR_MULTIPLIER = 1.5
 
 
@@ -81,7 +82,7 @@ def _filter_outliers_iqr(prices: list[int]) -> tuple[list[int], list[int], float
     excluded = [p for p in prices if p < iqr_low or p > iqr_high]
 
     # Si tout est exclu (ex: echantillon trop petit), garder tout
-    if len(kept) < MIN_SAMPLE_COUNT:
+    if len(kept) < IQR_MIN_KEEP:
         return sorted(prices), [], iqr_low, iqr_high
 
     return sorted(kept), sorted(excluded), iqr_low, iqr_high
@@ -94,6 +95,7 @@ def store_market_prices(
     region: str,
     prices: list[int],
     fuel: str | None = None,
+    precision: int | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -132,6 +134,7 @@ def store_market_prices(
         "kept_count": len(kept),
         "excluded_count": len(excluded),
         "method": "iqr",
+        "precision": precision,
     }
 
     stats = {
@@ -141,6 +144,7 @@ def store_market_prices(
         "price_max": int(np.max(arr)),
         "price_std": round(float(np.std(arr)), 2),
         "sample_count": len(kept),
+        "precision": precision,
         "calculation_details": json.dumps(details),
         "collected_at": now,
         "refresh_after": now + timedelta(hours=CACHE_DURATION_HOURS),

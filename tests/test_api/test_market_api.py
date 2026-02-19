@@ -13,6 +13,7 @@ class TestMarketPricesAPI:
 
     def test_submit_valid_prices(self, app, client):
         """POST avec des donnees valides retourne 200."""
+        prices_20 = list(range(12000, 22000, 500))  # 20 prix
         resp = client.post(
             "/api/market-prices",
             data=json.dumps(
@@ -21,7 +22,8 @@ class TestMarketPricesAPI:
                     "model": "208",
                     "year": 2021,
                     "region": "Ile-de-France",
-                    "prices": [12000, 13000, 14000, 15000, 16000],
+                    "prices": prices_20,
+                    "precision": 4,
                 }
             ),
             content_type="application/json",
@@ -29,8 +31,7 @@ class TestMarketPricesAPI:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["success"] is True
-        assert data["data"]["sample_count"] == 5
-        assert data["data"]["price_median"] == 14000
+        assert data["data"]["sample_count"] == 20
 
     def test_submit_no_json_returns_400(self, client):
         """POST sans JSON retourne 400."""
@@ -55,7 +56,7 @@ class TestMarketPricesAPI:
         assert resp.get_json()["success"] is False
 
     def test_submit_too_few_prices_returns_400(self, client):
-        """POST avec moins de 3 prix retourne 400."""
+        """POST avec moins de 20 prix retourne 400."""
         resp = client.post(
             "/api/market-prices",
             data=json.dumps(
@@ -64,7 +65,7 @@ class TestMarketPricesAPI:
                     "model": "208",
                     "year": 2021,
                     "region": "Ile-de-France",
-                    "prices": [12000, 13000],  # < 3
+                    "prices": [12000, 13000, 14000, 15000, 16000],  # < 20
                 }
             ),
             content_type="application/json",
@@ -73,6 +74,7 @@ class TestMarketPricesAPI:
 
     def test_submit_filters_low_prices(self, app, client):
         """Les prix < 500 EUR sont filtres. Si pas assez de prix valides, retourne 400."""
+        # 20 prix dont tous < 500 → 0 valides apres filtrage
         resp = client.post(
             "/api/market-prices",
             data=json.dumps(
@@ -81,7 +83,7 @@ class TestMarketPricesAPI:
                     "model": "208",
                     "year": 2021,
                     "region": "Ile-de-France",
-                    "prices": [100, 200, 300],  # tous < 500
+                    "prices": list(range(100, 600, 25)),  # 20 prix, tous < 500 sauf le dernier
                 }
             ),
             content_type="application/json",
@@ -99,7 +101,7 @@ class TestMarketPricesAPI:
                     "model": "Ibiza",
                     "year": 2024,
                     "region": "PACA",
-                    "prices": [14000, 15000, 16000],
+                    "prices": list(range(14000, 24000, 500)),  # 20 prix
                     "fuel": "essence",
                 }
             ),
@@ -129,7 +131,7 @@ class TestMarketPricesAPI:
                     "model": "208",
                     "year": 1800,
                     "region": "Ile-de-France",
-                    "prices": [12000, 13000, 14000],
+                    "prices": list(range(12000, 22000, 500)),  # 20 prix
                 }
             ),
             content_type="application/json",

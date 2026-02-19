@@ -252,7 +252,25 @@
     price_argus_mid: "Argus (médian)",
     price_argus_low: "Argus (bas)",
     price_argus_high: "Argus (haut)",
+    precision: "Précision",
   };
+
+  /** Labels de precision (echelle 1-5). */
+  const PRECISION_LABELS = {
+    5: "Tres precis",
+    4: "Precis",
+    3: "Correct",
+    2: "Approximatif",
+    1: "Estimatif",
+  };
+
+  /** Formate la precision en etoiles : ★★★★☆ 4/5 - Precis */
+  function formatPrecisionStars(n) {
+    const filled = "\u2605".repeat(n);        // ★
+    const empty = "\u2606".repeat(5 - n);     // ☆
+    const label = PRECISION_LABELS[n] || "";
+    return `${filled}${empty} ${n}/5 – ${label}`;
+  }
 
   /** Formate une valeur de detail pour l'affichage humain. */
   function formatDetailValue(value) {
@@ -295,7 +313,10 @@
       .filter(([k, v]) => v !== null && v !== undefined && k !== "phone_login_hint")
       .map(([k, v]) => {
         const label = DETAIL_LABELS[k] || k;
-        const val = formatDetailValue(v);
+        // Rendu special etoiles pour la precision
+        const val = k === "precision" && typeof v === "number"
+          ? formatPrecisionStars(v)
+          : formatDetailValue(v);
         return `<div class="copilot-detail-row"><span class="copilot-detail-key">${escapeHTML(label)}</span><span class="copilot-detail-value">${val}</span></div>`;
       })
       .join("");
@@ -948,8 +969,9 @@
   /** Rayon de recherche par defaut en metres (30 km). */
   const DEFAULT_SEARCH_RADIUS = 30000;
 
-  /** Nombre minimum de prix valides pour constituer un argus. */
-  const MIN_PRICES_FOR_ARGUS = 3;
+  /** Nombre minimum de prix valides pour constituer un argus fiable.
+   *  En-dessous de 20, l'IQR est trop instable pour etre significatif. */
+  const MIN_PRICES_FOR_ARGUS = 20;
 
   /** Fetch une page de recherche LBC et extrait les prix valides.
    *  Retourne un tableau de prix (entiers > 500) filtrés par annee. */
@@ -1069,56 +1091,86 @@
     const targetYear = parseInt(target.year, 10) || 0;
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
 
-    // URL de base : marque/modele + filtres vehicule (invariants entre strategies)
+    // URL core : marque/modele uniquement (les filtres sont separes pour l'escalade)
     const brandUpper = target.make.toUpperCase();
-    let baseUrl = "https://www.leboncoin.fr/recherche?category=2";
+    let coreUrl = "https://www.leboncoin.fr/recherche?category=2";
     if (modelIsGeneric) {
-      baseUrl += `&text=${encodeURIComponent(target.make)}`;
+      coreUrl += `&text=${encodeURIComponent(target.make)}`;
     } else {
-      const modelUpper = `${brandUpper}_${target.model.toUpperCase()}`;
-      baseUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
-      baseUrl += `&u_car_model=${encodeURIComponent(modelUpper)}`;
+      // LBC convention : BRAND_Model (marque majuscule, modele casse originale)
+      // Ex: FORD_Puma, RENAULT_Clio, AUDI_A3 -- PAS FORD_PUMA
+      const modelParam = `${brandUpper}_${target.model}`;
+      coreUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
+      coreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
     }
 
-    // Filtres vehicule (fuel, km, gearbox, puissance) -- invariants
+    // Filtres vehicule individuels (pour escalade progressive)
     const targetFuel = (fuel || "").toLowerCase();
     const fuelCode = LBC_FUEL_CODES[targetFuel];
-    if (fuelCode) baseUrl += `&fuel=${fuelCode}`;
+    const fuelParam = fuelCode ? `&fuel=${fuelCode}` : "";
+
+    let mileageParam = "";
     if (mileageKm > 0) {
       const mileageRange = getMileageRange(mileageKm);
-      if (mileageRange) baseUrl += `&mileage=${mileageRange}`;
+      if (mileageRange) mileageParam = `&mileage=${mileageRange}`;
     }
+
     const gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
-    if (gearboxCode) baseUrl += `&gearbox=${gearboxCode}`;
+    const gearboxParam = gearboxCode ? `&gearbox=${gearboxCode}` : "";
+
     const hp = parseInt(horse_power, 10) || 0;
     const hpRange = getHorsePowerRange(hp);
-    if (hpRange) baseUrl += `&horse_power_din=${hpRange}`;
+    const hpParam = hpRange ? `&horse_power_din=${hpRange}` : "";
+
+    // Niveaux de filtrage (du plus precis au plus large)
+    const fullFilters = fuelParam + mileageParam + gearboxParam + hpParam;
+    const noHpFilters = fuelParam + mileageParam + gearboxParam;
+    const minFilters = fuelParam + gearboxParam;
 
     // 5. Escalade progressive : precision d'abord, puis on elargit
-    //    Strategie 1 : geo-location (ville + 30 km) + annee ±1
-    //    Strategie 2 : region + voisines (rn_XX) + annee ±1
-    //    Strategie 3 : region + voisines (rn_XX) + annee ±2
+    //    On a besoin de 20+ annonces pour un argus fiable (IQR stable).
+    //    7 strategies, de la plus precise a la plus large :
+    //    1. Geo (ville + 30 km) + annee ±1 + tous filtres
+    //    2. Region + annee ±1 + tous filtres
+    //    3. Region + annee ±2 + tous filtres
+    //    4. National + annee ±1 + tous filtres
+    //    5. National + annee ±2 + tous filtres
+    //    6. National + annee ±2 + sans puissance DIN
+    //    7. National + annee ±3 + sans puissance ni km
     const hasGeo = location?.lat && location?.lng && location?.city && location?.zipcode;
     const geoParam = hasGeo ? buildLocationParam(location, DEFAULT_SEARCH_RADIUS) : "";
     const regionParam = LBC_REGIONS[region] || "";
 
     const strategies = [];
-    if (geoParam) strategies.push({ loc: geoParam, yearSpread: 1 });
-    if (regionParam) strategies.push({ loc: regionParam, yearSpread: 1 });
-    if (regionParam) strategies.push({ loc: regionParam, yearSpread: 2 });
+    if (geoParam)    strategies.push({ loc: geoParam,    yearSpread: 1, filters: fullFilters, precision: 5 });
+    if (regionParam) strategies.push({ loc: regionParam, yearSpread: 1, filters: fullFilters, precision: 4 });
+    if (regionParam) strategies.push({ loc: regionParam, yearSpread: 2, filters: fullFilters, precision: 4 });
+    strategies.push({ loc: "", yearSpread: 1, filters: fullFilters, precision: 3 });
+    strategies.push({ loc: "", yearSpread: 2, filters: fullFilters, precision: 3 });
+    strategies.push({ loc: "", yearSpread: 2, filters: noHpFilters, precision: 2 });
+    strategies.push({ loc: "", yearSpread: 3, filters: minFilters,  precision: 1 });
 
     let submitted = false;
     let prices = [];
+    let collectedPrecision = null;
     try {
-      for (const strategy of strategies) {
-        let searchUrl = baseUrl;
+      for (let i = 0; i < strategies.length; i++) {
+        // Anti-detection LBC : delai aleatoire entre requetes (800-1500ms)
+        // Simule un comportement humain. Session reelle = risque faible.
+        if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+
+        const strategy = strategies[i];
+        let searchUrl = coreUrl + strategy.filters;
         if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
         if (targetYear >= 1990) {
           searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
         }
 
         prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
-        if (prices.length >= MIN_PRICES_FOR_ARGUS) break;
+        if (prices.length >= MIN_PRICES_FOR_ARGUS) {
+          collectedPrecision = strategy.precision;
+          break;
+        }
       }
 
       if (prices.length >= MIN_PRICES_FOR_ARGUS) {
@@ -1134,6 +1186,7 @@
             prices: prices,
             category: urlCategory,
             fuel: fuelCode ? targetFuel : null,
+            precision: collectedPrecision,
           }),
         });
         submitted = marketResp.ok;
@@ -1206,6 +1259,8 @@
       COLLECT_COOLDOWN_MS,
       SIMULATED_FILTERS,
       API_URL,
+      formatPrecisionStars,
+      PRECISION_LABELS,
     };
   }
 })();

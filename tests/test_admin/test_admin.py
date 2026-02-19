@@ -713,6 +713,7 @@ class TestArgusE2E:
 
         with app.app_context():
             # 1. L'extension envoie des prix collectes
+            prices_20 = list(range(15000, 25000, 500))  # 20 prix
             resp = client.post(
                 "/api/market-prices",
                 data=json.dumps(
@@ -721,7 +722,8 @@ class TestArgusE2E:
                         "model": "Golf",
                         "year": 2020,
                         "region": "Hauts-de-France",
-                        "prices": [15000, 16000, 17000, 18000, 19000, 20000],
+                        "prices": prices_20,
+                        "precision": 4,
                     }
                 ),
                 content_type="application/json",
@@ -729,8 +731,7 @@ class TestArgusE2E:
             assert resp.status_code == 200
             data = resp.get_json()
             assert data["success"] is True
-            assert data["data"]["sample_count"] == 6
-            assert data["data"]["price_median"] == 17500
+            assert data["data"]["sample_count"] == 20
 
             # 2. Verifier que la donnee est en base
             mp = MarketPrice.query.filter_by(
@@ -740,7 +741,8 @@ class TestArgusE2E:
                 region="Hauts-de-France",
             ).first()
             assert mp is not None
-            assert mp.sample_count == 6
+            assert mp.sample_count == 20
+            assert mp.precision == 4
 
             # 3. next-job dit "pas besoin" pour ce vehicule (frais)
             resp = client.get(
@@ -762,7 +764,7 @@ class TestArgusE2E:
             assert b"Volkswagen" in resp.data
             assert b"Golf" in resp.data
             assert b"Hauts-de-France" in resp.data
-            assert b"17 500" in resp.data  # prix median formate
+            assert b"19 750" in resp.data  # prix median formate (20 prix: 15000-24500)
             assert b"Frais" in resp.data
 
 

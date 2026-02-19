@@ -297,7 +297,7 @@ class TestFilterOutliersIQR:
         """Si le filtrage enleverait trop de donnees, on garde tout."""
         prices = [500, 1000, 50000]  # Tout est outlier par rapport aux autres
         kept, excluded, _, _ = _filter_outliers_iqr(prices)
-        # Doit garder au moins MIN_SAMPLE_COUNT (3) → garde tout
+        # Doit garder au moins IQR_MIN_KEEP (3) → garde tout
         assert len(kept) == 3
         assert len(excluded) == 0
 

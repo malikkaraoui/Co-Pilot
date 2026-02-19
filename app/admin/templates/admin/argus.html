@@ -94,6 +94,7 @@
           <th class="text-end">Moyenne</th>
           <th class="text-end">Ecart-type</th>
           <th class="text-center">Annonces</th>
+          <th class="text-center">Precision</th>
           <th class="text-center">Fraicheur</th>
           <th class="text-center">Detail</th>
         </tr>
@@ -117,6 +118,17 @@
           <td class="text-end" style="font-size:12px">{{ "{:,}".format(m.price_mean).replace(",", " ") }} &euro;</td>
           <td class="text-end" style="font-size:12px">{{ "{:,.0f}".format(m.price_std).replace(",", " ") }} &euro;</td>
           <td class="text-center"><span class="badge bg-primary">{{ m.sample_count }}</span></td>
+          <td class="text-center">
+            {% if m.precision %}
+              {% set prec_colors = {5: 'success', 4: 'success', 3: 'info', 2: 'warning', 1: 'danger'} %}
+              {% set prec_labels = {5: 'Tres precis', 4: 'Precis', 3: 'Correct', 2: 'Approx.', 1: 'Estimatif'} %}
+              <span class="badge bg-{{ prec_colors.get(m.precision, 'secondary') }}" title="{{ prec_labels.get(m.precision, '') }}">
+                {{ '\u2605' * m.precision }}{{ '\u2606' * (5 - m.precision) }}
+              </span>
+            {% else %}
+              <span class="text-muted" style="font-size:11px">-</span>
+            {% endif %}
+          </td>
           <td class="text-center">
             {% if is_fresh %}
               <span class="badge bg-success">Frais</span>
@@ -156,13 +168,21 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
         </div>
         <div class="modal-body">
-          <!-- Methode -->
+          <!-- Methode + Precision -->
           <div class="mb-3">
             <span class="badge bg-info">Methode : {{ details.get('method', 'inconnue') | upper }}</span>
             <span class="badge bg-secondary">{{ details.get('raw_count', '?') }} annonces collectees</span>
             <span class="badge bg-success">{{ details.get('kept_count', '?') }} retenues</span>
             {% if details.get('excluded_count', 0) > 0 %}
             <span class="badge bg-danger">{{ details.get('excluded_count', 0) }} exclues</span>
+            {% endif %}
+            {% if details.get('precision') %}
+            {% set dp = details.get('precision') %}
+            {% set dp_colors = {5: 'success', 4: 'success', 3: 'info', 2: 'warning', 1: 'danger'} %}
+            {% set dp_labels = {5: 'Tres precis', 4: 'Precis', 3: 'Correct', 2: 'Approx.', 1: 'Estimatif'} %}
+            <span class="badge bg-{{ dp_colors.get(dp, 'secondary') }}">
+              Precision : {{ '\u2605' * dp }}{{ '\u2606' * (5 - dp) }} {{ dp }}/5 &ndash; {{ dp_labels.get(dp, '') }}
+            </span>
             {% endif %}
           </div>
 

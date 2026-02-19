@@ -25,6 +25,9 @@ class MarketPrice(db.Model):
     price_std = db.Column(db.Float)
     sample_count = db.Column(db.Integer, default=0)
 
+    # Precision de la collecte (1 a 5) : 5=geo+filtres complets, 1=national+filtres minimaux
+    precision = db.Column(db.Integer, nullable=True)
+
     # Details du calcul (JSON) pour transparence dans le dashboard
     # Format: {"raw_prices": [...], "kept_prices": [...], "excluded_prices": [...],
     #          "iqr_low": N, "iqr_high": N, "method": "iqr"}

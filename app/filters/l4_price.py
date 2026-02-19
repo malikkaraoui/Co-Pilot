@@ -65,6 +65,8 @@ class L4PriceFilter(BaseFilter):
             details["price_reference"] = market.price_median
             details["sample_count"] = market.sample_count
             details["source"] = source
+            if market.precision is not None:
+                details["precision"] = market.precision
 
         # 2. Fallback ArgusPrice (seed) : necessite le vehicule dans le referentiel
         if ref_price is None:
