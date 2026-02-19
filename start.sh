@@ -97,7 +97,7 @@ if [ ! -f "$DB" ]; then
   ok "Tables créées"
 else
   ok "Base existante : $DB"
-  # Synchronise le schéma (ajoute les colonnes manquantes)
+  # Synchronise le schéma (ajoute les colonnes manquantes + migration contraintes)
   python -c "
 from app import create_app
 from app.extensions import db
@@ -105,7 +105,24 @@ app = create_app()
 with app.app_context():
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
+
+    # Migration market_prices : ancienne contrainte 4 colonnes → 5 colonnes (avec fuel)
+    # SQLite ne supporte pas ALTER CONSTRAINT, on doit recréer la table
+    if 'market_prices' in inspector.get_table_names():
+        uqs = inspector.get_unique_constraints('market_prices')
+        old_constraint = any(
+            set(u['column_names']) == {'make', 'model', 'year', 'region'}
+            for u in uqs
+        )
+        if old_constraint:
+            db.session.execute(text('DROP TABLE market_prices'))
+            db.session.commit()
+            db.metadata.tables['market_prices'].create(db.engine)
+            print('  ↻ market_prices recréée (migration fuel)')
+
     for table in db.metadata.sorted_tables:
+        if table.name not in inspector.get_table_names():
+            continue
         existing = {c['name'] for c in inspector.get_columns(table.name)}
         for col in table.columns:
             if col.name not in existing:
