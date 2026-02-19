@@ -856,7 +856,7 @@ describe('maybeCollectMarketPrices', () => {
       expect(searchUrl).not.toContain('text=');
     });
 
-    it('ajoute fuel= a URL de recherche LBC pour vehicule courant', async () => {
+    it('ajoute fuel= a URL de recherche LBC', async () => {
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
         searchHTML: makeSearchHTML([12000, 13000, 14000]),
@@ -869,7 +869,7 @@ describe('maybeCollectMarketPrices', () => {
       expect(searchUrl).toContain('fuel=2'); // diesel = 2
     });
 
-    it('ajoute gearbox= a URL de recherche LBC pour vehicule courant', async () => {
+    it('ajoute gearbox= a URL de recherche LBC', async () => {
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
         searchHTML: makeSearchHTML([12000, 13000, 14000]),
@@ -882,7 +882,7 @@ describe('maybeCollectMarketPrices', () => {
       expect(searchUrl).toContain('gearbox=2'); // automatique = 2
     });
 
-    it('ajoute horse_power_din= a URL de recherche LBC pour vehicule courant', async () => {
+    it('ajoute horse_power_din= a URL de recherche LBC', async () => {
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
         searchHTML: makeSearchHTML([12000, 13000, 14000]),

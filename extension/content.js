@@ -1026,30 +1026,26 @@
     }
 
     // Filtre fuel (diesel/essence/electrique/hybride)
-    const targetFuel = isCurrentVehicle ? (fuel || "").toLowerCase() : "";
+    const targetFuel = (fuel || "").toLowerCase();
     const fuelCode = LBC_FUEL_CODES[targetFuel];
     if (fuelCode) {
       searchUrl += `&fuel=${fuelCode}`;
     }
 
-    // Filtre kilometrage (range adapte au km du vehicule courant)
-    if (isCurrentVehicle && mileageKm > 0) {
+    // Filtre kilometrage (range adapte au km reel)
+    if (mileageKm > 0) {
       const mileageRange = getMileageRange(mileageKm);
       if (mileageRange) searchUrl += `&mileage=${mileageRange}`;
     }
 
-    // Filtre boite de vitesse (vehicule courant seulement)
-    if (isCurrentVehicle) {
-      const gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
-      if (gearboxCode) searchUrl += `&gearbox=${gearboxCode}`;
-    }
+    // Filtre boite de vitesse
+    const gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
+    if (gearboxCode) searchUrl += `&gearbox=${gearboxCode}`;
 
-    // Filtre puissance DIN (vehicule courant seulement)
-    if (isCurrentVehicle) {
-      const hp = parseInt(horse_power, 10) || 0;
-      const hpRange = getHorsePowerRange(hp);
-      if (hpRange) searchUrl += `&horse_power_din=${hpRange}`;
-    }
+    // Filtre puissance DIN
+    const hp = parseInt(horse_power, 10) || 0;
+    const hpRange = getHorsePowerRange(hp);
+    if (hpRange) searchUrl += `&horse_power_din=${hpRange}`;
 
     let submitted = false;
     try {
