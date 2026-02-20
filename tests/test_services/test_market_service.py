@@ -502,3 +502,57 @@ class TestStoreWithIQR:
             assert mp.precision == 4
             details = mp.get_calculation_details()
             assert details["precision"] == 4
+
+    def test_stores_search_log(self, app):
+        """store_market_prices persiste le search_log dans calculation_details."""
+        with app.app_context():
+            search_log = [
+                {
+                    "step": 1,
+                    "precision": 4,
+                    "location_type": "region",
+                    "year_spread": 1,
+                    "filters_applied": ["fuel"],
+                    "ads_found": 5,
+                    "url": "https://www.leboncoin.fr/recherche?test=1",
+                    "was_selected": False,
+                    "reason": "5 < 20",
+                },
+                {
+                    "step": 2,
+                    "precision": 3,
+                    "location_type": "national",
+                    "year_spread": 2,
+                    "filters_applied": ["fuel"],
+                    "ads_found": 22,
+                    "url": "https://www.leboncoin.fr/recherche?test=2",
+                    "was_selected": True,
+                    "reason": "22 >= 20",
+                },
+            ]
+            mp = store_market_prices(
+                make="Ford",
+                model="Focus",
+                year=2020,
+                region="Normandie",
+                prices=[10000, 11000, 12000, 13000, 14000],
+                search_log=search_log,
+            )
+            details = mp.get_calculation_details()
+            assert details["search_steps"] is not None
+            assert len(details["search_steps"]) == 2
+            assert details["search_steps"][1]["was_selected"] is True
+            assert details["search_steps"][0]["ads_found"] == 5
+
+    def test_stores_none_search_log_when_absent(self, app):
+        """Sans search_log, search_steps est None (backward-compat)."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Ford",
+                model="Fiesta",
+                year=2019,
+                region="Bretagne",
+                prices=[8000, 9000, 10000, 11000, 12000],
+            )
+            details = mp.get_calculation_details()
+            assert details.get("search_steps") is None

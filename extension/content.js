@@ -1416,6 +1416,7 @@
     let submitted = false;
     let prices = [];
     let collectedPrecision = null;
+    const searchLog = [];
     try {
       for (let i = 0; i < strategies.length; i++) {
         // Anti-detection LBC : delai aleatoire entre requetes (800-1500ms)
@@ -1430,9 +1431,34 @@
         }
 
         prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+        const enoughPrices = prices.length >= MIN_PRICES_FOR_ARGUS;
         console.log("[CoPilot] strategie %d (precision=%d): %d prix trouvés | %s",
           i + 1, strategy.precision, prices.length, searchUrl.substring(0, 150));
-        if (prices.length >= MIN_PRICES_FOR_ARGUS) {
+
+        // Capturer chaque etape pour la transparence admin
+        const locationType = (strategy.loc === geoParam && geoParam) ? "geo"
+          : (strategy.loc === regionParam && regionParam) ? "region"
+          : "national";
+        searchLog.push({
+          step: i + 1,
+          precision: strategy.precision,
+          location_type: locationType,
+          year_spread: strategy.yearSpread,
+          filters_applied: [
+            ...(strategy.filters.includes("fuel=") ? ["fuel"] : []),
+            ...(strategy.filters.includes("gearbox=") ? ["gearbox"] : []),
+            ...(strategy.filters.includes("horse_power_din=") ? ["hp"] : []),
+            ...(strategy.filters.includes("mileage=") ? ["km"] : []),
+          ],
+          ads_found: prices.length,
+          url: searchUrl,
+          was_selected: enoughPrices,
+          reason: enoughPrices
+            ? `${prices.length} annonces >= ${MIN_PRICES_FOR_ARGUS} minimum`
+            : `${prices.length} annonces < ${MIN_PRICES_FOR_ARGUS} minimum`,
+        });
+
+        if (enoughPrices) {
           collectedPrecision = strategy.precision;
           console.log("[CoPilot] ✓ assez de prix (%d >= %d), precision=%d", prices.length, MIN_PRICES_FOR_ARGUS, collectedPrecision);
           break;
@@ -1462,6 +1488,7 @@
           category: urlCategory,
           fuel: fuelCode ? targetFuel : null,
           precision: collectedPrecision,
+          search_log: searchLog,
         };
         console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
         const marketResp = await fetch(marketUrl, {

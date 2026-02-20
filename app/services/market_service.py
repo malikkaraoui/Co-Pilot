@@ -192,6 +192,7 @@ def store_market_prices(
     fuel: str | None = None,
     precision: int | None = None,
     price_details: list[dict] | None = None,
+    search_log: list[dict] | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -260,6 +261,7 @@ def store_market_prices(
         "excluded_count": len(iqr.excluded),
         "method": "iqr_mean",
         "precision": precision,
+        "search_steps": search_log,
     }
 
     stats = {

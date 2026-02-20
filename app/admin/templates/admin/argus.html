@@ -188,6 +188,81 @@
             {% endif %}
           </div>
 
+          <!-- Cascade de recherche (transparence) -->
+          {% if details.get('search_steps') %}
+          <div class="mb-3">
+            <h6>
+              Cascade de recherche ({{ details.get('search_steps')|length }} etape{{ 's' if details.get('search_steps')|length > 1 else '' }})
+            </h6>
+            <div class="table-responsive">
+              <table class="table table-sm mb-0" style="font-size:12px">
+                <thead class="table-light">
+                  <tr>
+                    <th>#</th>
+                    <th>Precision</th>
+                    <th>Zone</th>
+                    <th>Annees</th>
+                    <th>Filtres</th>
+                    <th class="text-center">Annonces</th>
+                    <th>Statut</th>
+                    <th>URL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for s in details.get('search_steps', []) %}
+                  <tr class="{{ 'table-success' if s.get('was_selected') else '' }}">
+                    <td><strong>{{ s.get('step', '?') }}</strong></td>
+                    <td>
+                      {% set sp = s.get('precision', 0) %}
+                      {% set sp_colors = {5: 'success', 4: 'success', 3: 'info', 2: 'warning', 1: 'danger'} %}
+                      <span class="badge bg-{{ sp_colors.get(sp, 'secondary') }}">
+                        {{ '\u2605' * sp }}{{ '\u2606' * (5 - sp) }}
+                      </span>
+                    </td>
+                    <td>
+                      {% set loc_labels = {'geo': 'Geo (30km)', 'region': 'Region', 'national': 'National'} %}
+                      {{ loc_labels.get(s.get('location_type', ''), s.get('location_type', '?')) }}
+                    </td>
+                    <td>&plusmn;{{ s.get('year_spread', '?') }} an{{ 's' if s.get('year_spread', 0) > 1 else '' }}</td>
+                    <td>
+                      {% for f in s.get('filters_applied', []) %}
+                      <span class="badge bg-secondary bg-opacity-50" style="font-size:10px">{{ f }}</span>
+                      {% endfor %}
+                      {% if not s.get('filters_applied') %}
+                      <span class="text-muted" style="font-size:11px">aucun</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-center">
+                      {% if s.get('was_selected') %}
+                      <span class="badge bg-success">{{ s.get('ads_found', 0) }}</span>
+                      {% elif s.get('ads_found', 0) > 0 %}
+                      <span class="badge bg-warning text-dark">{{ s.get('ads_found', 0) }}</span>
+                      {% else %}
+                      <span class="badge bg-danger">0</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if s.get('was_selected') %}
+                      <span style="color:#22c55e; font-weight:bold">Retenu</span>
+                      {% else %}
+                      <span style="color:#f59e0b; font-size:11px">{{ s.get('reason', 'Insuffisant') }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <a href="{{ s.get('url', '#') }}" target="_blank" rel="noopener"
+                         class="btn btn-sm btn-outline-secondary" style="font-size:10px; padding:1px 6px"
+                         title="{{ s.get('url', '') }}">
+                        Ouvrir
+                      </a>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+
           <!-- Bornes IQR -->
           <div class="mb-3 p-2" style="background:#f8f9fa; border-radius:8px">
             <strong>Bornes IQR :</strong>

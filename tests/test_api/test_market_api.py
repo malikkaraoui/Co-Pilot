@@ -294,3 +294,87 @@ class TestNextMarketJob:
         data = resp.get_json()
         assert data["success"] is True
         assert data["data"]["collect"] is False
+
+
+class TestSearchLogTransparency:
+    """Tests de la transparence cascade (search_log)."""
+
+    def test_submit_with_search_log(self, app, client):
+        """POST avec search_log stocke les etapes dans calculation_details."""
+        prices_20 = list(range(12000, 22000, 500))
+        search_log = [
+            {
+                "step": 1,
+                "precision": 4,
+                "location_type": "region",
+                "year_spread": 1,
+                "filters_applied": ["fuel", "gearbox", "hp", "km"],
+                "ads_found": 8,
+                "url": "https://www.leboncoin.fr/recherche?category=2&test=1",
+                "was_selected": False,
+                "reason": "8 annonces < 20 minimum",
+            },
+            {
+                "step": 2,
+                "precision": 3,
+                "location_type": "national",
+                "year_spread": 1,
+                "filters_applied": ["fuel", "gearbox", "hp", "km"],
+                "ads_found": 25,
+                "url": "https://www.leboncoin.fr/recherche?category=2&test=2",
+                "was_selected": True,
+                "reason": "25 annonces >= 20 minimum",
+            },
+        ]
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Citroen",
+                    "model": "C3",
+                    "year": 2021,
+                    "region": "Lorraine",
+                    "prices": prices_20,
+                    "precision": 3,
+                    "search_log": search_log,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            mp = MarketPrice.query.filter_by(make="Citroen", model="C3", year=2021).first()
+            assert mp is not None
+            details = mp.get_calculation_details()
+            assert details is not None
+            assert "search_steps" in details
+            assert len(details["search_steps"]) == 2
+            selected = [s for s in details["search_steps"] if s["was_selected"]]
+            assert len(selected) == 1
+            assert selected[0]["ads_found"] == 25
+            assert selected[0]["url"].startswith("https://")
+
+    def test_submit_without_search_log_backward_compat(self, app, client):
+        """POST sans search_log (ancienne extension) fonctionne toujours."""
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Citroen",
+                    "model": "C4",
+                    "year": 2022,
+                    "region": "Normandie",
+                    "prices": prices_20,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            mp = MarketPrice.query.filter_by(make="Citroen", model="C4", year=2022).first()
+            details = mp.get_calculation_details()
+            # search_steps est None (pas envoye) -- pas d'erreur
+            assert details.get("search_steps") is None

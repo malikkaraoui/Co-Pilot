@@ -41,6 +41,20 @@ class PriceDetail(BaseModel):
     fuel: str | None = None
 
 
+class SearchStep(BaseModel):
+    """Un pas de la cascade de recherche argus."""
+
+    step: int = Field(ge=1, le=10)
+    precision: int = Field(ge=1, le=5)
+    location_type: str = Field(max_length=20)
+    year_spread: int = Field(ge=1, le=5)
+    filters_applied: list[str] = Field(default_factory=list)
+    ads_found: int = Field(ge=0)
+    url: str = Field(max_length=500)
+    was_selected: bool = False
+    reason: str = Field(default="", max_length=200)
+
+
 class MarketPricesRequest(BaseModel):
     """Schema de validation pour les prix du marche envoyes par l'extension."""
 
@@ -53,6 +67,7 @@ class MarketPricesRequest(BaseModel):
     category: str | None = Field(default=None, max_length=40)
     fuel: str | None = Field(default=None, max_length=30)
     precision: int | None = Field(default=None, ge=1, le=5)
+    search_log: list[SearchStep] | None = None
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -131,10 +146,11 @@ def submit_market_prices():
             }
         ), 400
 
-    # Convertir price_details en liste de dicts pour le stockage JSON
+    # Convertir price_details et search_log en liste de dicts pour le stockage JSON
     raw_details = None
     if req.price_details:
         raw_details = [d.model_dump() for d in req.price_details]
+    raw_search_log = [s.model_dump() for s in req.search_log] if req.search_log else None
 
     try:
         mp = store_market_prices(
@@ -146,6 +162,7 @@ def submit_market_prices():
             fuel=req.fuel,
             precision=req.precision,
             price_details=raw_details,
+            search_log=raw_search_log,
         )
     except (ValueError, TypeError, OSError) as exc:
         logger.error("Failed to store market prices: %s", exc)
