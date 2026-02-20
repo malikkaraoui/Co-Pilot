@@ -1502,6 +1502,78 @@
           console.warn("[CoPilot] POST /api/market-prices FAILED:", marketResp.status, errBody);
         } else {
           console.log("[CoPilot] POST /api/market-prices OK, submitted=true");
+
+          // 5b. BONUS multi-region : si la cascade a reussi rapidement (precision >= 4),
+          //     profiter de la session pour collecter le meme vehicule dans 2 autres regions.
+          //     Max 3 collectes totales (1 principale + 2 bonus).
+          if (collectedPrecision >= 4 && !isRedirect) {
+            const MAX_BONUS_REGIONS = 2;
+            // Regions post-2016 uniquement (pas les anciennes qui sont des doublons)
+            const POST_2016_REGIONS = [
+              "Île-de-France", "Auvergne-Rhône-Alpes", "Provence-Alpes-Côte d'Azur",
+              "Occitanie", "Nouvelle-Aquitaine", "Hauts-de-France", "Grand Est",
+              "Bretagne", "Pays de la Loire", "Normandie", "Bourgogne-Franche-Comté",
+              "Centre-Val de Loire", "Corse",
+            ];
+            const otherRegions = POST_2016_REGIONS.filter((r) => r !== targetRegion && LBC_REGIONS[r]);
+            // Melanger aleatoirement pour couvrir plus de regions au fil du temps
+            for (let j = otherRegions.length - 1; j > 0; j--) {
+              const k = Math.floor(Math.random() * (j + 1));
+              [otherRegions[j], otherRegions[k]] = [otherRegions[k], otherRegions[j]];
+            }
+            const bonusRegions = otherRegions.slice(0, MAX_BONUS_REGIONS);
+
+            for (const bonusRegion of bonusRegions) {
+              try {
+                await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
+                const bonusLocParam = LBC_REGIONS[bonusRegion];
+                let bonusUrl = coreUrl + fullFilters;
+                if (bonusLocParam) bonusUrl += `&locations=${bonusLocParam}`;
+                if (targetYear >= 1990) bonusUrl += `&regdate=${targetYear - 1}-${targetYear + 1}`;
+
+                const bonusPrices = await fetchSearchPrices(bonusUrl, targetYear, 1);
+                console.log("[CoPilot] bonus region %s: %d prix | %s", bonusRegion, bonusPrices.length, bonusUrl.substring(0, 120));
+
+                if (bonusPrices.length >= MIN_PRICES_FOR_ARGUS) {
+                  const bDetails = bonusPrices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
+                  const bInts = bDetails.map((p) => p.price);
+                  if (bInts.length >= 5) {
+                    const bonusPayload = {
+                      make: target.make,
+                      model: target.model,
+                      year: parseInt(target.year, 10),
+                      region: bonusRegion,
+                      prices: bInts,
+                      price_details: bDetails,
+                      category: urlCategory,
+                      fuel: fuelCode ? targetFuel : null,
+                      precision: 4,
+                      search_log: [{
+                        step: 1, precision: 4, location_type: "region",
+                        year_spread: 1, filters_applied: [
+                          ...(fullFilters.includes("fuel=") ? ["fuel"] : []),
+                          ...(fullFilters.includes("gearbox=") ? ["gearbox"] : []),
+                          ...(fullFilters.includes("horse_power_din=") ? ["hp"] : []),
+                          ...(fullFilters.includes("mileage=") ? ["km"] : []),
+                        ],
+                        ads_found: bonusPrices.length, url: bonusUrl,
+                        was_selected: true,
+                        reason: `bonus region: ${bonusPrices.length} annonces`,
+                      }],
+                    };
+                    const bResp = await fetch(marketUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(bonusPayload),
+                    });
+                    console.log("[CoPilot] bonus POST %s: %s", bonusRegion, bResp.ok ? "OK" : "FAIL");
+                  }
+                }
+              } catch (bonusErr) {
+                console.warn("[CoPilot] bonus region %s failed:", bonusRegion, bonusErr);
+              }
+            }
+          }
         }
       } else {
         console.log(`[CoPilot] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
@@ -1511,7 +1583,7 @@
       // Silencieux -- ne pas perturber l'experience utilisateur
     }
 
-    // 5. Sauvegarder le timestamp (meme si pas assez de prix)
+    // 6. Sauvegarder le timestamp (meme si pas assez de prix)
     localStorage.setItem("copilot_last_collect", String(Date.now()));
     return { submitted, isCurrentVehicle };
   }
