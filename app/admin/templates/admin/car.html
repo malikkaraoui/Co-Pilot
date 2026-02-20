@@ -4,11 +4,145 @@
 {% block content %}
 <h2 class="mb-4">Vehicules</h2>
 
+<!-- Stat cards resume -->
+<div class="row mb-4">
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div style="font-size:2em; font-weight:bold; color:#3b82f6">{{ total_ref_models }}</div>
+      <div style="font-size:13px; color:#6b7280">Modeles dans le referentiel</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div style="font-size:2em; font-weight:bold; color:#22c55e">{{ covered_brands }}</div>
+      <div style="font-size:13px; color:#6b7280">Marques couvertes</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div style="font-size:2em; font-weight:bold; color:{% if uncovered_brands > 0 %}#ef4444{% else %}#22c55e{% endif %}">{{ uncovered_brands }}</div>
+      <div style="font-size:13px; color:#6b7280">Marques non couvertes</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div style="font-size:2em; font-weight:bold; color:#f59e0b">{{ unrecognized_models|length }}</div>
+      <div style="font-size:13px; color:#6b7280">Modeles non reconnus</div>
+    </div>
+  </div>
+</div>
+
+<!-- Enrichissement -->
+<div class="row mb-4">
+  <div class="col-md-4">
+    <div class="stat-card" style="border-left:4px solid #22c55e">
+      <strong>{{ enrichment_counts.get('complete', 0) }}</strong>
+      <span style="color:#6b7280; font-size:13px"> complets (CSV + specs)</span>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card" style="border-left:4px solid #f59e0b">
+      <strong>{{ enrichment_counts.get('partial', 0) }}</strong>
+      <span style="color:#6b7280; font-size:13px"> partiels (CSV ou marche)</span>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card" style="border-left:4px solid #ef4444">
+      <strong>{{ enrichment_counts.get('pending', 0) }}</strong>
+      <span style="color:#6b7280; font-size:13px"> en attente (seed sans enrichissement)</span>
+    </div>
+  </div>
+</div>
+
+<!-- Couverture marques (TRANSPARENCE) -->
+<div class="stat-card mb-4">
+  <h5 class="mb-3">
+    Couverture marques
+    <span class="badge bg-secondary">{{ total_scanned_brands }} scannees</span>
+    <small class="text-muted ms-2" style="font-size:12px">Chaque marque vue dans les scans LBC. Vert = dans le referentiel, rouge = absente.</small>
+  </h5>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Marque LBC</th>
+          <th title="Nom normalise apres alias">Normalise</th>
+          <th>Scans</th>
+          <th title="La marque a au moins un modele dans le referentiel">Referentiel</th>
+          <th title="Des prix marche ont ete collectes pour cette marque">Marche</th>
+          <th title="Nombre de modeles dans le referentiel pour cette marque">Modeles ref.</th>
+          <th title="Modeles scannes mais pas encore reconnus">Non reconnus</th>
+          <th title="Un alias est configure dans BRAND_ALIASES">Alias</th>
+          <th>Etat</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in brand_coverage %}
+        <tr style="{% if not b.in_referentiel and b.scan_count >= 3 %}background:#fef2f2{% elif b.in_referentiel and b.models_unrecognized > 0 %}background:#fffbeb{% endif %}">
+          <td><strong>{{ b.brand }}</strong></td>
+          <td style="font-size:12px; color:#6b7280">{{ b.brand_normalized }}</td>
+          <td>
+            {% if b.scan_count >= 10 %}
+              <span class="badge bg-danger">{{ b.scan_count }}</span>
+            {% elif b.scan_count >= 3 %}
+              <span class="badge bg-warning text-dark">{{ b.scan_count }}</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ b.scan_count }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if b.in_referentiel %}
+              <span class="badge bg-success">Oui</span>
+            {% else %}
+              <span class="badge bg-danger">Non</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if b.in_market %}
+              <span class="badge bg-primary">Oui</span>
+            {% else %}
+              <span class="badge bg-light text-muted">Non</span>
+            {% endif %}
+          </td>
+          <td>{{ b.models_in_ref }}</td>
+          <td>
+            {% if b.models_unrecognized > 0 %}
+              <span style="color:#ef4444; font-weight:bold">{{ b.models_unrecognized }}</span>
+            {% else %}
+              <span style="color:#9ca3af">0</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if b.has_alias %}
+              <span class="badge bg-success" title="Alias configure dans vehicle_lookup.py">OK</span>
+            {% else %}
+              <span class="badge bg-light text-muted" title="Pas d'alias, le nom LBC est utilise tel quel">-</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px">
+            {% if b.in_referentiel and b.models_unrecognized == 0 %}
+              <span style="color:#22c55e">Couvert</span>
+            {% elif b.in_referentiel and b.models_unrecognized > 0 %}
+              <span style="color:#f59e0b">Modeles manquants</span>
+            {% elif b.scan_count >= 3 %}
+              <span style="color:#ef4444; font-weight:bold">A ajouter</span>
+            {% else %}
+              <span style="color:#9ca3af">Rare</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <!-- Modeles non reconnus -->
 <div class="stat-card mb-4">
   <h5 class="mb-3">
     Modeles demandes mais non reconnus
     <span class="badge bg-secondary">{{ unrecognized_models|length }}</span>
+    <small class="text-muted ms-2" style="font-size:12px">Vehicules scannes sur LBC mais pas dans notre referentiel. Scanne-les sur LBC pour collecter des prix.</small>
   </h5>
   {% if unrecognized_models %}
     <div class="table-responsive">
@@ -22,7 +156,7 @@
             <th>Premier scan</th>
             <th>Dernier scan</th>
             <th>Tendance 7j</th>
-            <th>Base CSV</th>
+            <th>Donnees</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -60,9 +194,15 @@
             </td>
             <td>
               {% if item.csv_available %}
-                <span class="badge bg-success" title="Donnees techniques disponibles dans le CSV Kaggle">Dispo</span>
-              {% else %}
-                <span class="badge bg-secondary" title="Pas dans le CSV -- enrichissement futur necessaire (RAG, scrap, forums)">Absent</span>
+                <span class="badge bg-success" title="Donnees techniques disponibles dans le CSV Kaggle">CSV</span>
+              {% endif %}
+              {% if item.market_available %}
+                <span class="badge bg-primary" title="{{ item.market_samples }} annonces collectees sur LBC">Marche ({{ item.market_samples }})</span>
+              {% elif item.market_samples > 0 %}
+                <span class="badge bg-secondary" title="{{ item.market_samples }} annonces (min 20)">{{ item.market_samples }}/20</span>
+              {% endif %}
+              {% if not item.csv_available and not item.market_samples %}
+                <span class="badge bg-light text-muted" title="Scanne ce vehicule sur LBC pour collecter des prix">Aucune -- scanner sur LBC</span>
               {% endif %}
             </td>
             <td>
@@ -72,24 +212,28 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="brand" value="{{ item.brand }}">
                 <input type="hidden" name="model" value="{{ item.model }}">
+                <input type="hidden" name="source" value="csv">
                 <button type="submit" class="btn btn-sm btn-primary"
                         title="Ajouter {{ item.brand }} {{ item.model }} + fiches CSV">
                   + Ajouter
                 </button>
               </form>
-              {% elif item.count >= 5 %}
-                <span class="text-muted" style="font-size:12px;" title="5+ scans mais pas de donnees CSV -- enrichissement futur (RAG, YouTube, forums)">En attente enrichissement</span>
-              {% else %}
+              {% elif item.market_available %}
               <form method="POST" action="{{ url_for('admin.quick_add_vehicle') }}"
                     style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="brand" value="{{ item.brand }}">
                 <input type="hidden" name="model" value="{{ item.model }}">
-                <button type="submit" class="btn btn-sm btn-outline-secondary"
-                        title="Ajouter {{ item.brand }} {{ item.model }} sans fiche technique">
-                  + Coquille vide
+                <input type="hidden" name="source" value="market">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        title="Ajouter {{ item.brand }} {{ item.model }} avec donnees marche ({{ item.market_samples }} annonces)">
+                  + Ajouter (marche)
                 </button>
               </form>
+              {% elif item.count >= 5 %}
+                <span class="text-muted" style="font-size:12px;" title="En attente de donnees marche ou CSV">En attente de donnees</span>
+              {% else %}
+                <span class="text-muted" style="font-size:12px;">{{ item.count }}/5 scans</span>
               {% endif %}
             </td>
           </tr>
@@ -104,7 +248,10 @@
 
 <!-- Referentiel actuel -->
 <div class="stat-card">
-  <h5 class="mb-3">Referentiel actuel ({{ pagination.total }} modeles)</h5>
+  <h5 class="mb-3">
+    Referentiel actuel ({{ pagination.total }} modeles)
+    <small class="text-muted ms-2" style="font-size:12px">Source : seed (77 hardcodes) + CSV Kaggle (specs) + marche LBC (prix crowdsources)</small>
+  </h5>
   <table class="table table-sm mb-0">
     <thead>
       <tr>
@@ -124,11 +271,11 @@
         <td>{{ v.year_start or '?' }} - {{ v.year_end or 'present' }}</td>
         <td>
           {% if v.enrichment_status == 'complete' %}
-            <span class="badge bg-success">Complet</span>
+            <span class="badge bg-success" title="CSV specs + seed complet">Complet</span>
           {% elif v.enrichment_status == 'partial' %}
-            <span class="badge bg-warning text-dark">Partiel</span>
+            <span class="badge bg-warning text-dark" title="Donnees partielles (CSV ou marche)">Partiel</span>
           {% else %}
-            <span class="badge bg-info">En attente</span>
+            <span class="badge bg-info" title="Ajoute au referentiel, en attente d'enrichissement">En attente</span>
           {% endif %}
         </td>
       </tr>

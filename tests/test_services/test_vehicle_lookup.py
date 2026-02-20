@@ -3,9 +3,11 @@
 from app.extensions import db
 from app.models.vehicle import Vehicle
 from app.services.vehicle_lookup import (
+    GENERIC_MODELS,
     _normalize_brand,
     _normalize_model,
     find_vehicle,
+    is_generic_model,
 )
 
 
@@ -35,6 +37,48 @@ class TestNormalization:
 
     def test_model_passthrough(self):
         assert _normalize_model("3008") == "3008"
+
+    # Aliases nouvelles marques
+    def test_brand_ds(self):
+        assert _normalize_brand("DS") == "ds"
+
+    def test_brand_ds_automobiles(self):
+        assert _normalize_brand("DS Automobiles") == "ds"
+
+    def test_brand_land_rover_hyphen(self):
+        assert _normalize_brand("Land-Rover") == "land rover"
+
+    def test_brand_landrover(self):
+        assert _normalize_brand("LandRover") == "land rover"
+
+    def test_brand_land_rover_space(self):
+        assert _normalize_brand("Land Rover") == "land rover"
+
+    def test_brand_honda(self):
+        assert _normalize_brand("Honda") == "honda"
+
+    def test_brand_porsche(self):
+        assert _normalize_brand("Porsche") == "porsche"
+
+    # Aliases DS modeles
+    def test_model_ds3(self):
+        assert _normalize_model("DS 3") == "3"
+
+    def test_model_ds7_crossback(self):
+        assert _normalize_model("DS 7 Crossback") == "7 crossback"
+
+    # Generiques
+    def test_generic_divers(self):
+        assert is_generic_model("Divers")
+
+    def test_generic_autres(self):
+        assert is_generic_model("Autres")
+
+    def test_not_generic(self):
+        assert not is_generic_model("Civic")
+
+    def test_generic_models_has_divers(self):
+        assert "divers" in GENERIC_MODELS
 
 
 class TestFindVehicle:

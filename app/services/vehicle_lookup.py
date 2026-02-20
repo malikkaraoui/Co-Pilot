@@ -18,6 +18,7 @@ GENERIC_MODELS: frozenset[str] = frozenset(
         "autres",
         "autre",
         "other",
+        "divers",
     }
 )
 
@@ -27,21 +28,106 @@ def is_generic_model(model: str) -> bool:
     return _strip_accents(model.strip().lower()) in GENERIC_MODELS
 
 
-# Alias de marques courantes -> nom canonique en base
+# Alias de marques courantes -> nom canonique en base.
+# IMPORTANT : cette table est la CLE de la reconnaissance vehicule.
+# Chaque marque doit pointer vers son nom canonique en minuscules.
+# LBC envoie des noms varies (tirets, espaces, casse differente).
 BRAND_ALIASES: dict[str, str] = {
+    # ── Marques francaises ──
+    "peugeot": "peugeot",
+    "renault": "renault",
+    "citroen": "citroen",
+    "citroën": "citroen",
+    "ds": "ds",
+    "ds automobiles": "ds",
+    "dacia": "dacia",
+    "alpine": "alpine",
+    "bugatti": "bugatti",
+    # ── Marques allemandes ──
+    "volkswagen": "volkswagen",
     "vw": "volkswagen",
     "bmw": "bmw",
+    "mercedes": "mercedes",
+    "mercedes-benz": "mercedes",
     "merco": "mercedes",
     "merc": "mercedes",
-    "mercedes-benz": "mercedes",
     "mb": "mercedes",
-    "mg motor": "mg",
+    "audi": "audi",
+    "porsche": "porsche",
+    "opel": "opel",
+    "smart": "smart",
+    # ── Marques japonaises ──
+    "toyota": "toyota",
+    "honda": "honda",
+    "nissan": "nissan",
+    "mazda": "mazda",
+    "suzuki": "suzuki",
+    "mitsubishi": "mitsubishi",
+    "subaru": "subaru",
+    "lexus": "lexus",
+    "infiniti": "infiniti",
+    # ── Marques coreennes ──
+    "hyundai": "hyundai",
     "hyunday": "hyundai",
     "hundai": "hyundai",
+    "kia": "kia",
+    "ssangyong": "ssangyong",
+    "genesis": "genesis",
+    # ── Marques italiennes ──
+    "fiat": "fiat",
+    "alfa romeo": "alfa romeo",
+    "alfa-romeo": "alfa romeo",
+    "alfaromeo": "alfa romeo",
+    "alfa": "alfa romeo",
+    "maserati": "maserati",
+    "lamborghini": "lamborghini",
+    "ferrari": "ferrari",
+    "lancia": "lancia",
+    "abarth": "abarth",
+    # ── Marques britanniques ──
+    "land rover": "land rover",
+    "land-rover": "land rover",
+    "landrover": "land rover",
+    "jaguar": "jaguar",
+    "mini": "mini",
+    "bentley": "bentley",
+    "aston martin": "aston martin",
+    "aston-martin": "aston martin",
+    "astonmartin": "aston martin",
+    "rolls royce": "rolls royce",
+    "rolls-royce": "rolls royce",
+    "rollsroyce": "rolls royce",
+    "mclaren": "mclaren",
+    "lotus": "lotus",
+    "mg": "mg",
+    "mg motor": "mg",
+    # ── Marques espagnoles ──
     "seat": "seat",
     "cupra": "cupra",
+    # ── Marques tcheques ──
     "skoda": "skoda",
+    "škoda": "skoda",
+    # ── Marques americaines ──
+    "ford": "ford",
     "jeep": "jeep",
+    "tesla": "tesla",
+    "chevrolet": "chevrolet",
+    "dodge": "dodge",
+    "chrysler": "chrysler",
+    "cadillac": "cadillac",
+    "lincoln": "lincoln",
+    "gmc": "gmc",
+    # ── Marques suedoises ──
+    "volvo": "volvo",
+    # ── Marques chinoises (croissance rapide en France) ──
+    "byd": "byd",
+    "aiways": "aiways",
+    "nio": "nio",
+    "xpeng": "xpeng",
+    "leapmotor": "leapmotor",
+    "seres": "seres",
+    # ── Marques indiennes/autres ──
+    "tata": "tata",
 }
 
 # Alias de modeles courants -> nom canonique en base
@@ -238,6 +324,39 @@ MODEL_ALIASES: dict[str, str] = {
     "fiat 600": "600",
     "600e": "600",
     "600 hybrid": "600",
+    # DS (LBC envoie "DS 3", CSV a "3")
+    "ds 3": "3",
+    "ds3": "3",
+    "ds 3 crossback": "3 crossback",
+    "ds3 crossback": "3 crossback",
+    "ds 4": "4",
+    "ds4": "4",
+    "ds 7": "7",
+    "ds7": "7",
+    "ds 7 crossback": "7 crossback",
+    "ds7 crossback": "7 crossback",
+    "ds 9": "9",
+    "ds9": "9",
+    # Land Rover
+    "range rover velar": "range rover velar",
+    "range rover evoque": "range rover evoque",
+    "range rover sport": "range rover sport",
+    "range rover": "range rover",
+    "defender": "defender",
+    "discovery": "discovery",
+    "discovery sport": "discovery sport",
+    # Honda
+    "civic 11": "civic",
+    "civic xi": "civic",
+    "hr-v": "hr-v",
+    "hrv": "hr-v",
+    "jazz 4": "jazz",
+    "jazz iv": "jazz",
+    # Porsche
+    "macan": "macan",
+    "cayenne": "cayenne",
+    "panamera": "panamera",
+    "taycan": "taycan",
 }
 
 

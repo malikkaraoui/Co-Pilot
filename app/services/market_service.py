@@ -273,6 +273,24 @@ def store_market_prices(
     db.session.add(mp)
     db.session.commit()
     logger.info(log_msg, "Created", *log_args)
+
+    # Auto-creation proactive : si le vehicule n'est pas dans le referentiel
+    # et qu'on a assez de donnees, le creer automatiquement.
+    try:
+        from app.services.vehicle_factory import auto_create_vehicle
+
+        vehicle = auto_create_vehicle(make, model)
+        if vehicle:
+            logger.info(
+                "Proactive auto-create: %s %s (id=%d) from market data",
+                vehicle.brand,
+                vehicle.model,
+                vehicle.id,
+            )
+    except Exception:
+        # Ne pas faire echouer le store_market_prices pour une auto-creation
+        logger.debug("Auto-create skipped for %s %s", make, model, exc_info=True)
+
     return mp
 
 

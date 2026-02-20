@@ -245,66 +245,29 @@ def car():
         .all()
     )
 
-    # Exclure les vehicules deja ajoutes au referentiel (quick-add ou seed)
-    from app.services.vehicle_lookup import find_vehicle
+    # Exclure les vehicules deja ajoutes au referentiel + les generiques ("Autres")
+    from app.services.vehicle_lookup import find_vehicle, is_generic_model
 
     unrecognized_rows = [
         row
         for row in unrecognized_rows_raw
         if not find_vehicle(row.vehicle_make, row.vehicle_model)
+        and not is_generic_model(row.vehicle_model)
     ]
 
-    # Auto-promotion : vehicules avec 5+ scans → lookup CSV automatique
-    from app.services.csv_enrichment import has_specs, lookup_specs
+    # Auto-promotion : vehicules avec assez de scans + donnees → auto-creation
+    from app.services.csv_enrichment import has_specs
+    from app.services.market_service import market_text_key, market_text_key_expr
+    from app.services.vehicle_factory import auto_create_vehicle
 
     auto_promoted = []
     still_unrecognized = []
     for row in unrecognized_rows:
-        if row.demand_count >= 5:
-            csv_specs = lookup_specs(row.vehicle_make, row.vehicle_model)
-            if csv_specs:
-                # Auto-creer le vehicule + specs
-                brand_clean = (
-                    row.vehicle_make.upper()
-                    if len(row.vehicle_make) <= 3
-                    else row.vehicle_make.title()
-                )
-                model_clean = row.vehicle_model
-
-                # Verifier doublon (race condition)
-                existing = Vehicle.query.filter(
-                    db.func.lower(Vehicle.brand) == brand_clean.lower(),
-                    db.func.lower(Vehicle.model) == model_clean.lower(),
-                ).first()
-                if not existing:
-                    years_from = [s["year_from"] for s in csv_specs if s.get("year_from")]
-                    years_to = [s["year_to"] for s in csv_specs if s.get("year_to")]
-                    vehicle = Vehicle(
-                        brand=brand_clean,
-                        model=model_clean,
-                        year_start=min(years_from) if years_from else None,
-                        year_end=max(years_to) if years_to else None,
-                        enrichment_status="partial",
-                    )
-                    db.session.add(vehicle)
-                    db.session.flush()
-                    from app.models.vehicle import VehicleSpec
-
-                    for spec_data in csv_specs:
-                        spec_data.pop("generation", None)
-                        spec_data.pop("year_from", None)
-                        spec_data.pop("year_to", None)
-                        db.session.add(VehicleSpec(vehicle_id=vehicle.id, **spec_data))
-                    db.session.commit()
-                    auto_promoted.append(f"{brand_clean} {model_clean} ({len(csv_specs)} fiches)")
-                    logger.info(
-                        "Auto-promoted %s %s: %d scans, %d CSV specs",
-                        brand_clean,
-                        model_clean,
-                        row.demand_count,
-                        len(csv_specs),
-                    )
-                continue  # Ne pas l'afficher dans la liste non reconnus
+        if row.demand_count >= 3:
+            vehicle = auto_create_vehicle(row.vehicle_make, row.vehicle_model)
+            if vehicle:
+                auto_promoted.append(f"{vehicle.brand} {vehicle.model}")
+                continue
         still_unrecognized.append(row)
     unrecognized_rows = still_unrecognized
 
@@ -365,6 +328,13 @@ def car():
         # has_specs() est O(1) grace au cache en memoire
         csv_available = has_specs(row.vehicle_make, row.vehicle_model)
 
+        # Statut marche : est-ce qu'on a des prix collectes pour ce vehicule ?
+        market_records = MarketPrice.query.filter(
+            market_text_key_expr(MarketPrice.make) == market_text_key(row.vehicle_make),
+            market_text_key_expr(MarketPrice.model) == market_text_key(row.vehicle_model),
+        ).all()
+        market_samples = sum(r.sample_count for r in market_records) if market_records else 0
+
         unrecognized_models.append(
             {
                 "brand": row.vehicle_make,
@@ -374,6 +344,8 @@ def car():
                 "last_seen": row.last_seen,
                 "trend": trend,
                 "csv_available": csv_available,
+                "market_available": market_samples >= 20,
+                "market_samples": market_samples,
             }
         )
 
@@ -384,11 +356,85 @@ def car():
         page=page, per_page=per_page, error_out=False
     )
 
+    # ── Couverture marques : comparer referentiel vs marques scannees ──
+    # Toutes les marques scannees (reconnus + non reconnus)
+    scanned_brands_raw = (
+        db.session.query(
+            ScanLog.vehicle_make,
+            db.func.count(ScanLog.id).label("scan_count"),
+        )
+        .filter(ScanLog.vehicle_make.isnot(None))
+        .group_by(ScanLog.vehicle_make)
+        .order_by(db.func.count(ScanLog.id).desc())
+        .all()
+    )
+
+    # Marques dans le referentiel (en minuscules pour comparaison)
+    ref_brands = {v.brand.lower() for v in db.session.query(Vehicle.brand).distinct().all()}
+
+    # Marques dans le marche (MarketPrice)
+    market_brands = {m.make.lower() for m in db.session.query(MarketPrice.make).distinct().all()}
+
+    from app.services.vehicle_lookup import BRAND_ALIASES, _normalize_brand
+
+    brand_coverage = []
+    for row in scanned_brands_raw:
+        brand_raw = row.vehicle_make
+        brand_norm = _normalize_brand(brand_raw)
+        in_referentiel = brand_norm in ref_brands
+        in_market = brand_norm in market_brands or brand_raw.lower() in market_brands
+
+        # Compter les modeles dans le referentiel pour cette marque
+        models_in_ref = Vehicle.query.filter(
+            db.func.lower(Vehicle.brand) == brand_norm,
+        ).count()
+
+        # Compter les modeles scannes (L2 warning = non reconnus)
+        models_scanned_unrec = sum(
+            1 for u in unrecognized_models if u["brand"].lower() == brand_raw.lower()
+        )
+
+        brand_coverage.append(
+            {
+                "brand": brand_raw,
+                "brand_normalized": brand_norm,
+                "scan_count": row.scan_count,
+                "in_referentiel": in_referentiel,
+                "in_market": in_market,
+                "models_in_ref": models_in_ref,
+                "models_unrecognized": models_scanned_unrec,
+                "has_alias": brand_raw.lower() in BRAND_ALIASES,
+            }
+        )
+
+    # Stats resume pour les stat cards
+    total_scanned_brands = len(brand_coverage)
+    covered_brands = sum(1 for b in brand_coverage if b["in_referentiel"])
+    uncovered_brands = total_scanned_brands - covered_brands
+    total_ref_models = known_pagination.total
+
+    # Enrichissement du referentiel : compter par source
+    enrichment_stats = (
+        db.session.query(
+            Vehicle.enrichment_status,
+            db.func.count(Vehicle.id).label("count"),
+        )
+        .group_by(Vehicle.enrichment_status)
+        .all()
+    )
+    enrichment_counts = {row.enrichment_status: row.count for row in enrichment_stats}
+
     return render_template(
         "admin/car.html",
         unrecognized_models=unrecognized_models,
         known_vehicles=known_pagination.items,
         pagination=known_pagination,
+        brand_coverage=brand_coverage,
+        total_scanned_brands=total_scanned_brands,
+        covered_brands=covered_brands,
+        uncovered_brands=uncovered_brands,
+        total_ref_models=total_ref_models,
+        enrichment_counts=enrichment_counts,
     )
 
 
@@ -424,12 +470,30 @@ def quick_add_vehicle():
     # Preserver la casse d'origine pour les modeles avec casse mixte (iX3, ID.3, e-C3)
     model_clean = model_name
 
+    source = request.form.get("source", "csv")
     current_year = datetime.now(timezone.utc).year
+
+    # Determiner year_start/year_end depuis les donnees marche si source=market
+    year_start = current_year
+    year_end = None
+    if source == "market":
+        from app.services.market_service import market_text_key, market_text_key_expr
+
+        market_records = MarketPrice.query.filter(
+            market_text_key_expr(MarketPrice.make) == market_text_key(brand_clean),
+            market_text_key_expr(MarketPrice.model) == market_text_key(model_clean),
+        ).all()
+        if market_records:
+            years = [r.year for r in market_records if r.year]
+            if years:
+                year_start = min(years)
+                year_end = max(years)
 
     vehicle = Vehicle(
         brand=brand_clean,
         model=model_clean,
-        year_start=current_year,
+        year_start=year_start,
+        year_end=year_end,
         enrichment_status="pending",
     )
     db.session.add(vehicle)
@@ -441,10 +505,11 @@ def quick_add_vehicle():
         return redirect(url_for("admin.car"))
 
     logger.info(
-        "Quick-add vehicle: %s %s (id=%d) by admin '%s'",
+        "Quick-add vehicle: %s %s (id=%d, source=%s) by admin '%s'",
         brand_clean,
         model_clean,
         vehicle.id,
+        source,
         current_user.username,
     )
 
@@ -478,11 +543,17 @@ def quick_add_vehicle():
         logger.info(
             "Auto-enriched %s %s: %d specs from CSV", brand_clean, model_clean, specs_created
         )
+    elif source == "market":
+        vehicle.enrichment_status = "partial"
+        db.session.commit()
 
+    sources_msg = []
+    if specs_created:
+        sources_msg.append(f"{specs_created} fiches CSV")
+    if source == "market":
+        sources_msg.append("donnees marche")
     enrichment_msg = (
-        f" + {specs_created} fiches techniques importees du CSV"
-        if specs_created
-        else " (enrichissement en attente)"
+        f" (sources: {' + '.join(sources_msg)})" if sources_msg else " (enrichissement en attente)"
     )
     flash(
         f"{brand_clean} {model_clean} ajoute au referentiel{enrichment_msg}.",

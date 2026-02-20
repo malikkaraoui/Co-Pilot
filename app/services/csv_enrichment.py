@@ -31,6 +31,8 @@ TRANS_MAP = {
 # Nos noms canoniques (DB/LBC) different du CSV sur certaines marques/modeles.
 CSV_BRAND_NORM: dict[str, str] = {
     "mercedes": "mercedes-benz",
+    "land-rover": "land rover",
+    "landrover": "land rover",
 }
 
 CSV_MODEL_NORM: dict[str, str] = {
@@ -48,6 +50,19 @@ CSV_MODEL_NORM: dict[str, str] = {
     "classe gle": "gle",
     "gle": "gle",  # CSV a "GLE" directement
     "cla": "cla-class",
+    # DS : LBC dit "DS 3", CSV dit "3"
+    "ds 3": "3",
+    "ds3": "3",
+    "ds 3 crossback": "3 crossback",
+    "ds3 crossback": "3 crossback",
+    "ds 4": "4",
+    "ds4": "4",
+    "ds 7": "7",
+    "ds7": "7",
+    "ds 7 crossback": "7 crossback",
+    "ds7 crossback": "7 crossback",
+    "ds 9": "9",
+    "ds9": "9",
 }
 
 
