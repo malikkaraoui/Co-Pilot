@@ -15,9 +15,58 @@ from app.models.market_price import MarketPrice
 logger = logging.getLogger(__name__)
 
 CACHE_DURATION_HOURS = 24
-MIN_SAMPLE_COUNT = 20  # Minimum de prix acceptes par l'API
+MIN_SAMPLE_COUNT = 20  # Minimum de prix standard (voitures courantes)
+MIN_SAMPLE_NICHE = 10  # Voitures sportives (300-420 ch)
+MIN_SAMPLE_ULTRA_NICHE = 5  # Supercars (420+ ch), hyper rares
+MIN_SAMPLE_ABSOLUTE = 5  # Minimum absolu accepte par l'API
 IQR_MIN_KEEP = 3  # Seuil de securite IQR : ne pas descendre en-dessous
 IQR_MULTIPLIER = 1.5
+
+
+def get_min_sample_count(make: str, model: str) -> int:
+    """Seuil dynamique d'annonces pour l'argus selon le segment du vehicule.
+
+    Les voitures de niche (sportives, supercars) ont tres peu d'annonces sur LBC.
+    Appliquer le meme seuil de 20 qu'une Clio les exclut systematiquement.
+
+    Tiers :
+    - Standard (< 300 ch) : 20 annonces minimum
+    - Niche sportive (300-420 ch) : 10 annonces
+    - Ultra-niche (> 420 ch) : 5 annonces (pas de diesel a ce niveau)
+
+    Un override admin (Vehicle.argus_min_samples) a priorite absolue.
+
+    Returns:
+        Le seuil minimum d'annonces requis.
+    """
+    from app.models.vehicle import VehicleSpec
+    from app.services.vehicle_lookup import find_vehicle
+
+    vehicle = find_vehicle(make, model)
+    if not vehicle:
+        return MIN_SAMPLE_COUNT
+
+    # Override admin : priorite absolue
+    if vehicle.argus_min_samples is not None:
+        return vehicle.argus_min_samples
+
+    # Lookup puissance max dans les specs
+    max_hp = (
+        db.session.query(func.max(VehicleSpec.power_hp))
+        .filter(
+            VehicleSpec.vehicle_id == vehicle.id,
+            VehicleSpec.power_hp.isnot(None),
+        )
+        .scalar()
+    )
+
+    if max_hp:
+        if max_hp > 420:
+            return MIN_SAMPLE_ULTRA_NICHE  # 5
+        if max_hp > 300:
+            return MIN_SAMPLE_NICHE  # 10
+
+    return MIN_SAMPLE_COUNT  # 20
 
 
 def normalize_market_text(text: str) -> str:

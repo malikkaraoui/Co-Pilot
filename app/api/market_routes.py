@@ -12,7 +12,8 @@ from app.extensions import db, limiter
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
 from app.services.market_service import (
-    MIN_SAMPLE_COUNT,
+    MIN_SAMPLE_ABSOLUTE,
+    get_min_sample_count,
     market_text_key,
     market_text_key_expr,
     store_market_prices,
@@ -47,7 +48,7 @@ class MarketPricesRequest(BaseModel):
     model: str = Field(min_length=1, max_length=80)
     year: int = Field(ge=1990, le=2030)
     region: str = Field(min_length=1, max_length=80)
-    prices: list[int] = Field(min_length=MIN_SAMPLE_COUNT)
+    prices: list[int] = Field(min_length=MIN_SAMPLE_ABSOLUTE)
     price_details: list[PriceDetail] | None = None
     category: str | None = Field(default=None, max_length=40)
     fuel: str | None = Field(default=None, max_length=30)
@@ -117,13 +118,16 @@ def submit_market_prices():
 
     # Filtrer les prix aberrants (< 500 EUR probablement des erreurs)
     valid_prices = [p for p in req.prices if p >= 500]
-    if len(valid_prices) < MIN_SAMPLE_COUNT:
+
+    # Seuil dynamique selon la puissance du vehicule (niche = moins d'annonces)
+    min_required = get_min_sample_count(req.make, req.model)
+    if len(valid_prices) < min_required:
         return jsonify(
             {
                 "success": False,
                 "error": "INSUFFICIENT_DATA",
-                "message": f"Pas assez de prix valides (minimum {MIN_SAMPLE_COUNT}).",
-                "data": None,
+                "message": f"Pas assez de prix valides ({len(valid_prices)}/{min_required}).",
+                "data": {"min_required": min_required, "received": len(valid_prices)},
             }
         ), 400
 

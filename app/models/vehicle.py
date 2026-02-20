@@ -20,6 +20,8 @@ class Vehicle(db.Model):
     enrichment_status = db.Column(
         db.String(20), nullable=False, default="complete", server_default="complete"
     )
+    # Override admin : seuil minimum d'annonces pour l'argus (NULL = dynamique auto)
+    argus_min_samples = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     specs = db.relationship("VehicleSpec", backref="vehicle", lazy="select")

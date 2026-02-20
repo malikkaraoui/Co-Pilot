@@ -1006,6 +1006,82 @@ def argus():
     page = min(page, total_pages)
     records = query.offset((page - 1) * per_page).limit(per_page).all()
 
+    # ── Argus insuffisant : vehicules scannes sans argus fiable ──
+    from app.services.market_service import (
+        MIN_SAMPLE_COUNT,
+        MIN_SAMPLE_NICHE,
+        MIN_SAMPLE_ULTRA_NICHE,
+        get_min_sample_count,
+    )
+
+    # Tous les MarketPrice avec leur seuil dynamique
+    all_market = MarketPrice.query.order_by(MarketPrice.make, MarketPrice.model).all()
+    insufficient_argus = []
+    for mp in all_market:
+        min_required = get_min_sample_count(mp.make, mp.model)
+        if mp.sample_count < min_required:
+            insufficient_argus.append(
+                {
+                    "make": mp.make,
+                    "model": mp.model,
+                    "year": mp.year,
+                    "region": mp.region,
+                    "fuel": mp.fuel,
+                    "sample_count": mp.sample_count,
+                    "min_required": min_required,
+                    "deficit": min_required - mp.sample_count,
+                    "price_median": mp.price_median,
+                    "price_iqr_mean": mp.price_iqr_mean,
+                    "precision": mp.precision,
+                    "collected_at": mp.collected_at,
+                }
+            )
+
+    # Vehicules du referentiel avec leur seuil configurable
+    vehicle_thresholds = []
+    for v in Vehicle.query.order_by(Vehicle.brand, Vehicle.model).all():
+        from app.models.vehicle import VehicleSpec
+
+        max_hp = (
+            db.session.query(db.func.max(VehicleSpec.power_hp))
+            .filter(VehicleSpec.vehicle_id == v.id, VehicleSpec.power_hp.isnot(None))
+            .scalar()
+        )
+        dynamic_min = MIN_SAMPLE_COUNT
+        if max_hp:
+            if max_hp > 420:
+                dynamic_min = MIN_SAMPLE_ULTRA_NICHE
+            elif max_hp > 300:
+                dynamic_min = MIN_SAMPLE_NICHE
+        effective_min = v.argus_min_samples if v.argus_min_samples is not None else dynamic_min
+        tier = "standard"
+        if max_hp and max_hp > 420:
+            tier = "ultra-niche"
+        elif max_hp and max_hp > 300:
+            tier = "niche"
+
+        # Compter les MarketPrice pour ce vehicule
+        from app.services.market_service import market_text_key, market_text_key_expr
+
+        mp_count = MarketPrice.query.filter(
+            market_text_key_expr(MarketPrice.make) == market_text_key(v.brand),
+            market_text_key_expr(MarketPrice.model) == market_text_key(v.model),
+        ).count()
+
+        vehicle_thresholds.append(
+            {
+                "id": v.id,
+                "brand": v.brand,
+                "model": v.model,
+                "max_hp": max_hp,
+                "tier": tier,
+                "dynamic_min": dynamic_min,
+                "override": v.argus_min_samples,
+                "effective_min": effective_min,
+                "market_count": mp_count,
+            }
+        )
+
     return render_template(
         "admin/argus.html",
         total_refs=total_refs,
@@ -1023,7 +1099,50 @@ def argus():
         total_pages=total_pages,
         total_results=total_results,
         now=now,
+        insufficient_argus=insufficient_argus,
+        vehicle_thresholds=vehicle_thresholds,
     )
+
+
+@admin_bp.route("/vehicle/<int:vehicle_id>/argus-threshold", methods=["POST"])
+@login_required
+def set_argus_threshold(vehicle_id: int):
+    """Override manuel du seuil minimum d'annonces pour l'argus d'un vehicule."""
+    vehicle = Vehicle.query.get_or_404(vehicle_id)
+    threshold_str = request.form.get("threshold", "").strip()
+
+    if not threshold_str or threshold_str.lower() == "auto":
+        vehicle.argus_min_samples = None
+        db.session.commit()
+        flash(
+            f"{vehicle.brand} {vehicle.model} : seuil argus remis en automatique.",
+            "success",
+        )
+    else:
+        try:
+            threshold = int(threshold_str)
+            if threshold < 1 or threshold > 100:
+                flash("Le seuil doit etre entre 1 et 100.", "error")
+                return redirect(url_for("admin.argus"))
+        except ValueError:
+            flash("Seuil invalide (nombre entier attendu).", "error")
+            return redirect(url_for("admin.argus"))
+
+        vehicle.argus_min_samples = threshold
+        db.session.commit()
+        logger.info(
+            "Argus threshold override: %s %s -> %d (admin '%s')",
+            vehicle.brand,
+            vehicle.model,
+            threshold,
+            current_user.username,
+        )
+        flash(
+            f"{vehicle.brand} {vehicle.model} : seuil argus fixe a {threshold} annonces.",
+            "success",
+        )
+
+    return redirect(url_for("admin.argus"))
 
 
 # ── YouTube Tests ────────────────────────────────────────────────

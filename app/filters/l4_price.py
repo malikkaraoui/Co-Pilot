@@ -13,8 +13,23 @@ class L4PriceFilter(BaseFilter):
 
     filter_id = "L4"
 
-    # Seuil minimum de prix pour utiliser les donnees MarketPrice
+    # Seuil par defaut (fallback si pas de specs en base)
     MARKET_MIN_SAMPLES = 3
+
+    def _get_min_samples(self, data: dict[str, Any]) -> int:
+        """Seuil dynamique base sur la puissance du vehicule."""
+        # Si l'annonce indique la puissance, l'utiliser directement
+        power = data.get("power_hp") or data.get("horse_power_din")
+        if power:
+            try:
+                hp = int(power)
+                if hp > 420:
+                    return 2  # Ultra-niche : 2 annonces suffisent
+                if hp > 300:
+                    return 3  # Niche sportive
+            except (ValueError, TypeError):
+                pass
+        return self.MARKET_MIN_SAMPLES
 
     def run(self, data: dict[str, Any]) -> FilterResult:
         price = data.get("price_eur")
@@ -58,8 +73,9 @@ class L4PriceFilter(BaseFilter):
             region,
             fuel,
         )
+        min_samples = self._get_min_samples(data)
         market = get_market_stats(make, model, year, region, fuel=fuel)
-        if market and market.sample_count >= self.MARKET_MIN_SAMPLES:
+        if market and market.sample_count >= min_samples:
             # IQR Mean = moyenne des 50% centraux du marche (plus robuste que la mediane)
             ref_price = market.price_iqr_mean or market.price_median
             source = "marche_leboncoin"
@@ -87,7 +103,7 @@ class L4PriceFilter(BaseFilter):
                     details["source"] = source
 
         if ref_price is None:
-            if market and market.sample_count < self.MARKET_MIN_SAMPLES:
+            if market and market.sample_count < min_samples:
                 logger.info(
                     "L4 insufficient samples: %s %s %d %s (n=%d, min=%d)",
                     make,
@@ -95,10 +111,10 @@ class L4PriceFilter(BaseFilter):
                     year,
                     region,
                     market.sample_count,
-                    self.MARKET_MIN_SAMPLES,
+                    min_samples,
                 )
                 return self.skip(
-                    f"Données insuffisantes ({market.sample_count} annonces, minimum {self.MARKET_MIN_SAMPLES})"
+                    f"Données insuffisantes ({market.sample_count} annonces, minimum {min_samples})"
                 )
             logger.info(
                 "L4 no ref: market=%s, tried make=%r model=%r year=%d region=%r",

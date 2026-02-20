@@ -350,4 +350,176 @@
   </p>
   {% endif %}
 </div>
+
+<!-- Argus insuffisant : donnees collectees mais en dessous du seuil -->
+{% if insufficient_argus %}
+<div class="stat-card mt-4" style="border-left:4px solid #f59e0b">
+  <h5 class="mb-3">
+    Argus insuffisant
+    <span class="badge bg-warning text-dark">{{ insufficient_argus|length }}</span>
+    <small class="text-muted ms-2" style="font-size:12px">
+      Donnees collectees mais pas assez d'annonces pour un argus fiable. Scanner ces vehicules sur LBC pour completer.
+    </small>
+  </h5>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Vehicule</th>
+          <th>Region</th>
+          <th>Motorisation</th>
+          <th class="text-center" title="Nombre d'annonces collectees">Collectees</th>
+          <th class="text-center" title="Nombre minimum requis pour un argus fiable">Requis</th>
+          <th class="text-center" title="Annonces manquantes">Deficit</th>
+          <th class="text-end" title="Prix median actuel (indicatif, fiabilite limitee)">Median indicatif</th>
+          <th class="text-center">Precision</th>
+          <th>Derniere collecte</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in insufficient_argus %}
+        <tr>
+          <td><strong>{{ a.make }}</strong> {{ a.model }} <span class="text-muted" style="font-size:12px">{{ a.year }}</span></td>
+          <td>{{ a.region }}</td>
+          <td>{{ a.fuel or '-' }}</td>
+          <td class="text-center">
+            <span class="badge bg-warning text-dark">{{ a.sample_count }}</span>
+          </td>
+          <td class="text-center">
+            <span class="badge bg-secondary">{{ a.min_required }}</span>
+          </td>
+          <td class="text-center">
+            <span style="color:#ef4444; font-weight:bold">-{{ a.deficit }}</span>
+          </td>
+          <td class="text-end" style="font-size:12px; color:#9ca3af" title="Indicatif seulement -- fiabilite limitee avec {{ a.sample_count }} annonces">
+            {{ "{:,}".format(a.price_iqr_mean or a.price_median).replace(",", " ") }} &euro; *
+          </td>
+          <td class="text-center">
+            {% if a.precision %}
+              {% set ap_colors = {5: 'success', 4: 'success', 3: 'info', 2: 'warning', 1: 'danger'} %}
+              <span class="badge bg-{{ ap_colors.get(a.precision, 'secondary') }}">
+                {{ '\u2605' * a.precision }}{{ '\u2606' * (5 - a.precision) }}
+              </span>
+            {% else %}
+              <span class="text-muted" style="font-size:11px">-</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px; white-space:nowrap">
+            {{ a.collected_at.strftime('%d/%m/%Y') if a.collected_at else '-' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <small class="text-muted mt-2 d-block">* Prix indicatif : fiabilite limitee. Scannez plus d'annonces LBC pour ces vehicules afin d'atteindre le seuil requis.</small>
+</div>
+{% endif %}
+
+<!-- Seuils dynamiques par vehicule : transparence totale -->
+<div class="stat-card mt-4">
+  <h5 class="mb-3">
+    Seuils argus par vehicule
+    <small class="text-muted ms-2" style="font-size:12px">
+      Le seuil minimum d'annonces est dynamique : standard (20), niche 300ch+ (10), ultra-niche 420ch+ (5). Override possible.
+    </small>
+  </h5>
+
+  <div class="row mb-3">
+    <div class="col-md-4">
+      <div class="p-2" style="background:#f0fdf4; border-radius:6px; border:1px solid #bbf7d0; font-size:13px">
+        <strong style="color:#22c55e">Standard</strong> : &lt; 300 ch &rarr; 20 annonces minimum
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="p-2" style="background:#fefce8; border-radius:6px; border:1px solid #fde68a; font-size:13px">
+        <strong style="color:#f59e0b">Niche</strong> : 300-420 ch &rarr; 10 annonces minimum
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="p-2" style="background:#fef2f2; border-radius:6px; border:1px solid #fecaca; font-size:13px">
+        <strong style="color:#ef4444">Ultra-niche</strong> : 420+ ch &rarr; 5 annonces minimum
+      </div>
+    </div>
+  </div>
+
+  <div class="table-responsive" style="max-height:500px; overflow-y:auto">
+    <table class="table table-sm table-hover mb-0" style="font-size:13px">
+      <thead class="table-light" style="position:sticky; top:0">
+        <tr>
+          <th>Vehicule</th>
+          <th class="text-center" title="Puissance max dans les specs CSV">Puissance max</th>
+          <th class="text-center">Segment</th>
+          <th class="text-center" title="Seuil calcule automatiquement">Seuil auto</th>
+          <th class="text-center" title="Override admin (prioritaire)">Override</th>
+          <th class="text-center" title="Seuil effectif utilise">Effectif</th>
+          <th class="text-center" title="Nombre de MarketPrice existants">Argus existants</th>
+          <th>Modifier</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vt in vehicle_thresholds %}
+        <tr style="{% if vt.override %}background:#eff6ff{% endif %}">
+          <td><strong>{{ vt.brand }}</strong> {{ vt.model }}</td>
+          <td class="text-center">
+            {% if vt.max_hp %}
+              {{ vt.max_hp }} ch
+            {% else %}
+              <span class="text-muted">?</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if vt.tier == 'ultra-niche' %}
+              <span class="badge bg-danger">Ultra-niche</span>
+            {% elif vt.tier == 'niche' %}
+              <span class="badge bg-warning text-dark">Niche</span>
+            {% else %}
+              <span class="badge bg-secondary">Standard</span>
+            {% endif %}
+          </td>
+          <td class="text-center">{{ vt.dynamic_min }}</td>
+          <td class="text-center">
+            {% if vt.override is not none %}
+              <span class="badge bg-info">{{ vt.override }}</span>
+            {% else %}
+              <span class="text-muted">auto</span>
+            {% endif %}
+          </td>
+          <td class="text-center"><strong>{{ vt.effective_min }}</strong></td>
+          <td class="text-center">
+            {% if vt.market_count > 0 %}
+              <span class="badge bg-success">{{ vt.market_count }}</span>
+            {% else %}
+              <span class="text-muted">0</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="POST" action="{{ url_for('admin.set_argus_threshold', vehicle_id=vt.id) }}"
+                  style="display:inline" class="d-flex gap-1 align-items-center">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="number" name="threshold" min="1" max="100"
+                     value="{{ vt.override if vt.override is not none else '' }}"
+                     placeholder="auto"
+                     class="form-control form-control-sm" style="width:70px; font-size:12px">
+              <button type="submit" class="btn btn-sm btn-outline-primary" style="font-size:11px" title="Appliquer ce seuil">OK</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <small class="text-muted mt-2 d-block">Laissez vide et cliquez OK pour remettre en mode automatique. Le seuil effectif = override si defini, sinon calcul dynamique par puissance.</small>
+</div>
+
+{% if get_flashed_messages() %}
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+  <div class="alert alert-{{ 'success' if category == 'success' else ('warning' if category == 'warning' else 'danger') }} alert-dismissible fade show" role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}
