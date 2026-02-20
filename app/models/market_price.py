@@ -23,6 +23,15 @@ class MarketPrice(db.Model):
     price_mean = db.Column(db.Integer)
     price_max = db.Column(db.Integer)
     price_std = db.Column(db.Float)
+
+    # IQR Mean (moyenne interquartile) : moyenne des prix entre Q1 et Q3 (50% central).
+    # Estimateur plus robuste que la mediane (sensible aux variations reelles)
+    # et que la moyenne (resistante aux outliers). Utilise comme prix de reference L4.
+    price_iqr_mean = db.Column(db.Integer, nullable=True)
+    # Percentiles P25 (bonne affaire) et P75 (cher) pour fourchette de prix
+    price_p25 = db.Column(db.Integer, nullable=True)
+    price_p75 = db.Column(db.Integer, nullable=True)
+
     sample_count = db.Column(db.Integer, default=0)
 
     # Precision de la collecte (1 a 5) : 5=geo+filtres complets, 1=national+filtres minimaux

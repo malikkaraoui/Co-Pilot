@@ -141,8 +141,12 @@ class TestL4MarketPriceFallback:
         from unittest.mock import MagicMock
 
         market = MagicMock()
+        market.price_iqr_mean = 17500
         market.price_median = 17500
+        market.price_p25 = 16000
+        market.price_p75 = 19000
         market.sample_count = 10
+        market.precision = 4
 
         with (
             patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
@@ -185,8 +189,12 @@ class TestL4MarketPriceFallback:
         from unittest.mock import MagicMock
 
         market = MagicMock()
+        market.price_iqr_mean = 60000
         market.price_median = 60000
+        market.price_p25 = 55000
+        market.price_p75 = 65000
         market.sample_count = 33
+        market.precision = 3
 
         # find_vehicle retourne None (pas dans le referentiel)
         # mais MarketPrice existe quand meme

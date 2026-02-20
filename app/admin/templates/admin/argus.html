@@ -88,11 +88,12 @@
           <th>Collecte</th>
           <th>Vehicule</th>
           <th>Region</th>
+          <th class="text-end" title="Moyenne Interquartile (50% central)">IQR Mean</th>
+          <th class="text-end" title="Percentile 25 (bonne affaire)">P25</th>
           <th class="text-end">Median</th>
+          <th class="text-end" title="Percentile 75 (cher)">P75</th>
           <th class="text-end">Min</th>
           <th class="text-end">Max</th>
-          <th class="text-end">Moyenne</th>
-          <th class="text-end">Ecart-type</th>
           <th class="text-center">Annonces</th>
           <th class="text-center">Precision</th>
           <th class="text-center">Fraicheur</th>
@@ -112,11 +113,12 @@
             <span class="text-muted" style="font-size:12px">{{ m.year }}</span>
           </td>
           <td>{{ m.region }}</td>
-          <td class="text-end"><strong>{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong></td>
+          <td class="text-end"><strong>{{ "{:,}".format(m.price_iqr_mean or m.price_median).replace(",", " ") }} &euro;</strong></td>
+          <td class="text-end" style="font-size:12px; color:#22c55e">{{ "{:,}".format(m.price_p25 or m.price_min).replace(",", " ") }} &euro;</td>
+          <td class="text-end" style="font-size:12px">{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</td>
+          <td class="text-end" style="font-size:12px; color:#f59e0b">{{ "{:,}".format(m.price_p75 or m.price_max).replace(",", " ") }} &euro;</td>
           <td class="text-end" style="font-size:12px">{{ "{:,}".format(m.price_min).replace(",", " ") }} &euro;</td>
           <td class="text-end" style="font-size:12px">{{ "{:,}".format(m.price_max).replace(",", " ") }} &euro;</td>
-          <td class="text-end" style="font-size:12px">{{ "{:,}".format(m.price_mean).replace(",", " ") }} &euro;</td>
-          <td class="text-end" style="font-size:12px">{{ "{:,.0f}".format(m.price_std).replace(",", " ") }} &euro;</td>
           <td class="text-center"><span class="badge bg-primary">{{ m.sample_count }}</span></td>
           <td class="text-center">
             {% if m.precision %}
@@ -276,19 +278,27 @@
           <div class="mt-3 p-2" style="background:#f0fdf4; border-radius:8px; border:1px solid #bbf7d0">
             <strong>Stats calculees (sur prix retenus) :</strong>
             <div class="row mt-2">
-              <div class="col-3 text-center">
+              <div class="col-2 text-center">
                 <div style="font-size:11px; color:#6b7280">Min</div>
                 <strong>{{ "{:,}".format(m.price_min).replace(",", " ") }} &euro;</strong>
               </div>
-              <div class="col-3 text-center">
+              <div class="col-2 text-center">
+                <div style="font-size:11px; color:#22c55e">P25</div>
+                <strong style="color:#22c55e">{{ "{:,}".format(m.price_p25 or m.price_min).replace(",", " ") }} &euro;</strong>
+              </div>
+              <div class="col-2 text-center">
+                <div style="font-size:11px; color:#8b5cf6">IQR Mean</div>
+                <strong style="color:#8b5cf6; font-size:1.1em">{{ "{:,}".format(m.price_iqr_mean or m.price_median).replace(",", " ") }} &euro;</strong>
+              </div>
+              <div class="col-2 text-center">
                 <div style="font-size:11px; color:#6b7280">Mediane</div>
-                <strong style="color:#22c55e">{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong>
+                <strong>{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong>
               </div>
-              <div class="col-3 text-center">
-                <div style="font-size:11px; color:#6b7280">Moyenne</div>
-                <strong>{{ "{:,}".format(m.price_mean).replace(",", " ") }} &euro;</strong>
+              <div class="col-2 text-center">
+                <div style="font-size:11px; color:#f59e0b">P75</div>
+                <strong style="color:#f59e0b">{{ "{:,}".format(m.price_p75 or m.price_max).replace(",", " ") }} &euro;</strong>
               </div>
-              <div class="col-3 text-center">
+              <div class="col-2 text-center">
                 <div style="font-size:11px; color:#6b7280">Max</div>
                 <strong>{{ "{:,}".format(m.price_max).replace(",", " ") }} &euro;</strong>
               </div>

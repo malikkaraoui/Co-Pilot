@@ -60,14 +60,44 @@ def market_text_key_expr(column):
     )
 
 
-def _filter_outliers_iqr(prices: list[int]) -> tuple[list[int], list[int], float, float]:
+class IQRResult:
+    """Resultat du filtrage IQR avec stats interquartiles."""
+
+    __slots__ = ("kept", "excluded", "iqr_low", "iqr_high", "q1", "q3", "iqr_mean")
+
+    def __init__(
+        self,
+        kept: list[int],
+        excluded: list[int],
+        iqr_low: float,
+        iqr_high: float,
+        q1: float,
+        q3: float,
+        iqr_mean: float,
+    ):
+        self.kept = kept
+        self.excluded = excluded
+        self.iqr_low = iqr_low
+        self.iqr_high = iqr_high
+        self.q1 = q1
+        self.q3 = q3
+        self.iqr_mean = iqr_mean
+
+
+def _filter_outliers_iqr(prices: list[int]) -> IQRResult:
     """Filtre les outliers via la methode IQR (Interquartile Range).
+
+    Calcule aussi la Moyenne Interquartile (IQR Mean) : la moyenne des prix
+    compris entre Q1 et Q3 (les 50% centraux du marche). C'est l'estimateur
+    le plus robuste pour un prix de reference :
+    - Plus stable que la moyenne (insensible aux extremes)
+    - Plus precis que la mediane (prend en compte la distribution reelle)
 
     Args:
         prices: Liste de prix bruts (deja filtres > 500).
 
     Returns:
-        (kept_prices, excluded_prices, iqr_low, iqr_high)
+        IQRResult avec kept/excluded prices, bornes IQR, Q1, Q3, et IQR Mean.
     """
     arr = np.array(sorted(prices), dtype=float)
     q1 = float(np.percentile(arr, 25))
@@ -83,9 +113,25 @@ def _filter_outliers_iqr(prices: list[int]) -> tuple[list[int], list[int], float
 
     # Si tout est exclu (ex: echantillon trop petit), garder tout
     if len(kept) < IQR_MIN_KEEP:
-        return sorted(prices), [], iqr_low, iqr_high
+        kept = sorted(prices)
+        excluded = []
 
-    return sorted(kept), sorted(excluded), iqr_low, iqr_high
+    # Moyenne Interquartile : moyenne des prix entre Q1 et Q3 (50% central)
+    kept_arr = np.array(kept, dtype=float)
+    p25 = float(np.percentile(kept_arr, 25))
+    p75 = float(np.percentile(kept_arr, 75))
+    middle = kept_arr[(kept_arr >= p25) & (kept_arr <= p75)]
+    iqr_mean = float(np.mean(middle)) if len(middle) >= 1 else float(np.mean(kept_arr))
+
+    return IQRResult(
+        kept=sorted(kept),
+        excluded=sorted(excluded),
+        iqr_low=iqr_low,
+        iqr_high=iqr_high,
+        q1=p25,
+        q3=p75,
+        iqr_mean=iqr_mean,
+    )
 
 
 def store_market_prices(
@@ -120,9 +166,9 @@ def store_market_prices(
     region = normalize_market_text(region)
     fuel = normalize_market_text(fuel).lower() if fuel else None
 
-    # Filtrage IQR des outliers
-    kept, excluded, iqr_low, iqr_high = _filter_outliers_iqr(prices)
-    arr = np.array(kept, dtype=float)
+    # Filtrage IQR des outliers + calcul IQR Mean
+    iqr = _filter_outliers_iqr(prices)
+    arr = np.array(iqr.kept, dtype=float)
     now = datetime.now(timezone.utc)
 
     # Construire un index price→details pour retrouver year/km/fuel par prix
@@ -146,21 +192,24 @@ def store_market_prices(
                 enriched.append({"price": p})
         return enriched
 
-    kept_details = _enrich(kept) if price_details else None
-    excluded_details = _enrich(excluded) if price_details else None
+    kept_details = _enrich(iqr.kept) if price_details else None
+    excluded_details = _enrich(iqr.excluded) if price_details else None
 
     details = {
         "raw_prices": sorted(prices),
-        "kept_prices": kept,
-        "excluded_prices": excluded,
+        "kept_prices": iqr.kept,
+        "excluded_prices": iqr.excluded,
         "kept_details": kept_details,
         "excluded_details": excluded_details,
-        "iqr_low": round(iqr_low, 0),
-        "iqr_high": round(iqr_high, 0),
+        "iqr_low": round(iqr.iqr_low, 0),
+        "iqr_high": round(iqr.iqr_high, 0),
+        "q1": round(iqr.q1, 0),
+        "q3": round(iqr.q3, 0),
+        "iqr_mean": round(iqr.iqr_mean, 0),
         "raw_count": len(prices),
-        "kept_count": len(kept),
-        "excluded_count": len(excluded),
-        "method": "iqr",
+        "kept_count": len(iqr.kept),
+        "excluded_count": len(iqr.excluded),
+        "method": "iqr_mean",
         "precision": precision,
     }
 
@@ -170,7 +219,10 @@ def store_market_prices(
         "price_mean": int(np.mean(arr)),
         "price_max": int(np.max(arr)),
         "price_std": round(float(np.std(arr)), 2),
-        "sample_count": len(kept),
+        "price_iqr_mean": int(round(iqr.iqr_mean)),
+        "price_p25": int(round(iqr.q1)),
+        "price_p75": int(round(iqr.q3)),
+        "sample_count": len(iqr.kept),
         "precision": precision,
         "calculation_details": json.dumps(details),
         "collected_at": now,
@@ -191,6 +243,21 @@ def store_market_prices(
 
     existing = MarketPrice.query.filter(*filters).first()
 
+    log_msg = "%s MarketPrice %s %s %d %s fuel=%s (n=%d/%d, iqr_mean=%d, median=%d, P25=%d, P75=%d)"
+    log_args = (
+        make,
+        model,
+        year,
+        region,
+        fuel,
+        len(iqr.kept),
+        len(prices),
+        stats["price_iqr_mean"],
+        stats["price_median"],
+        stats["price_p25"],
+        stats["price_p75"],
+    )
+
     if existing:
         existing.make = make
         existing.model = model
@@ -199,33 +266,13 @@ def store_market_prices(
         for key, value in stats.items():
             setattr(existing, key, value)
         db.session.commit()
-        logger.info(
-            "Updated MarketPrice %s %s %d %s fuel=%s (%d/%d kept, %d excluded)",
-            make,
-            model,
-            year,
-            region,
-            fuel,
-            len(kept),
-            len(prices),
-            len(excluded),
-        )
+        logger.info(log_msg, "Updated", *log_args)
         return existing
 
     mp = MarketPrice(make=make, model=model, year=year, region=region, fuel=fuel, **stats)
     db.session.add(mp)
     db.session.commit()
-    logger.info(
-        "Created MarketPrice %s %s %d %s fuel=%s (%d/%d kept, %d excluded)",
-        make,
-        model,
-        year,
-        region,
-        fuel,
-        len(kept),
-        len(prices),
-        len(excluded),
-    )
+    logger.info(log_msg, "Created", *log_args)
     return mp
 
 

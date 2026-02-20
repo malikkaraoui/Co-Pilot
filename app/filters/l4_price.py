@@ -60,9 +60,14 @@ class L4PriceFilter(BaseFilter):
         )
         market = get_market_stats(make, model, year, region, fuel=fuel)
         if market and market.sample_count >= self.MARKET_MIN_SAMPLES:
-            ref_price = market.price_median
+            # IQR Mean = moyenne des 50% centraux du marche (plus robuste que la mediane)
+            ref_price = market.price_iqr_mean or market.price_median
             source = "marche_leboncoin"
-            details["price_reference"] = market.price_median
+            details["price_reference"] = ref_price
+            details["price_iqr_mean"] = market.price_iqr_mean
+            details["price_median"] = market.price_median
+            details["price_p25"] = market.price_p25
+            details["price_p75"] = market.price_p75
             details["sample_count"] = market.sample_count
             details["source"] = source
             if market.precision is not None:

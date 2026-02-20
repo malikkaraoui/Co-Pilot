@@ -274,52 +274,116 @@ class TestFilterOutliersIQR:
     def test_no_outliers_in_normal_data(self):
         """Donnees normales : rien n'est exclu."""
         prices = [15000, 16000, 17000, 18000, 19000]
-        kept, excluded, _, _ = _filter_outliers_iqr(prices)
-        assert len(excluded) == 0
-        assert len(kept) == 5
+        result = _filter_outliers_iqr(prices)
+        assert len(result.excluded) == 0
+        assert len(result.kept) == 5
 
     def test_excludes_extreme_low_outlier(self):
         """Un prix aberrant tres bas est exclu (ex: Mini 2023 a 2990)."""
         prices = [2990, 16000, 17000, 18000, 19000, 20000, 22000]
-        kept, excluded, _, _ = _filter_outliers_iqr(prices)
-        assert 2990 in excluded
-        assert 2990 not in kept
-        assert len(kept) >= 5
+        result = _filter_outliers_iqr(prices)
+        assert 2990 in result.excluded
+        assert 2990 not in result.kept
+        assert len(result.kept) >= 5
 
     def test_excludes_extreme_high_outlier(self):
         """Un prix aberrant tres haut est exclu."""
         prices = [15000, 16000, 17000, 18000, 19000, 95000]
-        kept, excluded, _, _ = _filter_outliers_iqr(prices)
-        assert 95000 in excluded
-        assert 95000 not in kept
+        result = _filter_outliers_iqr(prices)
+        assert 95000 in result.excluded
+        assert 95000 not in result.kept
 
     def test_keeps_all_if_too_few_after_filter(self):
         """Si le filtrage enleverait trop de donnees, on garde tout."""
         prices = [500, 1000, 50000]  # Tout est outlier par rapport aux autres
-        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        result = _filter_outliers_iqr(prices)
         # Doit garder au moins IQR_MIN_KEEP (3) → garde tout
-        assert len(kept) == 3
-        assert len(excluded) == 0
+        assert len(result.kept) == 3
+        assert len(result.excluded) == 0
 
     def test_identical_prices_no_exclusion(self):
         """Prix identiques : IQR=0, tout est garde."""
         prices = [10000, 10000, 10000, 10000]
-        kept, excluded, _, _ = _filter_outliers_iqr(prices)
-        assert len(kept) == 4
-        assert len(excluded) == 0
+        result = _filter_outliers_iqr(prices)
+        assert len(result.kept) == 4
+        assert len(result.excluded) == 0
 
     def test_real_mini_scenario(self):
         """Scenario reel Mini 2023 : l'outlier a 2990 casse la moyenne."""
         # Donnees reelles du user
         prices = [2990, 16980, 17000, 17500, 18000, 19000, 44970]
-        kept, excluded, _, _ = _filter_outliers_iqr(prices)
+        result = _filter_outliers_iqr(prices)
         # 2990 et/ou 44970 devraient etre exclus
-        assert 2990 in excluded or 44970 in excluded
+        assert 2990 in result.excluded or 44970 in result.excluded
         import numpy as np
 
         # La mediane des prix gardes devrait etre plus representative
-        arr_kept = np.array(kept, dtype=float)
+        arr_kept = np.array(result.kept, dtype=float)
         assert 15000 <= int(np.median(arr_kept)) <= 25000
+
+
+class TestIQRMean:
+    """Tests du calcul IQR Mean (Moyenne Interquartile)."""
+
+    def test_iqr_mean_with_uniform_prices(self):
+        """IQR Mean sur prix uniformes = la valeur elle-meme."""
+        prices = [10000, 10000, 10000, 10000, 10000]
+        result = _filter_outliers_iqr(prices)
+        assert result.iqr_mean == 10000
+
+    def test_iqr_mean_is_between_q1_and_q3(self):
+        """IQR Mean doit etre entre Q1 et Q3."""
+        prices = [10000, 12000, 14000, 16000, 18000, 20000, 22000, 24000]
+        result = _filter_outliers_iqr(prices)
+        assert result.q1 <= result.iqr_mean <= result.q3
+
+    def test_iqr_mean_more_robust_than_mean(self):
+        """IQR Mean resiste mieux aux outliers que la moyenne classique."""
+        import numpy as np
+
+        prices = [2990, 16000, 17000, 18000, 19000, 20000, 44970]
+        result = _filter_outliers_iqr(prices)
+        # La moyenne classique des prix gardes
+        classic_mean = float(np.mean(result.kept))
+        # L'IQR Mean ne doit pas etre tiree par les extremes gardes
+        assert (
+            abs(result.iqr_mean - 18000) < abs(classic_mean - 18000)
+            or abs(result.iqr_mean - classic_mean) < 1000
+        )
+
+    def test_iqr_mean_symmetric_distribution(self):
+        """Sur une distribution symetrique, IQR Mean ≈ mediane."""
+        prices = [10000, 12000, 14000, 16000, 18000, 20000, 22000]
+        result = _filter_outliers_iqr(prices)
+        import numpy as np
+
+        median = float(np.median(result.kept))
+        # Avec une distribution symetrique, l'ecart devrait etre faible
+        assert abs(result.iqr_mean - median) < 2000
+
+    def test_iqr_mean_skewed_distribution(self):
+        """Sur une distribution asymetrique, IQR Mean capture mieux le centre."""
+        # Distribution avec queue vers le haut
+        prices = [15000, 16000, 17000, 17500, 18000, 18500, 19000, 25000, 28000]
+        result = _filter_outliers_iqr(prices)
+        # IQR Mean devrait etre dans la zone centrale
+        assert 16000 <= result.iqr_mean <= 20000
+
+    def test_iqr_result_has_q1_q3(self):
+        """IQRResult expose Q1 et Q3."""
+        prices = [10000, 12000, 14000, 16000, 18000, 20000]
+        result = _filter_outliers_iqr(prices)
+        assert result.q1 > 0
+        assert result.q3 > result.q1
+        assert result.iqr_low <= result.q1
+        assert result.iqr_high >= result.q3
+
+    def test_iqr_mean_with_three_prices(self):
+        """IQR Mean fonctionne avec le minimum de 3 prix."""
+        prices = [10000, 15000, 20000]
+        result = _filter_outliers_iqr(prices)
+        assert result.iqr_mean > 0
+        assert 10000 <= result.iqr_mean <= 20000
 
 
 class TestStoreWithIQR:
@@ -337,7 +401,7 @@ class TestStoreWithIQR:
             )
             details = mp.get_calculation_details()
             assert details is not None
-            assert details["method"] == "iqr"
+            assert details["method"] == "iqr_mean"
             assert details["raw_count"] == 7
             assert details["kept_count"] <= 7
             assert details["excluded_count"] >= 1
@@ -401,3 +465,40 @@ class TestStoreWithIQR:
             assert mp.price_min >= 15000
             # La moyenne devrait etre > 16000 (pas tiree vers le bas par 2990)
             assert mp.price_mean >= 16000
+
+    def test_stores_iqr_mean_and_percentiles(self, app):
+        """store_market_prices stocke price_iqr_mean, price_p25 et price_p75."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="TestIQR",
+                model="Percentiles",
+                year=2024,
+                region="TestRegion",
+                prices=[10000, 12000, 14000, 16000, 18000, 20000, 22000, 24000],
+            )
+            assert mp.price_iqr_mean is not None
+            assert mp.price_p25 is not None
+            assert mp.price_p75 is not None
+            # P25 < IQR Mean < P75
+            assert mp.price_p25 <= mp.price_iqr_mean <= mp.price_p75
+            # IQR Mean dans les bornes raisonnables
+            assert mp.price_min <= mp.price_iqr_mean <= mp.price_max
+            # Details doivent contenir iqr_mean
+            details = mp.get_calculation_details()
+            assert details["iqr_mean"] > 0
+            assert details["precision"] is None  # pas de precision fournie
+
+    def test_stores_precision(self, app):
+        """store_market_prices stocke la precision dans le record et les details."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="TestPrec",
+                model="WithPrecision",
+                year=2024,
+                region="TestRegion",
+                prices=[10000, 12000, 14000, 16000, 18000],
+                precision=4,
+            )
+            assert mp.precision == 4
+            details = mp.get_calculation_details()
+            assert details["precision"] == 4
