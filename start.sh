@@ -132,6 +132,49 @@ with app.app_context():
                 ))
                 print(f'  + colonne ajoutée: {table.name}.{col.name}')
     db.session.commit()
+
+    # Migration normalisation : aligner Vehicle.brand/model sur display_brand/display_model
+    from app.services.vehicle_lookup import display_brand, display_model
+    from app.models.vehicle import Vehicle
+    updated_v = 0
+    deleted_v = 0
+    for v in Vehicle.query.all():
+        new_brand = display_brand(v.brand)
+        new_model = display_model(v.model)
+        if v.brand != new_brand or v.model != new_model:
+            # Verifier qu'on ne cree pas de doublon
+            existing = Vehicle.query.filter(
+                db.func.lower(Vehicle.brand) == new_brand.lower(),
+                db.func.lower(Vehicle.model) == new_model.lower(),
+            ).first()
+            if existing and existing.id != v.id:
+                # Doublon : supprimer l'ancien (garder celui deja normalise)
+                db.session.delete(v)
+                deleted_v += 1
+            else:
+                v.brand = new_brand
+                v.model = new_model
+                updated_v += 1
+    if updated_v or deleted_v:
+        db.session.commit()
+        if updated_v:
+            print(f'  ~ {updated_v} vehicule(s) normalise(s)')
+        if deleted_v:
+            print(f'  ~ {deleted_v} doublon(s) vehicule(s) supprime(s)')
+
+    # Migration normalisation : aligner ScanLog.vehicle_make/model
+    from app.models.scan import ScanLog
+    updated_s = 0
+    for s in ScanLog.query.filter(ScanLog.vehicle_make.isnot(None)).all():
+        new_make = display_brand(s.vehicle_make) if s.vehicle_make else None
+        new_model = display_model(s.vehicle_model) if s.vehicle_model else None
+        if s.vehicle_make != new_make or s.vehicle_model != new_model:
+            s.vehicle_make = new_make
+            s.vehicle_model = new_model
+            updated_s += 1
+    if updated_s:
+        db.session.commit()
+        print(f'  ~ {updated_s} scan(s) normalise(s)')
 " 2>/dev/null && ok "Schéma synchronisé" || ok "Schéma OK"
 fi
 

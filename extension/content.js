@@ -666,7 +666,7 @@
   const GENERIC_MODELS = ["autres", "autre", "other", "divers"];
 
   /** Categories LBC exclues de la collecte de prix (pas des voitures). */
-  const EXCLUDED_CATEGORIES = ["motos", "equipement_moto", "caravaning", "nautisme", "utilitaires"];
+  const EXCLUDED_CATEGORIES = ["motos", "equipement_moto", "caravaning", "nautisme"];
 
   /**
    * Extrait l'annee depuis les attributs d'une annonce de recherche LBC.

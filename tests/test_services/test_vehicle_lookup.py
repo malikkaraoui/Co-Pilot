@@ -6,8 +6,12 @@ from app.services.vehicle_lookup import (
     GENERIC_MODELS,
     _normalize_brand,
     _normalize_model,
+    display_brand,
+    display_model,
     find_vehicle,
     is_generic_model,
+    normalize_brand,
+    normalize_model,
 )
 
 
@@ -79,6 +83,87 @@ class TestNormalization:
 
     def test_generic_models_has_divers(self):
         assert "divers" in GENERIC_MODELS
+
+
+class TestDisplayBrand:
+    """Tests pour la forme d'affichage canonique des marques."""
+
+    def test_land_rover_hyphen(self):
+        assert display_brand("Land-Rover") == "Land Rover"
+
+    def test_land_rover_space(self):
+        assert display_brand("Land Rover") == "Land Rover"
+
+    def test_bmw(self):
+        assert display_brand("BMW") == "BMW"
+
+    def test_bmw_lowercase(self):
+        assert display_brand("bmw") == "BMW"
+
+    def test_kia(self):
+        assert display_brand("kia") == "Kia"
+
+    def test_kia_uppercase(self):
+        assert display_brand("KIA") == "Kia"
+
+    def test_peugeot_uppercase(self):
+        assert display_brand("PEUGEOT") == "Peugeot"
+
+    def test_vw_alias(self):
+        assert display_brand("VW") == "Volkswagen"
+
+    def test_mercedes_benz(self):
+        assert display_brand("Mercedes-Benz") == "Mercedes"
+
+    def test_alfa_romeo(self):
+        assert display_brand("alfa-romeo") == "Alfa Romeo"
+
+
+class TestDisplayModel:
+    """Tests pour la forme d'affichage canonique des modeles."""
+
+    def test_transit_lowercase(self):
+        assert display_model("transit") == "Transit"
+
+    def test_transit_uppercase(self):
+        assert display_model("TRANSIT") == "Transit"
+
+    def test_fourgon_to_transit(self):
+        assert display_model("fourgon") == "Transit"
+
+    def test_transit_connect(self):
+        assert display_model("Transit Connect") == "Transit Connect"
+
+    def test_chr(self):
+        assert display_model("chr") == "C-HR"
+
+    def test_id3(self):
+        assert display_model("id3") == "ID.3"
+
+    def test_rav4(self):
+        assert display_model("rav4") == "RAV4"
+
+    def test_cla(self):
+        assert display_model("cla") == "CLA"
+
+    def test_clio_5(self):
+        assert display_model("Clio 5") == "Clio V"
+
+    def test_range_rover_velar(self):
+        assert display_model("Range Rover Velar") == "Range Rover Velar"
+
+    def test_simple_model_title(self):
+        assert display_model("sandero") == "Sandero"
+
+
+class TestNormalizePublicAPI:
+    """Verifie que normalize_brand/normalize_model sont bien publiques."""
+
+    def test_normalize_brand_is_same(self):
+        assert normalize_brand("VW") == _normalize_brand("VW")
+
+    def test_normalize_model_is_same(self):
+        assert normalize_model("Clio 5") == _normalize_model("Clio 5")
 
 
 class TestFindVehicle:
@@ -153,3 +238,15 @@ class TestFindVehicle:
             self._seed_vehicles()
             result = find_vehicle("Lamborghini", "Urus")
             assert result is None
+
+    def test_quickadd_display_brand_matches_find_vehicle(self, app):
+        """Un vehicule ajoute via display_brand() est retrouve par find_vehicle()."""
+        with app.app_context():
+            brand_clean = display_brand("Land-Rover")
+            model_clean = display_model("Defender")
+            v = Vehicle(brand=brand_clean, model=model_clean)
+            db.session.add(v)
+            db.session.commit()
+            assert find_vehicle("Land-Rover", "Defender") is not None
+            assert find_vehicle("LAND-ROVER", "defender") is not None
+            assert find_vehicle("Land Rover", "Defender") is not None

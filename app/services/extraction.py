@@ -353,6 +353,15 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
             )
             model_raw = extracted
 
+    # Normalisation canonique : forme d'affichage coherente pour toute la chaine
+    # (ScanLog, filtres, reponse API). Evite les doublons "transit"/"TRANSIT"/"Transit".
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    if make:
+        make = display_brand(make)
+    if model_raw:
+        model_raw = display_model(model_raw)
+
     result = {
         "title": title,
         "price_eur": price,

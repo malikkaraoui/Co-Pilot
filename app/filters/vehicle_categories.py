@@ -96,6 +96,11 @@ VEHICLE_CATEGORY: dict[tuple[str, str], str] = {
     # --- Electriques pures ---
     ("volkswagen", "id.3"): "electrique",
     ("fiat", "600"): "suv_compact",
+    # --- Utilitaires ---
+    ("ford", "transit"): "utilitaire",
+    ("ford", "transit custom"): "utilitaire",
+    ("ford", "transit connect"): "utilitaire",
+    ("ford", "transit courier"): "utilitaire",
 }
 
 

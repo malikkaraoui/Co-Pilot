@@ -143,15 +143,15 @@ def dashboard():
             filter_perf[row.filter_id] = {"pass": 0, "warning": 0, "fail": 0, "skip": 0}
         filter_perf[row.filter_id][row.status] = row.count
 
-    # Top 10 vehicules analyses
+    # Top 10 vehicules analyses (GROUP BY insensible a la casse)
     top_vehicles = (
         db.session.query(
-            ScanLog.vehicle_make,
-            ScanLog.vehicle_model,
+            db.func.min(ScanLog.vehicle_make).label("vehicle_make"),
+            db.func.min(ScanLog.vehicle_model).label("vehicle_model"),
             db.func.count(ScanLog.id).label("count"),
         )
         .filter(ScanLog.vehicle_make.isnot(None))
-        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .group_by(db.func.lower(ScanLog.vehicle_make), db.func.lower(ScanLog.vehicle_model))
         .order_by(db.func.count(ScanLog.id).desc())
         .limit(10)
         .all()
@@ -224,10 +224,11 @@ def car():
     fourteen_days_ago = now - timedelta(days=14)
 
     # Query robuste : JOIN ScanLog + FilterResultDB (L2 warning = non reconnu)
+    # GROUP BY insensible a la casse pour fusionner "transit"/"TRANSIT"/"Transit"
     unrecognized_rows_raw = (
         db.session.query(
-            ScanLog.vehicle_make,
-            ScanLog.vehicle_model,
+            db.func.min(ScanLog.vehicle_make).label("vehicle_make"),
+            db.func.min(ScanLog.vehicle_model).label("vehicle_model"),
             db.func.count(ScanLog.id).label("demand_count"),
             db.func.min(ScanLog.created_at).label("first_seen"),
             db.func.max(ScanLog.created_at).label("last_seen"),
@@ -239,7 +240,7 @@ def car():
             ScanLog.vehicle_make.isnot(None),
             ScanLog.vehicle_model.isnot(None),
         )
-        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .group_by(db.func.lower(ScanLog.vehicle_make), db.func.lower(ScanLog.vehicle_model))
         .order_by(db.func.count(ScanLog.id).desc())
         .limit(50)
         .all()
@@ -280,8 +281,8 @@ def car():
     # Tendance 7j : comptages semaine courante vs semaine precedente (1 requete)
     trend_rows = (
         db.session.query(
-            ScanLog.vehicle_make,
-            ScanLog.vehicle_model,
+            db.func.min(ScanLog.vehicle_make).label("vehicle_make"),
+            db.func.min(ScanLog.vehicle_model).label("vehicle_model"),
             db.func.sum(db.case((ScanLog.created_at >= seven_days_ago, 1), else_=0)).label(
                 "recent_cnt"
             ),
@@ -306,7 +307,7 @@ def car():
             ScanLog.vehicle_make.isnot(None),
             ScanLog.vehicle_model.isnot(None),
         )
-        .group_by(ScanLog.vehicle_make, ScanLog.vehicle_model)
+        .group_by(db.func.lower(ScanLog.vehicle_make), db.func.lower(ScanLog.vehicle_model))
         .all()
     )
     recent_counts = {(r.vehicle_make, r.vehicle_model): r.recent_cnt for r in trend_rows}
@@ -360,11 +361,11 @@ def car():
     # Toutes les marques scannees (reconnus + non reconnus)
     scanned_brands_raw = (
         db.session.query(
-            ScanLog.vehicle_make,
+            db.func.min(ScanLog.vehicle_make).label("vehicle_make"),
             db.func.count(ScanLog.id).label("scan_count"),
         )
         .filter(ScanLog.vehicle_make.isnot(None))
-        .group_by(ScanLog.vehicle_make)
+        .group_by(db.func.lower(ScanLog.vehicle_make))
         .order_by(db.func.count(ScanLog.id).desc())
         .all()
     )
@@ -375,12 +376,12 @@ def car():
     # Marques dans le marche (MarketPrice)
     market_brands = {m.make.lower() for m in db.session.query(MarketPrice.make).distinct().all()}
 
-    from app.services.vehicle_lookup import BRAND_ALIASES, _normalize_brand
+    from app.services.vehicle_lookup import BRAND_ALIASES, normalize_brand
 
     brand_coverage = []
     for row in scanned_brands_raw:
         brand_raw = row.vehicle_make
-        brand_norm = _normalize_brand(brand_raw)
+        brand_norm = normalize_brand(brand_raw)
         in_referentiel = brand_norm in ref_brands
         in_market = brand_norm in market_brands or brand_raw.lower() in market_brands
 
@@ -455,20 +456,26 @@ def quick_add_vehicle():
         flash("Caracteres invalides dans la marque ou le modele.", "error")
         return redirect(url_for("admin.car"))
 
-    # Verifier doublon (case-insensitive)
+    # Normalisation canonique (memes fonctions que l'extraction et find_vehicle)
+    from app.services.vehicle_lookup import (
+        display_brand,
+        display_model,
+        normalize_brand,
+        normalize_model,
+    )
+
+    brand_clean = display_brand(brand)
+    model_clean = display_model(model_name)
+
+    # Verifier doublon (via normalisation canonique)
     existing = Vehicle.query.filter(
-        db.func.lower(Vehicle.brand) == brand.lower(),
-        db.func.lower(Vehicle.model) == model_name.lower(),
+        db.func.lower(Vehicle.brand) == normalize_brand(brand),
+        db.func.lower(Vehicle.model) == normalize_model(model_name),
     ).first()
 
     if existing:
-        flash(f"{brand} {model_name} existe deja dans le referentiel.", "warning")
+        flash(f"{brand_clean} {model_clean} existe deja dans le referentiel.", "warning")
         return redirect(url_for("admin.car"))
-
-    # Capitalisation intelligente preservant la casse originale pour les cas mixtes
-    brand_clean = brand.upper() if len(brand) <= 3 else brand.title()
-    # Preserver la casse d'origine pour les modeles avec casse mixte (iX3, ID.3, e-C3)
-    model_clean = model_name
 
     source = request.form.get("source", "csv")
     current_year = datetime.now(timezone.utc).year

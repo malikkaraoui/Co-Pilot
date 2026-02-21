@@ -100,6 +100,11 @@ VEHICLES = [
     ("Mercedes", "CLA", "C118", 2019, 2025),
     ("Mercedes", "GLB", "X247", 2019, 2025),
     ("Mercedes", "GLE", "V167", 2019, 2025),
+    # --- Utilitaires ---
+    ("Ford", "Transit", "VI/VII", 2013, 2025),
+    ("Ford", "Transit Custom", "I/II", 2012, 2025),
+    ("Ford", "Transit Connect", "II/III", 2013, 2025),
+    ("Ford", "Transit Courier", "I/II", 2014, 2025),
 ]
 
 # Specs de base pour chaque modele (fuel, transmission, puissance)

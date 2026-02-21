@@ -24,9 +24,7 @@ FRESHNESS_DAYS = 7
 logger = logging.getLogger(__name__)
 
 
-_EXCLUDED_CATEGORIES = frozenset(
-    {"motos", "equipement_moto", "caravaning", "nautisme", "utilitaires"}
-)
+_EXCLUDED_CATEGORIES = frozenset({"motos", "equipement_moto", "caravaning", "nautisme"})
 
 # Modeles generiques LBC : pas un vrai modele, melange de vehicules differents
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})

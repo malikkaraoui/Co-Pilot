@@ -123,14 +123,21 @@ def auto_create_vehicle(make: str, model: str) -> Vehicle | None:
         )
         return None
 
-    # Capitalisation intelligente
-    brand_clean = make.strip().upper() if len(make.strip()) <= 3 else make.strip().title()
-    model_clean = model.strip()
+    # Normalisation canonique (memes fonctions que l'extraction et quick-add)
+    from app.services.vehicle_lookup import (
+        display_brand,
+        display_model,
+        normalize_brand,
+        normalize_model,
+    )
 
-    # Dedup check (race condition)
+    brand_clean = display_brand(make)
+    model_clean = display_model(model)
+
+    # Dedup check (race condition) -- via normalisation canonique
     existing = Vehicle.query.filter(
-        func.lower(Vehicle.brand) == brand_clean.lower(),
-        func.lower(Vehicle.model) == model_clean.lower(),
+        func.lower(Vehicle.brand) == normalize_brand(make),
+        func.lower(Vehicle.model) == normalize_model(model),
     ).first()
     if existing:
         logger.info("Auto-create skipped (dedup): %s %s already exists", brand_clean, model_clean)

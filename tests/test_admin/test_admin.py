@@ -242,7 +242,7 @@ class TestQuickAdd:
                 assert v.enrichment_status == "pending"
 
     def test_quick_add_capitalizes_brand(self, app, client, admin_user):
-        """Le quick-add capitalise correctement les marques."""
+        """Le quick-add normalise marques et modeles via display_brand/display_model."""
         _login(client)
         client.post(
             "/admin/vehicle/quick-add",
@@ -253,8 +253,8 @@ class TestQuickAdd:
         with app.app_context():
             v = Vehicle.query.filter(Vehicle.model.ilike("ix3")).first()
             assert v is not None
-            assert v.brand == "BMW"  # reste en majuscules (<=3 chars)
-            assert v.model == "iX3"  # casse mixte preservee
+            assert v.brand == "BMW"  # normalise via display_brand
+            assert v.model == "iX3"  # normalise via MODEL_DISPLAY
 
     def test_quick_add_duplicate_rejected(self, app, client, admin_user):
         """Le quick-add refuse les doublons."""
@@ -977,7 +977,7 @@ class TestQuickAddEdgeCases:
         with app.app_context():
             v = Vehicle.query.filter_by(model="ID.3").first()
             assert v is not None
-            assert v.brand == "VW"  # <=3 chars stays uppercase
+            assert v.brand == "Volkswagen"  # display_brand resolves "VW" alias
 
     def test_quick_add_model_with_hyphen(self, app, client, admin_user):
         """Le quick-add gere les tirets (e-2008, C-HR, etc.)."""

@@ -203,6 +203,11 @@ MODEL_ALIASES: dict[str, str] = {
     "fiesta 7": "fiesta",
     "kuga 3": "kuga",
     "kuga iii": "kuga",
+    "transit": "transit",
+    "transit custom": "transit custom",
+    "transit connect": "transit connect",
+    "transit courier": "transit courier",
+    "fourgon": "transit",
     # Nissan
     "qashqai 3": "qashqai",
     "qashqai iii": "qashqai",
@@ -330,7 +335,6 @@ MODEL_ALIASES: dict[str, str] = {
     "ds 3 crossback": "3 crossback",
     "ds3 crossback": "3 crossback",
     "ds 4": "4",
-    "ds4": "4",
     "ds 7": "7",
     "ds7": "7",
     "ds 7 crossback": "7 crossback",
@@ -366,16 +370,127 @@ def _strip_accents(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
-def _normalize_brand(brand: str) -> str:
-    """Normalise le nom de marque : minuscule, sans accents, puis alias."""
+def normalize_brand(brand: str) -> str:
+    """Normalise le nom de marque : minuscule, sans accents, puis alias.
+
+    C'est la forme canonique pour les COMPARAISONS (lowercase).
+    Pour l'affichage, utiliser ``display_brand()``.
+    """
     cleaned = _strip_accents(brand.strip().lower())
     return BRAND_ALIASES.get(cleaned, cleaned)
 
 
-def _normalize_model(model: str) -> str:
-    """Normalise le nom de modele : minuscule, sans accents, puis alias."""
+# Compat : ancien nom prive, utilise dans les tests et admin/routes
+_normalize_brand = normalize_brand
+
+
+def normalize_model(model: str) -> str:
+    """Normalise le nom de modele : minuscule, sans accents, puis alias.
+
+    C'est la forme canonique pour les COMPARAISONS (lowercase).
+    Pour l'affichage, utiliser ``display_model()``.
+    """
     cleaned = _strip_accents(model.strip().lower())
     return MODEL_ALIASES.get(cleaned, cleaned)
+
+
+# Compat : ancien nom prive
+_normalize_model = normalize_model
+
+
+# ── Formes d'affichage canoniques ────────────────────────────────
+# Quand la conversion .title() ne suffit pas (sigles, casse mixte),
+# on utilise ces dicts pour produire la bonne forme visuelle.
+
+BRAND_DISPLAY: dict[str, str] = {
+    "bmw": "BMW",
+    "ds": "DS",
+    "mg": "MG",
+    "byd": "BYD",
+    "gmc": "GMC",
+    "nio": "NIO",
+    "kia": "Kia",
+    "mercedes": "Mercedes",
+    "land rover": "Land Rover",
+    "alfa romeo": "Alfa Romeo",
+    "aston martin": "Aston Martin",
+    "rolls royce": "Rolls Royce",
+}
+
+MODEL_DISPLAY: dict[str, str] = {
+    "rs3": "RS3",
+    "ds4": "DS4",
+    "ds3": "DS3",
+    "e-c3": "e-C3",
+    "ds 3": "DS 3",
+    "500x": "500x",
+    "zs": "ZS",
+    "cla": "CLA",
+    "gla": "GLA",
+    "glb": "GLB",
+    "glc": "GLC",
+    "gle": "GLE",
+    "classe glc": "Classe GLC",
+    "classe gla": "Classe GLA",
+    "classe a": "Classe A",
+    "classe b": "Classe B",
+    "classe c": "Classe C",
+    "classe e": "Classe E",
+    "ix3": "iX3",
+    "c-hr": "C-HR",
+    "rav4": "RAV4",
+    "id.3": "ID.3",
+    "hr-v": "HR-V",
+    "t-roc": "T-Roc",
+    "t-cross": "T-Cross",
+    "5 e-tech": "5 E-Tech",
+    "clio v": "Clio V",
+    "serie 1": "Serie 1",
+    "serie 3": "Serie 3",
+    "model 3": "Model 3",
+    "model y": "Model Y",
+    "3": "3",
+    "4": "4",
+    "7": "7",
+    "9": "9",
+    "3 crossback": "3 Crossback",
+    "7 crossback": "7 Crossback",
+    "range rover velar": "Range Rover Velar",
+    "range rover evoque": "Range Rover Evoque",
+    "range rover sport": "Range Rover Sport",
+    "range rover": "Range Rover",
+    "yaris cross": "Yaris Cross",
+    "aygo x": "Aygo X",
+    "c3 aircross": "C3 Aircross",
+    "discovery sport": "Discovery Sport",
+    "transit connect": "Transit Connect",
+    "transit courier": "Transit Courier",
+    "transit custom": "Transit Custom",
+}
+
+
+def display_brand(brand: str) -> str:
+    """Forme d'affichage canonique d'une marque.
+
+    Applique la normalisation (alias) puis met en forme :
+    ``"land-rover"`` -> ``"Land Rover"``, ``"VW"`` -> ``"Volkswagen"``.
+    """
+    norm = normalize_brand(brand)
+    if norm in BRAND_DISPLAY:
+        return BRAND_DISPLAY[norm]
+    return norm.title()
+
+
+def display_model(model: str) -> str:
+    """Forme d'affichage canonique d'un modele.
+
+    Applique la normalisation (alias) puis met en forme :
+    ``"chr"`` -> ``"C-HR"``, ``"id3"`` -> ``"ID.3"``.
+    """
+    norm = normalize_model(model)
+    if norm in MODEL_DISPLAY:
+        return MODEL_DISPLAY[norm]
+    return norm.title()
 
 
 def find_vehicle(make: str, model: str) -> Vehicle | None:
@@ -391,8 +506,8 @@ def find_vehicle(make: str, model: str) -> Vehicle | None:
     Returns:
         Le Vehicle correspondant ou None.
     """
-    brand_norm = _normalize_brand(make)
-    model_norm = _normalize_model(model)
+    brand_norm = normalize_brand(make)
+    model_norm = normalize_model(model)
 
     vehicle = Vehicle.query.filter(
         Vehicle.brand.ilike(brand_norm),
