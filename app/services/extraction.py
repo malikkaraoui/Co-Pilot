@@ -280,6 +280,25 @@ def _extract_phone(ad: dict) -> str | None:
     return None
 
 
+def _extract_lbc_estimation(ad: dict) -> dict | None:
+    """Extrait l'estimation de prix LeBonCoin (fourchette argus affichee sur la page).
+
+    LBC peut fournir un champ price_rating/estimation dans l'objet ad avec
+    les bornes low/high de la fourchette. Retourne None si absent.
+    """
+    for key in ("price_rating", "estimation", "price_tips", "price_estimate"):
+        rating = ad.get(key)
+        if isinstance(rating, dict):
+            low = rating.get("low") or rating.get("price_low") or rating.get("min")
+            high = rating.get("high") or rating.get("price_high") or rating.get("max")
+            if low and high:
+                try:
+                    return {"low": int(low), "high": int(high)}
+                except (ValueError, TypeError):
+                    continue
+    return None
+
+
 def extract_ad_data(next_data: dict) -> dict[str, Any]:
     """Extrait les donnees structurees du vehicule depuis un payload __NEXT_DATA__ Leboncoin.
 
@@ -418,6 +437,7 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         "index_date": pub_dates["index_date"],
         "days_since_refresh": pub_dates["days_since_refresh"],
         "republished": pub_dates["republished"],
+        "lbc_estimation": _extract_lbc_estimation(ad),
     }
 
     logger.info(
