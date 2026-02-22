@@ -143,6 +143,20 @@
   white-space: nowrap;
 }
 
+/* Badge estimation LBC (filtre L4 fallback) */
+.copilot-badge-lbc-estimation {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  background: #ff9800;
+  border-radius: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* Badge donnees simulees (filtres L4/L5) */
 .copilot-badge-simulated {
   display: inline-block;
@@ -705,4 +719,225 @@
   font-size: 12px;
   color: #9ca3af;
   margin: 0;
+}
+
+/* ── Progress Checklist ─────────────────────────────────── */
+.copilot-progress-body {
+  padding: 16px 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.copilot-progress-phase {
+  margin-bottom: 12px;
+}
+
+.copilot-progress-phase-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--copilot-text-secondary);
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--copilot-border);
+}
+
+.copilot-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--copilot-text);
+  transition: opacity 0.2s ease;
+}
+
+.copilot-step[data-status="pending"] {
+  opacity: 0.4;
+}
+
+.copilot-step[data-status="running"] {
+  opacity: 1;
+}
+
+.copilot-step[data-status="done"] {
+  opacity: 1;
+}
+
+.copilot-step[data-status="error"] {
+  opacity: 1;
+}
+
+.copilot-step-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  margin-top: 1px;
+}
+
+.copilot-step-icon.pending {
+  color: var(--copilot-gray);
+}
+
+.copilot-step-icon.running {
+  color: var(--copilot-primary);
+}
+
+.copilot-step-icon.done {
+  color: var(--copilot-green);
+}
+
+.copilot-step-icon.warning {
+  color: var(--copilot-orange);
+}
+
+.copilot-step-icon.error {
+  color: var(--copilot-red);
+}
+
+.copilot-step-icon.skip {
+  color: var(--copilot-gray);
+}
+
+.copilot-step-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.copilot-step-detail {
+  font-size: 11px;
+  color: var(--copilot-text-secondary);
+  margin-top: 1px;
+}
+
+/* Mini spinner for running steps */
+.copilot-mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--copilot-border);
+  border-top-color: var(--copilot-primary);
+  border-radius: 50%;
+  animation: copilot-spin 0.8s linear infinite;
+}
+
+/* Substeps (indented) */
+.copilot-substeps {
+  margin: 2px 0 2px 26px;
+  padding-left: 10px;
+  border-left: 2px solid var(--copilot-border);
+}
+
+.copilot-substep {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--copilot-text-secondary);
+}
+
+.copilot-substep-icon {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  margin-top: 1px;
+}
+
+/* Filter results in progress checklist */
+.copilot-progress-filters {
+  margin: 4px 0 4px 26px;
+}
+
+.copilot-progress-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.copilot-progress-filter-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 11px;
+}
+
+.copilot-progress-filter-id {
+  font-weight: 600;
+  color: var(--copilot-text-secondary);
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.copilot-progress-filter-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--copilot-text);
+}
+
+.copilot-progress-filter-score {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.copilot-progress-filter-msg {
+  font-size: 11px;
+  color: var(--copilot-text-secondary);
+  margin-left: 46px;
+  line-height: 1.3;
+}
+
+/* Cascade details in L4 */
+.copilot-cascade-detail {
+  font-size: 11px;
+  color: var(--copilot-text-secondary);
+  margin-left: 46px;
+  padding: 1px 0;
+}
+
+/* Separator before score */
+.copilot-progress-separator {
+  border: none;
+  border-top: 1px solid var(--copilot-border);
+  margin: 12px 0;
+}
+
+/* Score reveal in progress */
+.copilot-progress-score {
+  text-align: center;
+  padding: 8px 0;
+  animation: copilot-fade-in 0.4s ease;
+}
+
+.copilot-progress-score-label {
+  font-size: 12px;
+  color: var(--copilot-text-secondary);
+  margin-bottom: 4px;
+}
+
+.copilot-progress-score-value {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.copilot-progress-score-verdict {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+@keyframes copilot-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }

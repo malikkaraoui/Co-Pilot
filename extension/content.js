@@ -194,9 +194,12 @@
         const icon = statusIcon(f.status);
         const label = filterLabel(f.filter_id);
         const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
-        const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id)
-          ? '<span class="copilot-badge-simulated">Données simulées</span>'
-          : "";
+        const isLbcEstimation = f.filter_id === "L4" && f.details?.source === "estimation_lbc";
+        const simulatedBadge = isLbcEstimation
+          ? `<span class="copilot-badge-lbc-estimation" title="Fourchette LBC : ${f.details.lbc_estimation_low || "?"}€ - ${f.details.lbc_estimation_high || "?"}€">Estimation LBC</span>`
+          : SIMULATED_FILTERS.includes(f.filter_id)
+            ? '<span class="copilot-badge-simulated">Données simulées</span>'
+            : "";
 
         return `
           <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
