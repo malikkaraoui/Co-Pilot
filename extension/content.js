@@ -1356,6 +1356,10 @@
         details.km = parseInt(String(a.value || a.value_label || "0").replace(/\s/g, ""), 10) || null;
       } else if (key === "fuel" || key === "énergie" || key === "energie") {
         details.fuel = a.value_label || a.value || null;
+      } else if (key === "gearbox" || key === "boîte de vitesse" || key === "boite de vitesse") {
+        details.gearbox = a.value_label || a.value || null;
+      } else if (key === "horse_power_din" || key === "puissance din") {
+        details.horse_power = parseInt(String(a.value || a.value_label || "0"), 10) || null;
       }
     }
     return details;

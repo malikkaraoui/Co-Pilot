@@ -183,6 +183,50 @@ def _filter_outliers_iqr(prices: list[int]) -> IQRResult:
     )
 
 
+def _enrich_observed_specs(vehicle_id: int, price_details: list[dict]) -> None:
+    """Aggregate observed specs (fuel, gearbox, hp) from collected ads."""
+    from app.models.vehicle_observed_spec import VehicleObservedSpec
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    spec_counts: dict[tuple[str, str], int] = {}
+
+    for detail in price_details:
+        if not isinstance(detail, dict):
+            continue
+        for spec_type, key in [
+            ("fuel", "fuel"),
+            ("gearbox", "gearbox"),
+            ("horse_power", "horse_power"),
+        ]:
+            val = detail.get(key)
+            if val and str(val).strip():
+                normalized = str(val).strip().lower()
+                spec_counts[(spec_type, normalized)] = (
+                    spec_counts.get((spec_type, normalized), 0) + 1
+                )
+
+    for (spec_type, spec_value), count in spec_counts.items():
+        existing = VehicleObservedSpec.query.filter_by(
+            vehicle_id=vehicle_id,
+            spec_type=spec_type,
+            spec_value=spec_value,
+        ).first()
+        if existing:
+            existing.count += count
+            existing.last_seen_at = now
+        else:
+            db.session.add(
+                VehicleObservedSpec(
+                    vehicle_id=vehicle_id,
+                    spec_type=spec_type,
+                    spec_value=spec_value,
+                    count=count,
+                    last_seen_at=now,
+                )
+            )
+    db.session.commit()
+
+
 def store_market_prices(
     make: str,
     model: str,
@@ -341,6 +385,16 @@ def store_market_prices(
     except Exception:
         # Ne pas faire echouer le store_market_prices pour une auto-creation
         logger.debug("Auto-create skipped for %s %s", make, model, exc_info=True)
+
+    # Enrichir les specs observees si le vehicule existe dans le referentiel
+    try:
+        from app.services.vehicle_lookup import find_vehicle
+
+        found = find_vehicle(make, model)
+        if found and price_details:
+            _enrich_observed_specs(found.id, price_details)
+    except Exception:
+        logger.debug("Observed spec enrichment skipped for %s %s", make, model, exc_info=True)
 
     return mp
 
