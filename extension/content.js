@@ -147,6 +147,7 @@
       L7: "SIRET vendeur",
       L8: "Détection import",
       L9: "Évaluation globale",
+      L10: "Ancienneté annonce",
     };
     return labels[filterId] || filterId;
   }
@@ -594,6 +595,271 @@
     showPopup(html);
   }
 
+  // ── Progress Tracker (checklist live) ────────────────────────
+
+  /**
+   * Systeme de progression en temps reel.
+   * Remplace le spinner par une checklist animee.
+   *
+   * Toutes les valeurs inserees dans le DOM passent par escapeHTML()
+   * ou textContent pour prevenir les injections XSS.
+   */
+  function createProgressTracker() {
+
+    /** Icone HTML selon le statut (contenu statique, pas de donnee utilisateur) */
+    function stepIconHTML(status) {
+      switch (status) {
+        case "running": return '<div class="copilot-mini-spinner"></div>';
+        case "done":    return "\u2713";
+        case "warning": return "\u26A0";
+        case "error":   return "\u2717";
+        case "skip":    return "\u2014";
+        default:        return "\u25CB";
+      }
+    }
+
+    /** Met a jour le statut et le detail d'une etape */
+    function update(stepId, status, detail) {
+      const el = document.getElementById("copilot-step-" + stepId);
+      if (!el) return;
+      el.setAttribute("data-status", status);
+
+      const iconEl = el.querySelector(".copilot-step-icon");
+      if (iconEl) {
+        iconEl.className = "copilot-step-icon " + status;
+        if (status === "running") {
+          iconEl.innerHTML = '<div class="copilot-mini-spinner"></div>';
+        } else {
+          iconEl.textContent = stepIconHTML(status);
+        }
+      }
+
+      if (detail !== undefined) {
+        let detailEl = el.querySelector(".copilot-step-detail");
+        if (!detailEl) {
+          detailEl = document.createElement("div");
+          detailEl.className = "copilot-step-detail";
+          el.querySelector(".copilot-step-text").appendChild(detailEl);
+        }
+        detailEl.textContent = detail;
+      }
+
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    /** Ajoute une sous-etape (ligne indentee sous un step parent) */
+    function addSubStep(parentId, text, status, detail) {
+      const parentEl = document.getElementById("copilot-step-" + parentId);
+      if (!parentEl) return;
+
+      let container = parentEl.querySelector(".copilot-substeps");
+      if (!container) {
+        container = document.createElement("div");
+        container.className = "copilot-substeps";
+        parentEl.appendChild(container);
+      }
+
+      const subEl = document.createElement("div");
+      subEl.className = "copilot-substep";
+
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "copilot-substep-icon";
+      iconSpan.textContent = stepIconHTML(status);
+      subEl.appendChild(iconSpan);
+
+      const textSpan = document.createElement("span");
+      let fullText = text;
+      if (detail) fullText += " \u2014 " + detail;
+      textSpan.textContent = fullText;
+      subEl.appendChild(textSpan);
+
+      container.appendChild(subEl);
+      subEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    /** Affiche les resultats des 10 filtres dans la zone dediee */
+    function showFilters(filters) {
+      const container = document.getElementById("copilot-progress-filters");
+      if (!container || !filters) return;
+
+      filters.forEach(function (f) {
+        const color = statusColor(f.status);
+        const icon = statusIcon(f.status);
+        const label = filterLabel(f.filter_id);
+        const scoreText = f.status === "skip" ? "skip" : Math.round(f.score * 100) + "%";
+
+        // Ligne principale du filtre
+        const filterDiv = document.createElement("div");
+        filterDiv.className = "copilot-progress-filter";
+
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "copilot-progress-filter-icon";
+        iconSpan.style.color = color;
+        iconSpan.textContent = icon;
+        filterDiv.appendChild(iconSpan);
+
+        const idSpan = document.createElement("span");
+        idSpan.className = "copilot-progress-filter-id";
+        idSpan.textContent = f.filter_id;
+        filterDiv.appendChild(idSpan);
+
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "copilot-progress-filter-label";
+        labelSpan.textContent = label;
+        filterDiv.appendChild(labelSpan);
+
+        const scoreSpan = document.createElement("span");
+        scoreSpan.className = "copilot-progress-filter-score";
+        scoreSpan.style.color = color;
+        scoreSpan.textContent = scoreText;
+        filterDiv.appendChild(scoreSpan);
+
+        container.appendChild(filterDiv);
+
+        // Message du filtre
+        const msgDiv = document.createElement("div");
+        msgDiv.className = "copilot-progress-filter-msg";
+        msgDiv.textContent = f.message;
+        container.appendChild(msgDiv);
+
+        // Details cascade L4
+        if (f.filter_id === "L4" && f.details) {
+          appendCascadeDetails(container, f.details);
+        }
+      });
+
+      container.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    /** Ajoute les details de cascade L4 (source, tiers essayes) */
+    function appendCascadeDetails(container, details) {
+      var lines = [];
+      if (details.source === "marche_leboncoin") {
+        lines.push("Source : march\u00e9 LBC (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\u00e9cision " + details.precision : "") + ")");
+      } else if (details.source === "argus_seed") {
+        lines.push("Source : Argus (donn\u00e9es seed)");
+      }
+      if (details.cascade_tried) {
+        details.cascade_tried.forEach(function (tier) {
+          var result = details["cascade_" + tier + "_result"] || "non essay\u00e9";
+          var tierLabel = tier === "market_price" ? "March\u00e9 LBC" : "Argus Seed";
+          var tierIcon = result === "found" ? "\u2713" : result === "insufficient" ? "\u26A0" : "\u2014";
+          lines.push(tierIcon + " " + tierLabel + " : " + result);
+        });
+      }
+      lines.forEach(function (line) {
+        var div = document.createElement("div");
+        div.className = "copilot-cascade-detail";
+        div.textContent = line;
+        container.appendChild(div);
+      });
+    }
+
+    /** Affiche le score final avec jauge */
+    function showScore(score, verdict) {
+      const container = document.getElementById("copilot-progress-score");
+      if (!container) return;
+
+      const color = scoreColor(score);
+
+      const labelDiv = document.createElement("div");
+      labelDiv.className = "copilot-progress-score-label";
+      labelDiv.textContent = "Score global";
+      container.appendChild(labelDiv);
+
+      const valueDiv = document.createElement("div");
+      valueDiv.className = "copilot-progress-score-value";
+      valueDiv.style.color = color;
+      valueDiv.textContent = String(score);
+      container.appendChild(valueDiv);
+
+      const verdictDiv = document.createElement("div");
+      verdictDiv.className = "copilot-progress-score-verdict";
+      verdictDiv.style.color = color;
+      verdictDiv.textContent = verdict;
+      container.appendChild(verdictDiv);
+
+      container.style.display = "block";
+      container.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    return { update: update, addSubStep: addSubStep, showFilters: showFilters, showScore: showScore };
+  }
+
+  /** Affiche la popup de progression (remplace le spinner). */
+  function showProgress() {
+    removePopup();
+    /* Structure statique : aucune donnee utilisateur injectee ici.
+       Les valeurs dynamiques sont ajoutees via textContent par le tracker. */
+    const html = [
+      '<div class="copilot-popup" id="copilot-popup">',
+      '  <div class="copilot-popup-header">',
+      '    <div class="copilot-popup-title-row">',
+      '      <span class="copilot-popup-title">Co-Pilot</span>',
+      '      <button class="copilot-popup-close" id="copilot-close">&times;</button>',
+      '    </div>',
+      '    <p class="copilot-popup-vehicle" id="copilot-progress-vehicle">Analyse en cours...</p>',
+      '  </div>',
+      '  <div class="copilot-progress-body">',
+      '    <div class="copilot-progress-phase">',
+      '      <div class="copilot-progress-phase-title">1. Extraction</div>',
+      '      <div class="copilot-step" id="copilot-step-extract" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">Extraction des donn\u00e9es de l\'annonce</div>',
+      '      </div>',
+      '      <div class="copilot-step" id="copilot-step-phone" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">R\u00e9v\u00e9lation du num\u00e9ro de t\u00e9l\u00e9phone</div>',
+      '      </div>',
+      '    </div>',
+      '    <div class="copilot-progress-phase">',
+      '      <div class="copilot-progress-phase-title">2. Collecte prix march\u00e9</div>',
+      '      <div class="copilot-step" id="copilot-step-job" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">Demande au serveur : quel v\u00e9hicule collecter ?</div>',
+      '      </div>',
+      '      <div class="copilot-step" id="copilot-step-collect" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">Collecte des prix (cascade LeBonCoin)</div>',
+      '      </div>',
+      '      <div class="copilot-step" id="copilot-step-submit" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">Envoi des prix au serveur</div>',
+      '      </div>',
+      '      <div class="copilot-step" id="copilot-step-bonus" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">Collecte bonus multi-r\u00e9gion</div>',
+      '      </div>',
+      '    </div>',
+      '    <div class="copilot-progress-phase">',
+      '      <div class="copilot-progress-phase-title">3. Analyse serveur</div>',
+      '      <div class="copilot-step" id="copilot-step-analyze" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">Analyse des 10 filtres (L1 \u2013 L10)</div>',
+      '      </div>',
+      '      <div id="copilot-progress-filters" class="copilot-progress-filters"></div>',
+      '      <div class="copilot-step" id="copilot-step-autoviza" data-status="pending">',
+      '        <span class="copilot-step-icon pending">\u25CB</span>',
+      '        <div class="copilot-step-text">D\u00e9tection rapport Autoviza</div>',
+      '      </div>',
+      '    </div>',
+      '    <hr class="copilot-progress-separator">',
+      '    <div id="copilot-progress-score" class="copilot-progress-score" style="display:none"></div>',
+      '    <div style="text-align:center; padding: 12px 0;">',
+      '      <button class="copilot-btn copilot-btn-retry" id="copilot-progress-details-btn" style="display:none">',
+      '        Voir l\'analyse compl\u00e8te',
+      '      </button>',
+      '    </div>',
+      '  </div>',
+      '  <div class="copilot-popup-footer">',
+      '    <p>Co-Pilot v1.0 &middot; Analyse en temps r\u00e9el</p>',
+      '  </div>',
+      '</div>',
+    ].join("\n");
+    showPopup(html);
+    return createProgressTracker();
+  }
+
   /**
    * Extrait les infos vehicule (make, model, year) depuis __NEXT_DATA__
    * pour pouvoir lancer la collecte AVANT l'analyse.
@@ -801,40 +1067,66 @@
    * puis appelle l'API et affiche les resultats.
    */
   async function runAnalysis() {
-    showLoading();
+    const progress = showProgress();
 
+    // ── Phase 1 : Extraction ──────────────────────────────────
+    progress.update("extract", "running");
     const nextData = await extractNextData();
     if (!nextData) {
       console.warn("[CoPilot] extractNextData() → null. Pas de __NEXT_DATA__ trouvé.");
+      progress.update("extract", "error", "Impossible de lire les données");
       showPopup(buildErrorPopup("Impossible de lire les données de cette page. Vérifiez que vous êtes sur une annonce Leboncoin."));
       return;
     }
-    console.log("[CoPilot] nextData OK, ad id:", nextData?.props?.pageProps?.ad?.list_id);
+    const adId = nextData?.props?.pageProps?.ad?.list_id || "";
+    progress.update("extract", "done", "ID annonce : " + adId);
+    console.log("[CoPilot] nextData OK, ad id:", adId);
 
-    // Reveler le telephone SI l'utilisateur est connecte (sinon hint login dans L6/L9)
+    // Afficher le vehicule dans le header
+    const vehicle = extractVehicleFromNextData(nextData);
+    const vehicleLabel = document.getElementById("copilot-progress-vehicle");
+    if (vehicleLabel && vehicle.make) {
+      vehicleLabel.textContent = [vehicle.make, vehicle.model, vehicle.year].filter(Boolean).join(" ");
+    }
+
+    // Telephone
     const ad = nextData?.props?.pageProps?.ad;
     if (ad?.has_phone && isUserLoggedIn()) {
+      progress.update("phone", "running");
       const phone = await revealPhoneNumber();
       if (phone) {
         if (!ad.owner) ad.owner = {};
         ad.owner.phone = phone;
+        progress.update("phone", "done", phone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5"));
+      } else {
+        progress.update("phone", "warning", "Numéro non récupéré");
       }
+    } else if (ad?.has_phone) {
+      progress.update("phone", "skip", "Non connecté sur LeBonCoin");
+    } else {
+      progress.update("phone", "skip", "Pas de téléphone sur cette annonce");
     }
 
-    // Collecte des prix AVANT l'analyse (silencieuse, ~1-2s)
-    // Permet a L4/L5 d'avoir des donnees fraiches pour ce vehicule
+    // ── Phase 2 : Collecte prix marche ────────────────────────
     let collectInfo = { submitted: false };
-    const vehicle = extractVehicleFromNextData(nextData);
     console.log("[CoPilot] vehicle extrait:", JSON.stringify(vehicle));
     if (vehicle.make && vehicle.model && vehicle.year) {
-      collectInfo = await maybeCollectMarketPrices(vehicle, nextData).catch((err) => {
+      collectInfo = await maybeCollectMarketPrices(vehicle, nextData, progress).catch((err) => {
         console.error("[CoPilot] maybeCollectMarketPrices erreur:", err);
+        progress.update("job", "error", "Erreur collecte");
         return { submitted: false };
       });
       console.log("[CoPilot] collectInfo:", JSON.stringify(collectInfo));
     } else {
       console.warn("[CoPilot] vehicle incomplet, pas de collecte:", vehicle);
+      progress.update("job", "skip", "Véhicule incomplet (marque/modèle/année manquant)");
+      progress.update("collect", "skip");
+      progress.update("submit", "skip");
+      progress.update("bonus", "skip");
     }
+
+    // ── Phase 3 : Analyse serveur ─────────────────────────────
+    progress.update("analyze", "running");
 
     async function fetchAnalysisOnce() {
       console.log("[CoPilot] fetchAnalysisOnce → POST", API_URL);
@@ -848,14 +1140,17 @@
         const errorData = await response.json().catch(() => null);
         console.warn("[CoPilot] API reponse NOT OK:", response.status, errorData);
         if (errorData?.error === "NOT_A_VEHICLE") {
+          progress.update("analyze", "skip", "Pas une voiture");
           showPopup(buildNotAVehiclePopup(errorData.message, errorData.data?.category));
           return null;
         }
         if (errorData?.error === "NOT_SUPPORTED") {
+          progress.update("analyze", "skip", errorData.message);
           showPopup(buildNotSupportedPopup(errorData.message, errorData.data?.category));
           return null;
         }
         const msg = errorData?.message || getRandomErrorMessage();
+        progress.update("analyze", "error", msg);
         showPopup(buildErrorPopup(msg));
         return null;
       }
@@ -864,6 +1159,7 @@
 
       if (!result.success) {
         console.warn("[CoPilot] API success=false:", result);
+        progress.update("analyze", "error", result.message || "Erreur serveur");
         showPopup(buildErrorPopup(result.message || getRandomErrorMessage()));
         return null;
       }
@@ -872,8 +1168,8 @@
       const filters = result?.data?.filters || [];
       const l4 = filters.find((f) => f.filter_id === "L4");
       const l5 = filters.find((f) => f.filter_id === "L5");
-      console.log("[CoPilot] L4:", l4 ? `${l4.status} | ${l4.message}` : "absent", l4?.details || {});
-      console.log("[CoPilot] L5:", l5 ? `${l5.status} | ${l5.message}` : "absent", l5?.details || {});
+      console.log("[CoPilot] L4:", l4 ? l4.status + " | " + l4.message : "absent", l4?.details || {});
+      console.log("[CoPilot] L5:", l5 ? l5.status + " | " + l5.message : "absent", l5?.details || {});
 
       return result;
     }
@@ -889,19 +1185,41 @@
         const l4 = (result?.data?.filters || []).find((f) => f.filter_id === "L4");
         if (l4 && l4.status === "skip") {
           console.log("[CoPilot] L4=skip + collecte soumise → retry dans 2s...");
+          progress.update("analyze", "running", "Retry L4 (données fraîches en cours d'écriture)...");
           await sleep(2000);
           const retried = await fetchAnalysisOnce();
           if (retried) result = retried;
         }
       }
 
-      // Detecter un eventuel rapport Autoviza gratuit sur la page
-      // (async : retente plusieurs fois car le lien peut etre lazy-loaded)
-      const autovizaUrl = await detectAutovizaUrl(nextData);
+      // Afficher les resultats des filtres dans la checklist
+      progress.update("analyze", "done", (result.data.filters || []).length + " filtres analysés");
+      progress.showFilters(result.data.filters || []);
 
-      showPopup(buildResultsPopup(result.data, { autovizaUrl }));
+      // Score final
+      const score = result.data.score;
+      const verdict = score >= 70 ? "Annonce fiable" : score >= 40 ? "Points d'attention" : "Vigilance requise";
+      progress.showScore(score, verdict);
+
+      // Detecter un eventuel rapport Autoviza gratuit sur la page
+      progress.update("autoviza", "running");
+      const autovizaUrl = await detectAutovizaUrl(nextData);
+      if (autovizaUrl) {
+        progress.update("autoviza", "done", "Rapport gratuit trouvé");
+      } else {
+        progress.update("autoviza", "skip", "Aucun rapport disponible");
+      }
+
+      // Bouton "Voir l'analyse complète" pour basculer vers la popup detaillee
+      const detailsBtn = document.getElementById("copilot-progress-details-btn");
+      if (detailsBtn) {
+        detailsBtn.style.display = "inline-block";
+        detailsBtn.addEventListener("click", function () {
+          showPopup(buildResultsPopup(result.data, { autovizaUrl: autovizaUrl }));
+        });
+      }
     } catch (err) {
-      // Erreur silencieuse -- affichee dans la popup
+      progress.update("analyze", "error", "Erreur inattendue");
       showPopup(buildErrorPopup(getRandomErrorMessage()));
     }
   }
@@ -1270,7 +1588,7 @@
    *
    * Appelee AVANT l'analyse pour que L4/L5 aient des donnees fraiches.
    */
-  async function maybeCollectMarketPrices(vehicle, nextData) {
+  async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     const { make, model, year, fuel, gearbox, horse_power } = vehicle;
     if (!make || !model || !year) return { submitted: false };
 
@@ -1279,6 +1597,12 @@
     const urlCategory = urlMatch ? urlMatch[1] : null;
     if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) {
       console.log("[CoPilot] collecte ignoree: categorie exclue", urlCategory);
+      if (progress) {
+        progress.update("job", "skip", "Catégorie exclue : " + urlCategory);
+        progress.update("collect", "skip");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
       return { submitted: false };
     }
 
@@ -1290,14 +1614,23 @@
     const region = location?.region || "";
     if (!region) {
       console.warn("[CoPilot] collecte ignoree: pas de region dans nextData");
+      if (progress) {
+        progress.update("job", "skip", "Région non disponible");
+        progress.update("collect", "skip");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
       return { submitted: false };
     }
     console.log("[CoPilot] collecte: region=%s, location=%o, km=%d", region, location, mileageKm);
 
     // 2. Demander au serveur quel vehicule collecter
+    if (progress) progress.update("job", "running");
+    const fuelForJob = (fuel || "").toLowerCase();
     const jobUrl = API_URL.replace("/analyze", "/market-prices/next-job")
       + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}`
-      + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`;
+      + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
+      + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "");
 
     let jobResp;
     try {
@@ -1306,16 +1639,30 @@
       console.log("[CoPilot] next-job ←", JSON.stringify(jobResp));
     } catch (err) {
       console.warn("[CoPilot] next-job erreur:", err);
+      if (progress) {
+        progress.update("job", "error", "Serveur injoignable");
+        progress.update("collect", "skip");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
       return { submitted: false }; // serveur injoignable -- silencieux
     }
     if (!jobResp?.data?.collect) {
       console.log("[CoPilot] next-job: collect=false, rien a faire");
+      if (progress) {
+        progress.update("job", "done", "Données déjà à jour, pas de collecte nécessaire");
+        progress.update("collect", "skip", "Non nécessaire");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
       return { submitted: false };
     }
 
     const target = jobResp.data.vehicle;
     const targetRegion = jobResp.data.region;
     const isRedirect = !!jobResp.data.redirect;
+    const bonusJobs = jobResp.data.bonus_jobs || [];
+    console.log("[CoPilot] next-job: %d bonus jobs", bonusJobs.length);
 
     // 3. Cooldown 24h -- uniquement pour les collectes d'AUTRES vehicules
     //    Le vehicule courant est toujours collecte (le serveur gere la fraicheur)
@@ -1327,8 +1674,18 @@
       const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
       if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) {
         console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte");
+        if (progress) {
+          progress.update("job", "done", "Cooldown actif (autre véhicule collecté récemment)");
+          progress.update("collect", "skip", "Cooldown 24h");
+          progress.update("submit", "skip");
+          progress.update("bonus", "skip");
+        }
         return { submitted: false };
       }
+    }
+    const targetLabel = target.make + " " + target.model + " " + target.year;
+    if (progress) {
+      progress.update("job", "done", targetLabel + (isCurrentVehicle ? " (véhicule courant)" : " (autre véhicule du référentiel)"));
     }
     console.log("[CoPilot] collecte cible: %s %s %d (isCurrentVehicle=%s, redirect=%s)", target.make, target.model, target.year, isCurrentVehicle, isRedirect);
 
@@ -1417,6 +1774,7 @@
     let prices = [];
     let collectedPrecision = null;
     const searchLog = [];
+    if (progress) progress.update("collect", "running");
     try {
       for (let i = 0; i < strategies.length; i++) {
         // Anti-detection LBC : delai aleatoire entre requetes (800-1500ms)
@@ -1430,10 +1788,23 @@
           searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
         }
 
+        // Label lisible pour la sous-etape
+        const locLabel = (strategy.loc === geoParam && geoParam) ? "Géo (" + (location?.city || "local") + " 30km)"
+          : (strategy.loc === regionParam && regionParam) ? "Région (" + targetRegion + ")"
+          : "National";
+        const strategyLabel = "Stratégie " + (i + 1) + " \u00b7 " + locLabel + " \u00b1" + strategy.yearSpread + "an";
+
         prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
         const enoughPrices = prices.length >= MIN_PRICES_FOR_ARGUS;
         console.log("[CoPilot] strategie %d (precision=%d): %d prix trouvés | %s",
           i + 1, strategy.precision, prices.length, searchUrl.substring(0, 150));
+
+        // Sous-etape dans la checklist
+        if (progress) {
+          const stepStatus = enoughPrices ? "done" : "skip";
+          const stepDetail = prices.length + " annonces" + (enoughPrices ? " \u2713 seuil atteint" : "");
+          progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
+        }
 
         // Capturer chaque etape pour la transparence admin
         const locationType = (strategy.loc === geoParam && geoParam) ? "geo"
@@ -1466,6 +1837,10 @@
       }
 
       if (prices.length >= MIN_PRICES_FOR_ARGUS) {
+        if (progress) {
+          progress.update("collect", "done", prices.length + " prix collectés (précision " + (collectedPrecision || "?") + ")");
+          progress.update("submit", "running");
+        }
         const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
         const priceInts = priceDetails.map((p) => p.price);
         if (priceInts.length < MIN_PRICES_FOR_ARGUS) {
@@ -1474,6 +1849,10 @@
           if (priceInts.length >= 5) {
              console.log("[CoPilot] envoi degradé avec %d prix (min 5)", priceInts.length);
           } else {
+             if (progress) {
+               progress.update("submit", "warning", "Trop de prix invalides après filtrage");
+               progress.update("bonus", "skip");
+             }
              return { submitted: false, isCurrentVehicle };
           }
         }
@@ -1500,56 +1879,52 @@
         if (!marketResp.ok) {
           const errBody = await marketResp.json().catch(() => null);
           console.warn("[CoPilot] POST /api/market-prices FAILED:", marketResp.status, errBody);
+          if (progress) progress.update("submit", "error", "Erreur serveur (" + marketResp.status + ")");
         } else {
           console.log("[CoPilot] POST /api/market-prices OK, submitted=true");
+          if (progress) progress.update("submit", "done", priceInts.length + " prix envoyés (" + targetRegion + ")");
 
-          // 5b. BONUS multi-region : si la cascade a reussi rapidement (precision >= 4),
-          //     profiter de la session pour collecter le meme vehicule dans 2 autres regions.
-          //     Max 3 collectes totales (1 principale + 2 bonus).
-          if (collectedPrecision >= 4 && !isRedirect) {
-            const MAX_BONUS_REGIONS = 2;
-            // Regions post-2016 uniquement (pas les anciennes qui sont des doublons)
-            const POST_2016_REGIONS = [
-              "Île-de-France", "Auvergne-Rhône-Alpes", "Provence-Alpes-Côte d'Azur",
-              "Occitanie", "Nouvelle-Aquitaine", "Hauts-de-France", "Grand Est",
-              "Bretagne", "Pays de la Loire", "Normandie", "Bourgogne-Franche-Comté",
-              "Centre-Val de Loire", "Corse",
-            ];
-            const otherRegions = POST_2016_REGIONS.filter((r) => r !== targetRegion && LBC_REGIONS[r]);
-            // Melanger aleatoirement pour couvrir plus de regions au fil du temps
-            for (let j = otherRegions.length - 1; j > 0; j--) {
-              const k = Math.floor(Math.random() * (j + 1));
-              [otherRegions[j], otherRegions[k]] = [otherRegions[k], otherRegions[j]];
-            }
-            const bonusRegions = otherRegions.slice(0, MAX_BONUS_REGIONS);
+          // 5b. BONUS multi-region : le serveur indique les regions manquantes.
+          //     Seuil reduit a 5 prix (au lieu de 20) pour les bonus.
+          //     Pas de gate precision -- on fait les bonus meme en national.
+          if (!isRedirect && bonusJobs.length > 0) {
+            const MIN_BONUS_PRICES = 5;
+            if (progress) progress.update("bonus", "running", "Collecte dans " + bonusJobs.length + " régions supplémentaires");
 
-            for (const bonusRegion of bonusRegions) {
+            for (const bonusJob of bonusJobs) {
               try {
+                // Delai aleatoire 1-2s anti-detection
                 await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
-                const bonusLocParam = LBC_REGIONS[bonusRegion];
+                const bonusLocParam = LBC_REGIONS[bonusJob.region];
+                if (!bonusLocParam) {
+                  console.warn("[CoPilot] bonus: region inconnue '%s', skip", bonusJob.region);
+                  continue;
+                }
                 let bonusUrl = coreUrl + fullFilters;
-                if (bonusLocParam) bonusUrl += `&locations=${bonusLocParam}`;
+                bonusUrl += `&locations=${bonusLocParam}`;
                 if (targetYear >= 1990) bonusUrl += `&regdate=${targetYear - 1}-${targetYear + 1}`;
 
                 const bonusPrices = await fetchSearchPrices(bonusUrl, targetYear, 1);
-                console.log("[CoPilot] bonus region %s: %d prix | %s", bonusRegion, bonusPrices.length, bonusUrl.substring(0, 120));
+                console.log("[CoPilot] bonus region %s: %d prix | %s", bonusJob.region, bonusPrices.length, bonusUrl.substring(0, 120));
+                if (progress) progress.addSubStep("bonus", bonusJob.region, bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip", bonusPrices.length + " annonces");
 
-                if (bonusPrices.length >= MIN_PRICES_FOR_ARGUS) {
+                if (bonusPrices.length >= MIN_BONUS_PRICES) {
                   const bDetails = bonusPrices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
                   const bInts = bDetails.map((p) => p.price);
-                  if (bInts.length >= 5) {
+                  if (bInts.length >= MIN_BONUS_PRICES) {
+                    const bonusPrecision = bonusPrices.length >= 20 ? 4 : 2;
                     const bonusPayload = {
                       make: target.make,
                       model: target.model,
                       year: parseInt(target.year, 10),
-                      region: bonusRegion,
+                      region: bonusJob.region,
                       prices: bInts,
                       price_details: bDetails,
                       category: urlCategory,
                       fuel: fuelCode ? targetFuel : null,
-                      precision: 4,
+                      precision: bonusPrecision,
                       search_log: [{
-                        step: 1, precision: 4, location_type: "region",
+                        step: 1, precision: bonusPrecision, location_type: "region",
                         year_spread: 1, filters_applied: [
                           ...(fullFilters.includes("fuel=") ? ["fuel"] : []),
                           ...(fullFilters.includes("gearbox=") ? ["gearbox"] : []),
@@ -1558,7 +1933,7 @@
                         ],
                         ads_found: bonusPrices.length, url: bonusUrl,
                         was_selected: true,
-                        reason: `bonus region: ${bonusPrices.length} annonces`,
+                        reason: `bonus region (serveur): ${bonusPrices.length} annonces`,
                       }],
                     };
                     const bResp = await fetch(marketUrl, {
@@ -1566,21 +1941,33 @@
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify(bonusPayload),
                     });
-                    console.log("[CoPilot] bonus POST %s: %s", bonusRegion, bResp.ok ? "OK" : "FAIL");
+                    console.log("[CoPilot] bonus POST %s: %s (precision=%d)", bonusJob.region, bResp.ok ? "OK" : "FAIL", bonusPrecision);
                   }
                 }
               } catch (bonusErr) {
-                console.warn("[CoPilot] bonus region %s failed:", bonusRegion, bonusErr);
+                console.warn("[CoPilot] bonus region %s failed:", bonusJob.region, bonusErr);
               }
             }
+            if (progress) progress.update("bonus", "done");
+          } else {
+            if (progress) progress.update("bonus", "skip", bonusJobs.length === 0 ? "Serveur: aucune région manquante" : "Redirection active");
           }
         }
       } else {
         console.log(`[CoPilot] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
+        if (progress) {
+          progress.update("collect", "warning", prices.length + " annonces trouvées (minimum " + MIN_PRICES_FOR_ARGUS + ")");
+          progress.update("submit", "skip", "Pas assez de données");
+          progress.update("bonus", "skip");
+        }
       }
     } catch (err) {
       console.error("[CoPilot] market collection failed:", err);
-      // Silencieux -- ne pas perturber l'experience utilisateur
+      if (progress) {
+        progress.update("collect", "error", "Erreur pendant la collecte");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
     }
 
     // 6. Sauvegarder le timestamp (meme si pas assez de prix)
