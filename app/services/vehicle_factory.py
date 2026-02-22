@@ -20,7 +20,8 @@ from app.services.vehicle_lookup import find_vehicle, is_generic_model
 logger = logging.getLogger(__name__)
 
 # Seuils d'auto-creation
-MIN_SCANS = 3  # Nombre minimum de scans pour confirmer la demande
+MIN_SCANS_WITH_CSV = 1  # 1 scan suffit si le CSV confirme le vehicule
+MIN_SCANS_WITHOUT_CSV = 3  # 3 scans si pas de CSV (confirmation par repetition)
 MIN_MARKET_SAMPLES = 20  # Nombre minimum d'annonces marche collectees
 
 
@@ -57,7 +58,11 @@ def can_auto_create(make: str, model: str) -> dict:
         result["reason"] = "Deja dans le referentiel"
         return result
 
-    # 3. Compter les scans
+    # 3. Verifier CSV en avance pour adapter le seuil de scans
+    csv_available = bool(lookup_specs(make, model))
+    result["csv_available"] = csv_available
+
+    # 4. Compter les scans (seuil adaptatif selon CSV)
     scan_count = (
         db.session.query(func.count(ScanLog.id))
         .filter(
@@ -68,15 +73,13 @@ def can_auto_create(make: str, model: str) -> dict:
         or 0
     )
     result["scan_count"] = scan_count
+    min_scans = MIN_SCANS_WITH_CSV if csv_available else MIN_SCANS_WITHOUT_CSV
 
-    if scan_count < MIN_SCANS:
-        result["reason"] = f"Pas assez de scans ({scan_count}/{MIN_SCANS})"
+    if scan_count < min_scans:
+        result["reason"] = f"Pas assez de scans ({scan_count}/{min_scans})"
         return result
 
-    # 4. Verifier les sources de donnees
-    csv_available = bool(lookup_specs(make, model))
-    result["csv_available"] = csv_available
-
+    # 5. Verifier les sources de donnees
     market_records = MarketPrice.query.filter(
         market_text_key_expr(MarketPrice.make) == market_text_key(make),
         market_text_key_expr(MarketPrice.model) == market_text_key(model),

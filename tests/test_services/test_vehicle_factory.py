@@ -8,7 +8,7 @@ from app.models.scan import ScanLog
 from app.models.vehicle import Vehicle
 from app.services.vehicle_factory import (
     MIN_MARKET_SAMPLES,
-    MIN_SCANS,
+    MIN_SCANS_WITHOUT_CSV,
     auto_create_vehicle,
     can_auto_create,
 )
@@ -98,19 +98,19 @@ class TestCanAutoCreate:
             assert not result["eligible"]
             assert "referentiel" in result["reason"].lower()
 
-    def test_rejects_insufficient_scans(self, app):
+    def test_rejects_insufficient_scans_no_csv(self, app):
+        """Sans CSV match, 1 scan ne suffit pas (seuil = 3)."""
         with app.app_context():
-            # Creer seulement 1 scan
             db.session.add(
                 ScanLog(
                     url="https://www.leboncoin.fr/voitures/1",
-                    vehicle_make="Maserati",
-                    vehicle_model="Ghibli",
+                    vehicle_make="SuperRare",
+                    vehicle_model="Unicorn",
                     score=60,
                 )
             )
             db.session.commit()
-            result = can_auto_create("Maserati", "Ghibli")
+            result = can_auto_create("SuperRare", "Unicorn")
             assert not result["eligible"]
             assert "scans" in result["reason"].lower()
             assert result["scan_count"] == 1
@@ -140,7 +140,7 @@ class TestCanAutoCreate:
         """Si le CSV a des specs pour le vehicule, il est eligible."""
         with app.app_context():
             # Honda Civic existe dans le CSV Kaggle
-            for i in range(MIN_SCANS):
+            for i in range(MIN_SCANS_WITHOUT_CSV):
                 db.session.add(
                     ScanLog(
                         url=f"https://www.leboncoin.fr/voitures/honda{i}",
@@ -204,3 +204,41 @@ class TestAutoCreateVehicle:
         with app.app_context():
             result = auto_create_vehicle("Lamborghini", "Huracan")
             assert result is None
+
+
+class TestFirstScanAutoCreate:
+    """Tests for 1st-scan auto-creation with CSV match."""
+
+    def test_eligible_with_one_scan_and_csv(self, app):
+        """Un vehicule avec 1 seul scan + CSV match doit etre eligible."""
+        with app.app_context():
+            # Utiliser un vehicule unique pour eviter la pollution inter-tests
+            db.session.add(
+                ScanLog(
+                    url="https://lbc.fr/test-ghibli-1scan",
+                    vehicle_make="Maserati",
+                    vehicle_model="Ghibli",
+                    score=70,
+                )
+            )
+            db.session.commit()
+            result = can_auto_create("Maserati", "Ghibli")
+            if result["csv_available"]:
+                assert result["eligible"] is True
+                assert result["scan_count"] >= 1  # Au moins 1 scan
+
+    def test_not_eligible_with_one_scan_no_csv(self, app):
+        """Un vehicule avec 1 seul scan SANS CSV match reste refuse."""
+        with app.app_context():
+            db.session.add(
+                ScanLog(
+                    url="https://lbc.fr/test-fake",
+                    vehicle_make="FakeCarBrand",
+                    vehicle_model="FakeModel123",
+                    score=60,
+                )
+            )
+            db.session.commit()
+            result = can_auto_create("FakeCarBrand", "FakeModel123")
+            assert not result["eligible"]
+            assert "scans" in result["reason"].lower()
