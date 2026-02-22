@@ -378,3 +378,145 @@ class TestSearchLogTransparency:
             details = mp.get_calculation_details()
             # search_steps est None (pas envoye) -- pas d'erreur
             assert details.get("search_steps") is None
+
+
+class TestBonusJobs:
+    """Tests for bonus_jobs in GET /api/market-prices/next-job."""
+
+    def _make_fresh_mp(self, make, model, year, region, fuel=None):
+        """Helper: create a fresh MarketPrice entry."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        return MarketPrice(
+            make=make,
+            model=model,
+            year=year,
+            region=region,
+            fuel=fuel,
+            price_min=10000,
+            price_median=14000,
+            price_mean=14000,
+            price_max=18000,
+            price_std=1414.0,
+            sample_count=20,
+            collected_at=now,
+            refresh_after=now + timedelta(hours=24),
+        )
+
+    def _make_stale_mp(self, make, model, year, region, fuel=None, days_old=10):
+        """Helper: create a stale MarketPrice entry (>7 days)."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        old = now - timedelta(days=days_old)
+        return MarketPrice(
+            make=make,
+            model=model,
+            year=year,
+            region=region,
+            fuel=fuel,
+            price_min=10000,
+            price_median=14000,
+            price_mean=14000,
+            price_max=18000,
+            price_std=1414.0,
+            sample_count=20,
+            collected_at=old,
+            refresh_after=old + timedelta(hours=24),
+        )
+
+    def test_bonus_jobs_returns_missing_regions(self, app, client):
+        """When current vehicle has fresh data, bonus_jobs lists missing regions."""
+        with app.app_context():
+            db.session.add(self._make_fresh_mp("Peugeot", "3008", 2021, "Bretagne", "diesel"))
+            db.session.commit()
+            resp = client.get(
+                "/api/market-prices/next-job"
+                "?make=Peugeot&model=3008&year=2021&region=Bretagne&fuel=diesel"
+            )
+            data = resp.get_json()
+            assert data["success"] is True
+            bonus = data["data"].get("bonus_jobs", [])
+            assert len(bonus) <= 2
+            for job in bonus:
+                assert job["region"] != "Bretagne"
+                assert job["make"] == "Peugeot"
+                assert job["model"] == "3008"
+
+    def test_bonus_jobs_refresh_stale(self, app, client):
+        """When all 13 regions covered, bonus_jobs returns the 2 oldest for refresh."""
+        with app.app_context():
+            regions = [
+                "Île-de-France",
+                "Auvergne-Rhône-Alpes",
+                "Provence-Alpes-Côte d'Azur",
+                "Occitanie",
+                "Nouvelle-Aquitaine",
+                "Hauts-de-France",
+                "Grand Est",
+                "Bretagne",
+                "Pays de la Loire",
+                "Normandie",
+                "Bourgogne-Franche-Comté",
+                "Centre-Val de Loire",
+                "Corse",
+            ]
+            for i, r in enumerate(regions):
+                if r in ("Bretagne", "Occitanie"):
+                    db.session.add(
+                        self._make_stale_mp(
+                            "Renault", "Captur", 2022, r, "essence", days_old=15 - i
+                        )
+                    )
+                else:
+                    db.session.add(self._make_fresh_mp("Renault", "Captur", 2022, r, "essence"))
+            db.session.commit()
+            resp = client.get(
+                "/api/market-prices/next-job"
+                "?make=Renault&model=Captur&year=2022&region=Bretagne&fuel=essence"
+            )
+            data = resp.get_json()
+            bonus = data["data"].get("bonus_jobs", [])
+            assert len(bonus) >= 1
+            bonus_regions = {j["region"] for j in bonus}
+            assert bonus_regions <= {"Bretagne", "Occitanie"}
+
+    def test_bonus_jobs_empty_when_all_fresh(self, app, client):
+        """When all 13 regions have fresh data, bonus_jobs is empty."""
+        with app.app_context():
+            regions = [
+                "Île-de-France",
+                "Auvergne-Rhône-Alpes",
+                "Provence-Alpes-Côte d'Azur",
+                "Occitanie",
+                "Nouvelle-Aquitaine",
+                "Hauts-de-France",
+                "Grand Est",
+                "Bretagne",
+                "Pays de la Loire",
+                "Normandie",
+                "Bourgogne-Franche-Comté",
+                "Centre-Val de Loire",
+                "Corse",
+            ]
+            for r in regions:
+                db.session.add(self._make_fresh_mp("Toyota", "Yaris", 2023, r, "essence"))
+            db.session.commit()
+            resp = client.get(
+                "/api/market-prices/next-job"
+                "?make=Toyota&model=Yaris&year=2023&region=Bretagne&fuel=essence"
+            )
+            data = resp.get_json()
+            bonus = data["data"].get("bonus_jobs", [])
+            assert bonus == []
+
+    def test_bonus_jobs_without_fuel(self, app, client):
+        """Without fuel param, bonus_jobs still works."""
+        with app.app_context():
+            db.session.add(self._make_fresh_mp("Dacia", "Sandero", 2022, "Grand Est"))
+            db.session.commit()
+            resp = client.get(
+                "/api/market-prices/next-job?make=Dacia&model=Sandero&year=2022&region=Grand+Est"
+            )
+            data = resp.get_json()
+            bonus = data["data"].get("bonus_jobs", [])
+            assert len(bonus) == 2
+            for job in bonus:
+                assert job["region"] != "Grand Est"
