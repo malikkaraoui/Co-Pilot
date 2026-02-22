@@ -364,10 +364,12 @@ def next_market_job():
             ~func.lower(Vehicle.model).in_(list(_GENERIC_MODELS)),
         )
         .order_by(
-            # Priorite : jamais collecte (NULL) d'abord, puis le plus ancien
+            # Priorite 1 : jamais collecte (NULL) d'abord
             case((latest_mp.c.latest_at.is_(None), 0), else_=1),
+            # Priorite 2 : vehicules partial (enrichment en cours) avant complete
+            case((Vehicle.enrichment_status == "partial", 0), else_=1),
+            # Priorite 3 : le plus ancien
             latest_mp.c.latest_at.asc(),
-            # Ordre deterministe pour eviter un resultat aleatoire entre vehicules equitables
             Vehicle.id.asc(),
         )
         .limit(1)

@@ -295,6 +295,98 @@ class TestNextMarketJob:
         assert data["success"] is True
         assert data["data"]["collect"] is False
 
+    def test_redirects_to_partial_vehicle_first(self, app, client):
+        """Vehicles with enrichment_status=partial should be prioritized for redirect."""
+        with app.app_context():
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            region = "Corse"
+
+            # Current vehicle: fresh data
+            mp = MarketPrice(
+                make="Lotus",
+                model="Elise",
+                year=2022,
+                region=region,
+                price_min=30000,
+                price_median=35000,
+                price_mean=35000,
+                price_max=40000,
+                price_std=3000.0,
+                sample_count=5,
+                collected_at=now,
+                refresh_after=now + timedelta(hours=24),
+            )
+            db.session.add(mp)
+
+            # Create fresh MarketPrice for ALL existing vehicles in this region
+            # so only our two test vehicles are candidates
+            all_vehicles = Vehicle.query.all()
+            for v in all_vehicles:
+                if not v.year_start:
+                    continue
+                mid_y = (v.year_start + (v.year_end or v.year_start)) // 2
+                existing = MarketPrice.query.filter_by(
+                    make=v.brand, model=v.model, region=region
+                ).first()
+                if not existing:
+                    db.session.add(
+                        MarketPrice(
+                            make=v.brand,
+                            model=v.model,
+                            year=mid_y,
+                            region=region,
+                            price_min=10000,
+                            price_median=12000,
+                            price_mean=12000,
+                            price_max=14000,
+                            price_std=1000.0,
+                            sample_count=5,
+                            collected_at=now,
+                            refresh_after=now + timedelta(hours=24),
+                        )
+                    )
+
+            # Complete vehicle: never collected in Corse (delete its fresh MP)
+            v_complete = Vehicle.query.filter_by(brand="Koenigsegg", model="Agera").first()
+            if not v_complete:
+                v_complete = Vehicle(
+                    brand="Koenigsegg",
+                    model="Agera",
+                    year_start=2019,
+                    year_end=2024,
+                    enrichment_status="complete",
+                )
+                db.session.add(v_complete)
+
+            # Partial vehicle: never collected, should be prioritized
+            v_partial = Vehicle.query.filter_by(brand="Pagani", model="Huayra").first()
+            if not v_partial:
+                v_partial = Vehicle(
+                    brand="Pagani",
+                    model="Huayra",
+                    year_start=2018,
+                    year_end=2024,
+                    enrichment_status="partial",
+                )
+                db.session.add(v_partial)
+            db.session.commit()
+
+            # Remove any accidental fresh MP for our test vehicles
+            MarketPrice.query.filter_by(make="Koenigsegg", model="Agera", region=region).delete()
+            MarketPrice.query.filter_by(make="Pagani", model="Huayra", region=region).delete()
+            db.session.commit()
+
+            resp = client.get(
+                f"/api/market-prices/next-job?make=Lotus&model=Elise&year=2022&region={region}"
+            )
+            data = resp.get_json()
+            assert data["success"] is True
+            assert data["data"]["collect"] is True
+            assert data["data"].get("redirect") is True
+            # Partial vehicle should be chosen over complete
+            assert data["data"]["vehicle"]["make"] == "Pagani"
+            assert data["data"]["vehicle"]["model"] == "Huayra"
+
 
 class TestSearchLogTransparency:
     """Tests de la transparence cascade (search_log)."""
