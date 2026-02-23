@@ -1,6 +1,7 @@
 """Modeles ORM SQLAlchemy -- importe tous les modeles pour les enregistrer dans les metadonnees."""
 
 from app.models.argus import ArgusPrice  # noqa: F401
+from app.models.collection_job import CollectionJob  # noqa: F401
 from app.models.filter_result import FilterResultDB  # noqa: F401
 from app.models.log import AppLog  # noqa: F401
 from app.models.market_price import MarketPrice  # noqa: F401
