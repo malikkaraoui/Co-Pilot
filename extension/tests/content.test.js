@@ -537,24 +537,40 @@ describe('getHorsePowerRange', () => {
     expect(getHorsePowerRange(-10)).toBeNull();
   });
 
-  it('arrondit a la dizaine inferieure: 130ch -> "130-max"', () => {
-    expect(getHorsePowerRange(130)).toBe('130-max');
+  it('segment bas: 75ch -> "min-90"', () => {
+    expect(getHorsePowerRange(75)).toBe('min-90');
   });
 
-  it('arrondit a la dizaine inferieure: 136ch -> "130-max"', () => {
-    expect(getHorsePowerRange(136)).toBe('130-max');
+  it('segment bas: 45ch -> "min-90"', () => {
+    expect(getHorsePowerRange(45)).toBe('min-90');
   });
 
-  it('arrondit a la dizaine inferieure: 75ch -> "70-max"', () => {
-    expect(getHorsePowerRange(75)).toBe('70-max');
+  it('segment 80-109: 100ch -> "70-120"', () => {
+    expect(getHorsePowerRange(100)).toBe('70-120');
   });
 
-  it('gere les puissances exactes sur dizaine: 100ch -> "100-max"', () => {
-    expect(getHorsePowerRange(100)).toBe('100-max');
+  it('segment 110-139: 130ch -> "100-150"', () => {
+    expect(getHorsePowerRange(130)).toBe('100-150');
   });
 
-  it('gere les petites puissances: 45ch -> "40-max"', () => {
-    expect(getHorsePowerRange(45)).toBe('40-max');
+  it('segment 110-139: 136ch -> "100-150"', () => {
+    expect(getHorsePowerRange(136)).toBe('100-150');
+  });
+
+  it('segment 140-179: 150ch -> "130-190"', () => {
+    expect(getHorsePowerRange(150)).toBe('130-190');
+  });
+
+  it('segment 180-249: 200ch -> "170-260"', () => {
+    expect(getHorsePowerRange(200)).toBe('170-260');
+  });
+
+  it('segment 250-349: 300ch -> "240-360"', () => {
+    expect(getHorsePowerRange(300)).toBe('240-360');
+  });
+
+  it('segment haut: 400ch -> "340-max"', () => {
+    expect(getHorsePowerRange(400)).toBe('340-max');
   });
 });
 
@@ -1139,7 +1155,7 @@ describe('maybeCollectMarketPrices', () => {
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       const searchUrl = fetchMock.mock.calls[2][0];
-      expect(searchUrl).toContain('horse_power_din=180-max'); // 180ch -> 180-max
+      expect(searchUrl).toContain('horse_power_din=170-260'); // 180ch -> segment 170-260
     });
 
     it('ajoute le parametre region rn_XX a URL quand pas de geo-location', async () => {

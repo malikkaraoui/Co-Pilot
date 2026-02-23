@@ -1291,12 +1291,17 @@
   };
 
   /** Calcule le range de puissance DIN pour la recherche LBC.
-   *  Arrondi a la dizaine inferieure : 136ch → "130-max", 75ch → "70-max".
-   *  Pas de max pour inclure les versions plus puissantes du meme modele. */
+   *  Tranches serrees par segment pour des comparables pertinents
+   *  (overlap volontaire entre segments pour maximiser les resultats). */
   function getHorsePowerRange(hp) {
     if (!hp || hp <= 0) return null;
-    const minHp = Math.floor(hp / 10) * 10;
-    return `${minHp}-max`;
+    if (hp < 80)  return "min-90";
+    if (hp < 110) return "70-120";
+    if (hp < 140) return "100-150";
+    if (hp < 180) return "130-190";
+    if (hp < 250) return "170-260";
+    if (hp < 350) return "240-360";
+    return "340-max";
   }
 
   /** Calcule le range de kilometrage pour la recherche LBC.
@@ -1582,6 +1587,132 @@
     return parseInt(String(raw).replace(/\s/g, ""), 10) || 0;
   }
 
+  /** Report job completion to server. */
+  async function reportJobDone(jobDoneUrl, jobId, success) {
+    if (!jobId) return;
+    try {
+      await fetch(jobDoneUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId, success }),
+      });
+    } catch (e) {
+      console.warn("[CoPilot] job-done report failed:", e);
+    }
+  }
+
+  /**
+   * Execute bonus jobs from the CollectionJob queue.
+   * Each job contains make, model, year, region, fuel, hp_range, gearbox, job_id.
+   * Builds LBC URLs from job data and POSTs collected prices to server.
+   */
+  async function executeBonusJobs(bonusJobs, progress) {
+    const MIN_BONUS_PRICES = 5;
+    const marketUrl = API_URL.replace("/analyze", "/market-prices");
+    const jobDoneUrl = API_URL.replace("/analyze", "/market-prices/job-done");
+
+    if (progress) progress.update("bonus", "running", "Exécution de " + bonusJobs.length + " jobs");
+
+    for (const job of bonusJobs) {
+      try {
+        await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
+
+        // Build LBC URL from job data
+        const brandUpper = job.make.toUpperCase();
+        const modelIsGeneric = GENERIC_MODELS.includes((job.model || "").toLowerCase());
+        let jobCoreUrl = "https://www.leboncoin.fr/recherche?category=2";
+        if (modelIsGeneric) {
+          jobCoreUrl += `&text=${encodeURIComponent(job.make)}`;
+        } else {
+          const modelParam = `${brandUpper}_${job.model}`;
+          jobCoreUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
+          jobCoreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
+        }
+
+        // Add filters from job data
+        let filters = "";
+        if (job.fuel) {
+          const fc = LBC_FUEL_CODES[job.fuel.toLowerCase()];
+          if (fc) filters += `&fuel=${fc}`;
+        }
+        if (job.gearbox) {
+          const gc = LBC_GEARBOX_CODES[job.gearbox.toLowerCase()];
+          if (gc) filters += `&gearbox=${gc}`;
+        }
+        if (job.hp_range) {
+          filters += `&horse_power_din=${job.hp_range}`;
+        }
+
+        // Region
+        const locParam = LBC_REGIONS[job.region];
+        if (!locParam) {
+          console.warn("[CoPilot] bonus job: region inconnue '%s', skip", job.region);
+          await reportJobDone(jobDoneUrl, job.job_id, false);
+          if (progress) progress.addSubStep("bonus", job.region, "skip", "Région inconnue");
+          continue;
+        }
+
+        let searchUrl = jobCoreUrl + filters + `&locations=${locParam}`;
+        const jobYear = parseInt(job.year, 10);
+        if (jobYear >= 1990) searchUrl += `&regdate=${jobYear - 1}-${jobYear + 1}`;
+
+        const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1);
+        console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
+
+        if (progress) {
+          const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
+          progress.addSubStep("bonus", job.make + " " + job.model + " · " + job.region, stepStatus, bonusPrices.length + " annonces");
+        }
+
+        if (bonusPrices.length >= MIN_BONUS_PRICES) {
+          const bDetails = bonusPrices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
+          const bInts = bDetails.map((p) => p.price);
+          if (bInts.length >= MIN_BONUS_PRICES) {
+            const bonusPrecision = bonusPrices.length >= 20 ? 4 : 2;
+            const bonusPayload = {
+              make: job.make,
+              model: job.model,
+              year: jobYear,
+              region: job.region,
+              prices: bInts,
+              price_details: bDetails,
+              fuel: job.fuel || null,
+              hp_range: job.hp_range || null,
+              precision: bonusPrecision,
+              search_log: [{
+                step: 1, precision: bonusPrecision, location_type: "region",
+                year_spread: 1,
+                filters_applied: [
+                  ...(filters.includes("fuel=") ? ["fuel"] : []),
+                  ...(filters.includes("gearbox=") ? ["gearbox"] : []),
+                  ...(filters.includes("horse_power_din=") ? ["hp"] : []),
+                ],
+                ads_found: bonusPrices.length, url: searchUrl,
+                was_selected: true,
+                reason: `bonus job queue: ${bonusPrices.length} annonces`,
+              }],
+            };
+            const bResp = await fetch(marketUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(bonusPayload),
+            });
+            console.log("[CoPilot] bonus job POST %s: %s", job.region, bResp.ok ? "OK" : "FAIL");
+            await reportJobDone(jobDoneUrl, job.job_id, bResp.ok);
+          } else {
+            await reportJobDone(jobDoneUrl, job.job_id, false);
+          }
+        } else {
+          await reportJobDone(jobDoneUrl, job.job_id, false);
+        }
+      } catch (err) {
+        console.warn("[CoPilot] bonus job %s failed:", job.region, err);
+        await reportJobDone(jobDoneUrl, job.job_id, false);
+      }
+    }
+    if (progress) progress.update("bonus", "done");
+  }
+
   /**
    * Collecte intelligente : demande au serveur quel vehicule a besoin de
    * mise a jour, puis collecte les prix sur LeBonCoin.
@@ -1598,6 +1729,10 @@
   async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     const { make, model, year, fuel, gearbox, horse_power } = vehicle;
     if (!make || !model || !year) return { submitted: false };
+
+    // Pre-compute hp range for next-job URL and search filters
+    const hp = parseInt(horse_power, 10) || 0;
+    const hpRange = getHorsePowerRange(hp);
 
     // Ne pas collecter de prix pour les categories non-voiture (motos, etc.)
     const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
@@ -1634,10 +1769,13 @@
     // 2. Demander au serveur quel vehicule collecter
     if (progress) progress.update("job", "running");
     const fuelForJob = (fuel || "").toLowerCase();
+    const gearboxForJob = (gearbox || "").toLowerCase();
     const jobUrl = API_URL.replace("/analyze", "/market-prices/next-job")
       + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}`
       + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
-      + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "");
+      + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "")
+      + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "")
+      + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
 
     let jobResp;
     try {
@@ -1655,13 +1793,25 @@
       return { submitted: false }; // serveur injoignable -- silencieux
     }
     if (!jobResp?.data?.collect) {
-      console.log("[CoPilot] next-job: collect=false, rien a faire");
-      if (progress) {
-        progress.update("job", "done", "Données déjà à jour, pas de collecte nécessaire");
-        progress.update("collect", "skip", "Non nécessaire");
-        progress.update("submit", "skip");
-        progress.update("bonus", "skip");
+      const queuedJobs = jobResp?.data?.bonus_jobs || [];
+      if (queuedJobs.length === 0) {
+        console.log("[CoPilot] next-job: collect=false, aucun bonus en queue");
+        if (progress) {
+          progress.update("job", "done", "Données déjà à jour, pas de collecte nécessaire");
+          progress.update("collect", "skip", "Non nécessaire");
+          progress.update("submit", "skip");
+          progress.update("bonus", "skip");
+        }
+        return { submitted: false };
       }
+      console.log("[CoPilot] next-job: collect=false, %d bonus jobs en queue", queuedJobs.length);
+      if (progress) {
+        progress.update("job", "done", "Véhicule à jour — " + queuedJobs.length + " jobs en attente");
+        progress.update("collect", "skip", "Véhicule déjà à jour");
+        progress.update("submit", "skip");
+      }
+      await executeBonusJobs(queuedJobs, progress);
+      localStorage.setItem("copilot_last_collect", String(Date.now()));
       return { submitted: false };
     }
 
@@ -1724,8 +1874,6 @@
     let targetFuel = null;
     let fuelCode = null;
     let gearboxCode = null;
-    let hp = 0;
-    let hpRange = null;
     if (!isRedirect) {
       targetFuel = (fuel || "").toLowerCase();
       fuelCode = LBC_FUEL_CODES[targetFuel];
@@ -1739,8 +1887,6 @@
       gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
       gearboxParam = gearboxCode ? `&gearbox=${gearboxCode}` : "";
 
-      hp = parseInt(horse_power, 10) || 0;
-      hpRange = getHorsePowerRange(hp);
       hpParam = hpRange ? `&horse_power_din=${hpRange}` : "";
     }
 
@@ -1873,6 +2019,7 @@
           price_details: priceDetails,
           category: urlCategory,
           fuel: fuelCode ? targetFuel : null,
+          hp_range: hpRange || null,
           precision: collectedPrecision,
           search_log: searchLog,
         };
@@ -1891,73 +2038,11 @@
           console.log("[CoPilot] POST /api/market-prices OK, submitted=true");
           if (progress) progress.update("submit", "done", priceInts.length + " prix envoyés (" + targetRegion + ")");
 
-          // 5b. BONUS multi-region : le serveur indique les regions manquantes.
-          //     Seuil reduit a 5 prix (au lieu de 20) pour les bonus.
-          //     Pas de gate precision -- on fait les bonus meme en national.
-          if (!isRedirect && bonusJobs.length > 0) {
-            const MIN_BONUS_PRICES = 5;
-            if (progress) progress.update("bonus", "running", "Collecte dans " + bonusJobs.length + " régions supplémentaires");
-
-            for (const bonusJob of bonusJobs) {
-              try {
-                // Delai aleatoire 1-2s anti-detection
-                await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
-                const bonusLocParam = LBC_REGIONS[bonusJob.region];
-                if (!bonusLocParam) {
-                  console.warn("[CoPilot] bonus: region inconnue '%s', skip", bonusJob.region);
-                  continue;
-                }
-                let bonusUrl = coreUrl + fullFilters;
-                bonusUrl += `&locations=${bonusLocParam}`;
-                if (targetYear >= 1990) bonusUrl += `&regdate=${targetYear - 1}-${targetYear + 1}`;
-
-                const bonusPrices = await fetchSearchPrices(bonusUrl, targetYear, 1);
-                console.log("[CoPilot] bonus region %s: %d prix | %s", bonusJob.region, bonusPrices.length, bonusUrl.substring(0, 120));
-                if (progress) progress.addSubStep("bonus", bonusJob.region, bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip", bonusPrices.length + " annonces");
-
-                if (bonusPrices.length >= MIN_BONUS_PRICES) {
-                  const bDetails = bonusPrices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
-                  const bInts = bDetails.map((p) => p.price);
-                  if (bInts.length >= MIN_BONUS_PRICES) {
-                    const bonusPrecision = bonusPrices.length >= 20 ? 4 : 2;
-                    const bonusPayload = {
-                      make: target.make,
-                      model: target.model,
-                      year: parseInt(target.year, 10),
-                      region: bonusJob.region,
-                      prices: bInts,
-                      price_details: bDetails,
-                      category: urlCategory,
-                      fuel: fuelCode ? targetFuel : null,
-                      precision: bonusPrecision,
-                      search_log: [{
-                        step: 1, precision: bonusPrecision, location_type: "region",
-                        year_spread: 1, filters_applied: [
-                          ...(fullFilters.includes("fuel=") ? ["fuel"] : []),
-                          ...(fullFilters.includes("gearbox=") ? ["gearbox"] : []),
-                          ...(fullFilters.includes("horse_power_din=") ? ["hp"] : []),
-                          ...(fullFilters.includes("mileage=") ? ["km"] : []),
-                        ],
-                        ads_found: bonusPrices.length, url: bonusUrl,
-                        was_selected: true,
-                        reason: `bonus region (serveur): ${bonusPrices.length} annonces`,
-                      }],
-                    };
-                    const bResp = await fetch(marketUrl, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(bonusPayload),
-                    });
-                    console.log("[CoPilot] bonus POST %s: %s (precision=%d)", bonusJob.region, bResp.ok ? "OK" : "FAIL", bonusPrecision);
-                  }
-                }
-              } catch (bonusErr) {
-                console.warn("[CoPilot] bonus region %s failed:", bonusJob.region, bonusErr);
-              }
-            }
-            if (progress) progress.update("bonus", "done");
+          // 5b. BONUS : executer les jobs de la queue
+          if (bonusJobs.length > 0) {
+            await executeBonusJobs(bonusJobs, progress);
           } else {
-            if (progress) progress.update("bonus", "skip", bonusJobs.length === 0 ? "Serveur: aucune région manquante" : "Redirection active");
+            if (progress) progress.update("bonus", "skip", "Aucun job en attente");
           }
         }
       } else {
@@ -2049,6 +2134,8 @@
       formatPrecisionStars,
       PRECISION_LABELS,
       getAdDetails,
+      executeBonusJobs,
+      reportJobDone,
     };
   }
 })();
