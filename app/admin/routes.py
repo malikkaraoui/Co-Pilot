@@ -1089,6 +1089,31 @@ def argus():
             }
         )
 
+    # Validation LBC : comparer notre argus vs fourchette LBC
+    for r in records:
+        r._validation = None
+        if r.lbc_estimate_low and r.lbc_estimate_high and r.price_iqr_mean:
+            iqr = r.price_iqr_mean
+            low, high = r.lbc_estimate_low, r.lbc_estimate_high
+            if low <= iqr <= high:
+                r._validation = "valid"
+            elif iqr < low * 0.85 or iqr > high * 1.15:
+                r._validation = "ecart"
+            else:
+                r._validation = "proche"
+
+    # Stat globale validation
+    validated = sum(
+        1
+        for r in all_market
+        if r.lbc_estimate_low
+        and r.lbc_estimate_high
+        and r.price_iqr_mean
+        and r.lbc_estimate_low <= r.price_iqr_mean <= r.lbc_estimate_high
+    )
+    total_with_lbc = sum(1 for r in all_market if r.lbc_estimate_low and r.lbc_estimate_high)
+    validation_rate = round(validated / total_with_lbc * 100) if total_with_lbc > 0 else 0
+
     return render_template(
         "admin/argus.html",
         total_refs=total_refs,
@@ -1108,6 +1133,8 @@ def argus():
         now=now,
         insufficient_argus=insufficient_argus,
         vehicle_thresholds=vehicle_thresholds,
+        validation_rate=validation_rate,
+        total_with_lbc=total_with_lbc,
     )
 
 

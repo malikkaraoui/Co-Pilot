@@ -43,6 +43,14 @@
       <div class="stat-label">Regions couvertes</div>
     </div>
   </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color: {% if validation_rate >= 80 %}#22c55e{% elif validation_rate >= 50 %}#f59e0b{% else %}#ef4444{% endif %};">
+        {{ validation_rate }}%
+      </div>
+      <div class="stat-label">Valides par LBC ({{ total_with_lbc }})</div>
+    </div>
+  </div>
 </div>
 
 <!-- Filtres -->
@@ -87,6 +95,7 @@
         <tr>
           <th>Collecte</th>
           <th>Vehicule</th>
+          <th>Motorisation</th>
           <th>Region</th>
           <th class="text-end" title="Moyenne Interquartile (50% central)">IQR Mean</th>
           <th class="text-end" title="Percentile 25 (bonne affaire)">P25</th>
@@ -97,6 +106,7 @@
           <th class="text-center">Annonces</th>
           <th class="text-center">Precision</th>
           <th class="text-center">Fraicheur</th>
+          <th class="text-center">Validation LBC</th>
           <th class="text-center">Detail</th>
         </tr>
       </thead>
@@ -111,6 +121,11 @@
           <td>
             <strong>{{ m.make }}</strong> {{ m.model }}
             <span class="text-muted" style="font-size:12px">{{ m.year }}</span>
+          </td>
+          <td style="font-size:12px">
+            {% if m.fuel %}<span class="badge bg-secondary">{{ m.fuel }}</span>{% endif %}
+            {% if m.hp_range %}<span class="badge bg-info text-dark">{{ m.hp_range }}ch</span>{% endif %}
+            {% if m.fiscal_hp %}<span class="text-muted">{{ m.fiscal_hp }}cv</span>{% endif %}
           </td>
           <td>{{ m.region }}</td>
           <td class="text-end"><strong>{{ "{:,}".format(m.price_iqr_mean or m.price_median).replace(",", " ") }} &euro;</strong></td>
@@ -136,6 +151,17 @@
               <span class="badge bg-success">Frais</span>
             {% else %}
               <span class="badge bg-warning text-dark">A rafraichir</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if m._validation == "valid" %}
+              <span class="badge bg-success" title="IQR mean dans la fourchette LBC">Valide</span>
+            {% elif m._validation == "proche" %}
+              <span class="badge bg-warning text-dark" title="IQR mean proche fourchette LBC (+-15%)">Proche</span>
+            {% elif m._validation == "ecart" %}
+              <span class="badge bg-danger" title="IQR mean hors fourchette LBC (>15%)">Ecart</span>
+            {% else %}
+              <span class="text-muted" style="font-size:11px">-</span>
             {% endif %}
           </td>
           <td class="text-center">
