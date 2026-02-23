@@ -71,6 +71,8 @@
              href="{{ url_for('admin.filters') }}">Filtres</a>
           <a class="nav-link {% if request.endpoint == 'admin.argus' %}active{% endif %}"
              href="{{ url_for('admin.argus') }}">Argus maison</a>
+          <a class="nav-link {% if request.endpoint == 'admin.issues' %}active{% endif %}"
+             href="{{ url_for('admin.issues') }}">Issues collecte</a>
           <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.youtube') %}active{% endif %}"
              href="{{ url_for('admin.youtube') }}">YouTube Tests</a>
           <hr class="border-secondary mx-3">

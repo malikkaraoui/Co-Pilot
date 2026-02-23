@@ -1337,6 +1337,83 @@ def youtube_featured(video_id: int):
     return redirect(request.referrer or url_for("admin.youtube"))
 
 
+# ── Issues collecte (CollectionJob queue) ─────────────────────────
+
+
+@admin_bp.route("/issues")
+@login_required
+def issues():
+    """File d'attente des collectes argus (CollectionJob queue)."""
+    from app.models.collection_job import CollectionJob
+
+    status_filter = request.args.get("status", "").strip()
+    make_filter = request.args.get("make", "").strip()
+    priority_filter = request.args.get("priority", "", type=str).strip()
+    page = request.args.get("page", 1, type=int)
+
+    # Stats
+    pending = CollectionJob.query.filter_by(status="pending").count()
+    assigned = CollectionJob.query.filter_by(status="assigned").count()
+    done = CollectionJob.query.filter_by(status="done").count()
+    failed = CollectionJob.query.filter_by(status="failed").count()
+    total = pending + assigned + done + failed
+    completion_rate = round(done / total * 100) if total > 0 else 0
+
+    # Query
+    query = CollectionJob.query.order_by(
+        CollectionJob.priority.asc(), CollectionJob.created_at.desc()
+    )
+    if status_filter:
+        query = query.filter(CollectionJob.status == status_filter)
+    if make_filter:
+        query = query.filter(CollectionJob.make == make_filter)
+    if priority_filter:
+        query = query.filter(CollectionJob.priority == int(priority_filter))
+
+    per_page = 50
+    total_results = query.count()
+    total_pages = max(1, (total_results + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    records = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    make_list = [
+        r[0]
+        for r in db.session.query(CollectionJob.make).distinct().order_by(CollectionJob.make).all()
+    ]
+
+    return render_template(
+        "admin/issues.html",
+        pending=pending,
+        assigned=assigned,
+        done=done,
+        failed=failed,
+        total=total,
+        completion_rate=completion_rate,
+        records=records,
+        page=page,
+        total_pages=total_pages,
+        total_results=total_results,
+        status_filter=status_filter,
+        make_filter=make_filter,
+        priority_filter=priority_filter,
+        make_list=make_list,
+    )
+
+
+@admin_bp.route("/issues/purge-failed", methods=["POST"])
+@login_required
+def purge_failed_jobs():
+    """Reset all failed jobs back to pending."""
+    from app.models.collection_job import CollectionJob
+
+    count = CollectionJob.query.filter_by(status="failed").update(
+        {"status": "pending", "attempts": 0}
+    )
+    db.session.commit()
+    flash(f"{count} jobs echoues remis en attente.", "success")
+    return redirect(url_for("admin.issues"))
+
+
 # ── Initialisation admin ─────────────────────────────────────────
 
 
