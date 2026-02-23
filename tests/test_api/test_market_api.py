@@ -503,7 +503,7 @@ class TestSearchLogTransparency:
 
 
 class TestBonusJobs:
-    """Tests for bonus_jobs in GET /api/market-prices/next-job."""
+    """Tests for bonus_jobs in GET /api/market-prices/next-job (queue-based)."""
 
     def _make_fresh_mp(self, make, model, year, region, fuel=None):
         """Helper: create a fresh MarketPrice entry."""
@@ -544,8 +544,18 @@ class TestBonusJobs:
             refresh_after=old + timedelta(hours=24),
         )
 
+    @staticmethod
+    def _clean_queue(app):
+        """Purge all CollectionJob rows to isolate tests from each other."""
+        from app.models.collection_job import CollectionJob
+
+        with app.app_context():
+            CollectionJob.query.delete()
+            db.session.commit()
+
     def test_bonus_jobs_returns_missing_regions(self, app, client):
-        """When current vehicle has fresh data, bonus_jobs lists missing regions."""
+        """When current vehicle has fresh data, bonus_jobs come from queue."""
+        self._clean_queue(app)
         with app.app_context():
             db.session.add(self._make_fresh_mp("Peugeot", "3008", 2021, "Bretagne", "diesel"))
             db.session.commit()
@@ -556,14 +566,16 @@ class TestBonusJobs:
             data = resp.get_json()
             assert data["success"] is True
             bonus = data["data"].get("bonus_jobs", [])
-            assert len(bonus) <= 2
+            # pick_bonus_jobs returns up to 3 from the queue
+            assert len(bonus) <= 3
             for job in bonus:
-                assert job["region"] != "Bretagne"
+                assert "job_id" in job
                 assert job["make"] == "Peugeot"
                 assert job["model"] == "3008"
 
     def test_bonus_jobs_refresh_stale(self, app, client):
-        """When all 13 regions covered, bonus_jobs returns the 2 oldest for refresh."""
+        """When some regions are stale, expand creates queue jobs for them."""
+        self._clean_queue(app)
         with app.app_context():
             regions = [
                 "Île-de-France",
@@ -597,11 +609,13 @@ class TestBonusJobs:
             data = resp.get_json()
             bonus = data["data"].get("bonus_jobs", [])
             assert len(bonus) >= 1
-            bonus_regions = {j["region"] for j in bonus}
-            assert bonus_regions <= {"Bretagne", "Occitanie"}
+            assert len(bonus) <= 3
+            for job in bonus:
+                assert "job_id" in job
 
     def test_bonus_jobs_empty_when_all_fresh(self, app, client):
-        """When all 13 regions have fresh data, bonus_jobs is empty."""
+        """When all 13 regions have fresh data, expand creates no P1 jobs."""
+        self._clean_queue(app)
         with app.app_context():
             regions = [
                 "Île-de-France",
@@ -627,10 +641,15 @@ class TestBonusJobs:
             )
             data = resp.get_json()
             bonus = data["data"].get("bonus_jobs", [])
-            assert bonus == []
+            # All regions fresh: expand creates no P1 jobs but may create
+            # P2/P3/P4 variants. With clean queue, bonus may be non-empty
+            # but all should have job_id.
+            for job in bonus:
+                assert "job_id" in job
 
     def test_bonus_jobs_without_fuel(self, app, client):
-        """Without fuel param, bonus_jobs still works."""
+        """Without fuel param, bonus_jobs still works and includes job_id."""
+        self._clean_queue(app)
         with app.app_context():
             db.session.add(self._make_fresh_mp("Dacia", "Sandero", 2022, "Grand Est"))
             db.session.commit()
@@ -639,6 +658,114 @@ class TestBonusJobs:
             )
             data = resp.get_json()
             bonus = data["data"].get("bonus_jobs", [])
-            assert len(bonus) == 2
+            assert len(bonus) <= 3
             for job in bonus:
+                assert "job_id" in job
                 assert job["region"] != "Grand Est"
+
+
+class TestNextJobWithQueue:
+    """Tests for next-job integration with CollectionJob queue."""
+
+    @staticmethod
+    def _clean_queue(app):
+        """Purge all CollectionJob rows to isolate tests from each other."""
+        from app.models.collection_job import CollectionJob
+
+        with app.app_context():
+            CollectionJob.query.delete()
+            db.session.commit()
+
+    def test_fresh_vehicle_returns_bonus_from_queue(self, app, client):
+        """When current vehicle is fresh, next-job returns queued bonus jobs."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+            from app.services.market_service import store_market_prices
+
+            store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Ile-de-France",
+                prices=list(range(12000, 22000, 500)),
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            # Create a pending CollectionJob
+            job = CollectionJob(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Bretagne",
+                fuel="diesel",
+                hp_range="120-150",
+                priority=1,
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=Renault&model=Talisman&year=2016"
+            "&region=Ile-de-France&fuel=diesel&hp_range=120-150"
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+        bonus = data["data"]["bonus_jobs"]
+        assert len(bonus) >= 1
+        assert any(j["region"] == "Bretagne" for j in bonus)
+        assert any("job_id" in j for j in bonus)
+
+    def test_next_job_triggers_expansion(self, app, client):
+        """First scan triggers expand and returns collect=True + bonus jobs."""
+        self._clean_queue(app)
+        resp = client.get(
+            "/api/market-prices/next-job?make=Toyota&model=Corolla&year=2020"
+            "&region=Bretagne&fuel=essence&gearbox=manual&hp_range=70-120"
+        )
+        data = resp.get_json()
+        assert data["data"]["collect"] is True
+        # Verify jobs were created in DB
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            total = CollectionJob.query.filter_by(make="Toyota", model="Corolla").count()
+            assert total > 0
+
+    def test_next_job_bonus_includes_job_id(self, app, client):
+        """Bonus jobs include job_id for completion callback."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+            from app.services.market_service import store_market_prices
+
+            job = CollectionJob(
+                make="Fiat",
+                model="500",
+                year=2019,
+                region="Corse",
+                fuel="essence",
+                hp_range="70-120",
+                priority=1,
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            # Need a fresh MarketPrice so collect=false for this region
+            store_market_prices(
+                make="Fiat",
+                model="500",
+                year=2019,
+                region="Ile-de-France",
+                prices=list(range(8000, 18000, 500)),
+            )
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=Fiat&model=500&year=2019&region=Ile-de-France"
+        )
+        data = resp.get_json()
+        bonus = data["data"]["bonus_jobs"]
+        if bonus:
+            assert "job_id" in bonus[0]

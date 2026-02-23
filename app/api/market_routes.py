@@ -11,6 +11,7 @@ from app.api import api_bp
 from app.extensions import db, limiter
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
+from app.services.collection_job_service import expand_collection_jobs, pick_bonus_jobs
 from app.services.market_service import (
     MIN_SAMPLE_ABSOLUTE,
     get_min_sample_count,
@@ -290,6 +291,9 @@ def next_market_job():
     model = request.args.get("model")
     year = request.args.get("year", type=int)
     region = request.args.get("region")
+    fuel = request.args.get("fuel")
+    gearbox = request.args.get("gearbox")
+    hp_range = request.args.get("hp_range")
 
     if not all([make, model, region]):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
@@ -300,6 +304,17 @@ def next_market_job():
 
     if year is not None and not (1990 <= year <= 2030):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
+
+    # Expand collection jobs pour ce vehicule (dedup gere les repetitions)
+    expand_collection_jobs(
+        make=make,
+        model=model,
+        year=year,
+        region=region,
+        fuel=fuel,
+        gearbox=gearbox,
+        hp_range=hp_range,
+    )
 
     # Comparaisons en naive UTC (SQLite ne conserve pas le tzinfo)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -314,8 +329,20 @@ def next_market_job():
     ).first()
 
     if not current or current.collected_at < cutoff:
-        fuel_param = request.args.get("fuel")
-        bonus = _compute_bonus_jobs(make, model, year, fuel_param, exclude_region=region)
+        picked = pick_bonus_jobs(max_jobs=3)
+        bonus = [
+            {
+                "make": j.make,
+                "model": j.model,
+                "year": j.year,
+                "region": j.region,
+                "fuel": j.fuel,
+                "gearbox": j.gearbox,
+                "hp_range": j.hp_range,
+                "job_id": j.id,
+            }
+            for j in picked
+        ]
         logger.info(
             "next-job: vehicule courant %s %s %s a collecter (+%d bonus)",
             make,
@@ -392,8 +419,20 @@ def next_market_job():
             best_candidate = (c.brand, c.model, mid_year)
 
     if best_candidate:
-        fuel_param = request.args.get("fuel")
-        bonus = _compute_bonus_jobs(make, model, year, fuel_param, exclude_region=region)
+        picked = pick_bonus_jobs(max_jobs=3)
+        bonus = [
+            {
+                "make": j.make,
+                "model": j.model,
+                "year": j.year,
+                "region": j.region,
+                "fuel": j.fuel,
+                "gearbox": j.gearbox,
+                "hp_range": j.hp_range,
+                "job_id": j.id,
+            }
+            for j in picked
+        ]
         logger.info(
             "next-job: redirection vers %s %s pour region %s (+%d bonus)",
             best_candidate[0],
@@ -419,7 +458,19 @@ def next_market_job():
         )
 
     # 3. Tout est a jour dans cette region
-    fuel_param = request.args.get("fuel")
-    bonus = _compute_bonus_jobs(make, model, year, fuel_param, exclude_region=region)
+    picked = pick_bonus_jobs(max_jobs=3)
+    bonus = [
+        {
+            "make": j.make,
+            "model": j.model,
+            "year": j.year,
+            "region": j.region,
+            "fuel": j.fuel,
+            "gearbox": j.gearbox,
+            "hp_range": j.hp_range,
+            "job_id": j.id,
+        }
+        for j in picked
+    ]
     logger.info("next-job: tout est a jour pour la region %s (+%d bonus)", region, len(bonus))
     return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": bonus}})
