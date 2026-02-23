@@ -30,82 +30,23 @@ _EXCLUDED_CATEGORIES = frozenset({"motos", "equipement_moto", "caravaning", "nau
 # Modeles generiques LBC : pas un vrai modele, melange de vehicules differents
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
-# Les 13 regions francaises post-reforme 2016
-POST_2016_REGIONS = [
-    "Île-de-France",
-    "Auvergne-Rhône-Alpes",
-    "Provence-Alpes-Côte d'Azur",
-    "Occitanie",
-    "Nouvelle-Aquitaine",
-    "Hauts-de-France",
-    "Grand Est",
-    "Bretagne",
-    "Pays de la Loire",
-    "Normandie",
-    "Bourgogne-Franche-Comté",
-    "Centre-Val de Loire",
-    "Corse",
-]
 
-
-def _compute_bonus_jobs(
-    make: str,
-    model: str,
-    year: int,
-    fuel: str | None,
-    exclude_region: str,
-    max_bonus: int = 2,
-) -> list[dict]:
-    """Determine les bonus jobs intelligents pour le meme modele.
-
-    Priorite :
-    1. Regions manquantes (aucune donnee MarketPrice)
-    2. Regions avec donnees > FRESHNESS_DAYS (refresh)
-    3. [] si tout est frais
-    """
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    cutoff = now - timedelta(days=FRESHNESS_DAYS)
-
-    query = MarketPrice.query.filter(
-        market_text_key_expr(MarketPrice.make) == market_text_key(make),
-        market_text_key_expr(MarketPrice.model) == market_text_key(model),
-        MarketPrice.year == year,
-    )
-    if fuel:
-        query = query.filter(db.func.lower(db.func.coalesce(MarketPrice.fuel, "")) == fuel.lower())
-
-    existing = query.all()
-
-    covered: dict[str, MarketPrice] = {}
-    for mp in existing:
-        key = market_text_key(mp.region)
-        if key not in covered or mp.collected_at > covered[key].collected_at:
-            covered[key] = mp
-
-    missing_regions: list[str] = []
-    stale_regions: list[tuple[str, datetime]] = []
-    for r in POST_2016_REGIONS:
-        if market_text_key(r) == market_text_key(exclude_region):
-            continue
-        entry = covered.get(market_text_key(r))
-        if entry is None:
-            missing_regions.append(r)
-        elif entry.collected_at < cutoff:
-            stale_regions.append((r, entry.collected_at))
-
-    stale_regions.sort(key=lambda x: x[1])
-
-    bonus_jobs: list[dict] = []
-    for r in missing_regions:
-        if len(bonus_jobs) >= max_bonus:
-            break
-        bonus_jobs.append({"make": make, "model": model, "year": year, "region": r})
-    for r, _ in stale_regions:
-        if len(bonus_jobs) >= max_bonus:
-            break
-        bonus_jobs.append({"make": make, "model": model, "year": year, "region": r})
-
-    return bonus_jobs
+def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
+    """Pick pending jobs from the queue and serialize them for the API response."""
+    picked = pick_bonus_jobs(max_jobs=max_jobs)
+    return [
+        {
+            "make": j.make,
+            "model": j.model,
+            "year": j.year,
+            "region": j.region,
+            "fuel": j.fuel,
+            "gearbox": j.gearbox,
+            "hp_range": j.hp_range,
+            "job_id": j.id,
+        }
+        for j in picked
+    ]
 
 
 class PriceDetail(BaseModel):
@@ -329,20 +270,7 @@ def next_market_job():
     ).first()
 
     if not current or current.collected_at < cutoff:
-        picked = pick_bonus_jobs(max_jobs=3)
-        bonus = [
-            {
-                "make": j.make,
-                "model": j.model,
-                "year": j.year,
-                "region": j.region,
-                "fuel": j.fuel,
-                "gearbox": j.gearbox,
-                "hp_range": j.hp_range,
-                "job_id": j.id,
-            }
-            for j in picked
-        ]
+        bonus = _pick_and_serialize_bonus()
         logger.info(
             "next-job: vehicule courant %s %s %s a collecter (+%d bonus)",
             make,
@@ -419,20 +347,7 @@ def next_market_job():
             best_candidate = (c.brand, c.model, mid_year)
 
     if best_candidate:
-        picked = pick_bonus_jobs(max_jobs=3)
-        bonus = [
-            {
-                "make": j.make,
-                "model": j.model,
-                "year": j.year,
-                "region": j.region,
-                "fuel": j.fuel,
-                "gearbox": j.gearbox,
-                "hp_range": j.hp_range,
-                "job_id": j.id,
-            }
-            for j in picked
-        ]
+        bonus = _pick_and_serialize_bonus()
         logger.info(
             "next-job: redirection vers %s %s pour region %s (+%d bonus)",
             best_candidate[0],
@@ -458,19 +373,6 @@ def next_market_job():
         )
 
     # 3. Tout est a jour dans cette region
-    picked = pick_bonus_jobs(max_jobs=3)
-    bonus = [
-        {
-            "make": j.make,
-            "model": j.model,
-            "year": j.year,
-            "region": j.region,
-            "fuel": j.fuel,
-            "gearbox": j.gearbox,
-            "hp_range": j.hp_range,
-            "job_id": j.id,
-        }
-        for j in picked
-    ]
+    bonus = _pick_and_serialize_bonus()
     logger.info("next-job: tout est a jour pour la region %s (+%d bonus)", region, len(bonus))
     return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": bonus}})
