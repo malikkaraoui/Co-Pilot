@@ -25,9 +25,14 @@ def get_argus_price(vehicle_id: int, region: str, year: int) -> ArgusPrice | Non
     ).first()
 
     if result:
-        logger.debug("Argus found: %s %d -> %d/%d/%d",
-                      region, year, result.price_low, result.price_mid, result.price_high)
+        logger.debug(
+            "Argus found: %s %d -> %d/%d/%d",
+            region,
+            year,
+            result.price_low,
+            result.price_mid,
+            result.price_high,
+        )
     else:
-        logger.debug("No argus data for vehicle_id=%d region=%s year=%d",
-                      vehicle_id, region, year)
+        logger.debug("No argus data for vehicle_id=%d region=%s year=%d", vehicle_id, region, year)
     return result

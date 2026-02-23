@@ -281,9 +281,7 @@ class TestImportCsv:
 
         with app.app_context():
             peugeot = Vehicle.query.filter_by(brand="Peugeot", model="208").first()
-            spec = VehicleSpec.query.filter_by(
-                vehicle_id=peugeot.id, engine="test_invalid"
-            ).first()
+            spec = VehicleSpec.query.filter_by(vehicle_id=peugeot.id, engine="test_invalid").first()
             assert spec is not None
             assert spec.power_hp is None
             assert spec.curb_weight_kg is None

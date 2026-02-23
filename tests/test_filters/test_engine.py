@@ -73,7 +73,7 @@ class TestFilterEngine:
     def test_results_sorted_by_filter_id(self):
         engine = FilterEngine()
         engine.register(ErrorFilter())  # T3
-        engine.register(PassFilter())   # T1
+        engine.register(PassFilter())  # T1
         engine.register(WarningFilter())  # T2
         results = engine.run_all({})
         ids = [r.filter_id for r in results]
