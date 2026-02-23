@@ -66,13 +66,14 @@ function makeNextData(overrides = {}) {
 }
 
 /** Construit une reponse next-job API. */
-function makeJobResponse(target, collect = true, region = 'Île-de-France') {
+function makeJobResponse(target, collect = true, region = 'Île-de-France', bonusJobs = []) {
   return {
     success: true,
     data: {
       collect,
       vehicle: target,
       region,
+      bonus_jobs: bonusJobs,
     },
   };
 }
@@ -889,11 +890,42 @@ describe('maybeCollectMarketPrices', () => {
       expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
-    it('bloque la collecte pour un AUTRE vehicule quand cooldown actif', async () => {
+    it('bloque la collecte redirect mais execute les bonus jobs quand cooldown actif', async () => {
       // Cooldown actif (1h ago, bien dans les 24h)
       localStorage.setItem('copilot_last_collect', String(Date.now() - 1 * 60 * 60 * 1000));
 
-      mockFetchSequence({
+      const bonusJobs = [
+        { make: 'Peugeot', model: '208', year: 2020, region: 'Île-de-France', fuel: 'essence', gearbox: null, hp_range: null, job_id: 42 },
+      ];
+
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(
+          { make: 'Renault', model: 'Clio', year: '2020' },
+          true,
+          'Île-de-France',
+          bonusJobs,
+        ),
+      });
+
+      // Bonus job fetch: API finder (vide) + HTML scraping + POST market-prices + POST job-done
+      fetchMock.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ads: [] }) });
+      fetchMock.mockResolvedValueOnce({ ok: true, text: () => Promise.resolve(makeSearchHTML(makePrices(20))) });
+      fetchMock.mockResolvedValueOnce({ ok: true }); // POST market-prices
+      fetchMock.mockResolvedValueOnce({ ok: true }); // POST job-done
+
+      const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
+
+      // Collecte du redirect bloquee mais bonus executes
+      expect(result.submitted).toBe(false);
+      // next-job (1) + API finder (2) + HTML scraping (3) + POST market-prices (4) + POST job-done (5)
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('bloque la collecte redirect sans bonus quand cooldown actif et aucun bonus', async () => {
+      // Cooldown actif (1h ago, bien dans les 24h)
+      localStorage.setItem('copilot_last_collect', String(Date.now() - 1 * 60 * 60 * 1000));
+
+      const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(
           { make: 'Renault', model: 'Clio', year: '2020' },
         ),
@@ -901,8 +933,9 @@ describe('maybeCollectMarketPrices', () => {
 
       const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // DOIT etre bloque
+      // DOIT etre bloque, un seul appel (next-job)
       expect(result.submitted).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('autorise la collecte pour un AUTRE vehicule quand cooldown expire', async () => {

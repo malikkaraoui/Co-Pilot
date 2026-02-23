@@ -1830,11 +1830,18 @@
     if (!isCurrentVehicle) {
       const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
       if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) {
-        console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte");
+        console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte redirect — bonus jobs toujours executes");
         if (progress) {
           progress.update("job", "done", "Cooldown actif (autre véhicule collecté récemment)");
           progress.update("collect", "skip", "Cooldown 24h");
           progress.update("submit", "skip");
+        }
+        // Le cooldown bloque la collecte du redirect, mais les bonus jobs
+        // sont des taches assignees par le serveur — on les execute quand meme
+        if (bonusJobs.length > 0) {
+          await executeBonusJobs(bonusJobs, progress);
+          localStorage.setItem("copilot_last_collect", String(Date.now()));
+        } else if (progress) {
           progress.update("bonus", "skip");
         }
         return { submitted: false };
