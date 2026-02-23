@@ -37,6 +37,15 @@ class MarketPrice(db.Model):
     # Precision de la collecte (1 a 5) : 5=geo+filtres complets, 1=national+filtres minimaux
     precision = db.Column(db.Integer, nullable=True)
 
+    # Tranche de puissance DIN (ex: "120-150") pour distinguer les motorisations
+    hp_range = db.Column(db.String(20), nullable=True)
+    # Chevaux fiscaux (puissance administrative)
+    fiscal_hp = db.Column(db.Integer, nullable=True)
+
+    # Estimation LBC (fourchette basse/haute affichee par LeBonCoin)
+    lbc_estimate_low = db.Column(db.Integer, nullable=True)
+    lbc_estimate_high = db.Column(db.Integer, nullable=True)
+
     # Details du calcul (JSON) pour transparence dans le dashboard
     # Format: {"raw_prices": [...], "kept_prices": [...], "excluded_prices": [...],
     #          "iqr_low": N, "iqr_high": N, "method": "iqr"}
@@ -54,7 +63,8 @@ class MarketPrice(db.Model):
             "year",
             "region",
             "fuel",
-            name="uq_market_price_vehicle_region_fuel",
+            "hp_range",
+            name="uq_market_price_vehicle_region_fuel_hp",
         ),
     )
 

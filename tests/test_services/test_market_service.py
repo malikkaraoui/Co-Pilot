@@ -87,6 +87,174 @@ class TestStoreMarketPrices:
             assert abs(delta.total_seconds() - 86400) < 2  # ~24h
 
 
+class TestStoreWithHpRange:
+    """Tests de store_market_prices avec hp_range, fiscal_hp, lbc_estimate."""
+
+    def test_store_with_hp_range(self, app):
+        """store_market_prices stores hp_range when provided."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Ile-de-France",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            assert mp.hp_range == "120-150"
+
+    def test_store_with_fiscal_hp(self, app):
+        """store_market_prices stores fiscal_hp when provided."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Bretagne",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+                fiscal_hp=7,
+            )
+            assert mp.fiscal_hp == 7
+
+    def test_same_vehicle_different_hp_range_creates_two_records(self, app):
+        """Two different hp_ranges for same vehicle create separate MarketPrice entries."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Ile-de-France",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+                hp_range="100-130",
+            )
+            mp2 = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Ile-de-France",
+                prices=[15000, 16000, 17000, 18000, 19000],
+                fuel="diesel",
+                hp_range="130-160",
+            )
+            assert mp1.id != mp2.id
+            assert mp1.hp_range == "100-130"
+            assert mp2.hp_range == "130-160"
+
+    def test_store_with_lbc_estimates(self, app):
+        """store_market_prices stores LBC estimate low/high."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Peugeot",
+                model="208",
+                year=2021,
+                region="Ile-de-France",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                lbc_estimate_low=12500,
+                lbc_estimate_high=15500,
+            )
+            assert mp.lbc_estimate_low == 12500
+            assert mp.lbc_estimate_high == 15500
+
+    def test_upserts_same_hp_range(self, app):
+        """Two calls with same hp_range update the same record."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="PACA",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            mp2 = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="PACA",
+                prices=[13000, 14000, 15000, 16000, 17000],
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            assert mp1.id == mp2.id
+
+    def test_no_hp_range_separate_from_hp_range(self, app):
+        """A record without hp_range and one with hp_range are distinct."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Corse",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+            )
+            mp2 = store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Corse",
+                prices=[15000, 16000, 17000, 18000, 19000],
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            assert mp1.id != mp2.id
+            assert mp1.hp_range is None
+            assert mp2.hp_range == "120-150"
+
+
+class TestGetMarketStatsHpRange:
+    """Tests de get_market_stats avec hp_range."""
+
+    def test_returns_exact_hp_range_match(self, app):
+        """get_market_stats returns exact hp_range match first."""
+        with app.app_context():
+            store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Ile-de-France",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            result = get_market_stats(
+                "Renault",
+                "Talisman",
+                2016,
+                "Ile-de-France",
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            assert result is not None
+            assert result.hp_range == "120-150"
+
+    def test_falls_back_to_no_hp_range(self, app):
+        """get_market_stats falls back to hp_range=NULL when exact not found."""
+        with app.app_context():
+            store_market_prices(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Bretagne",
+                prices=[12000, 13000, 14000, 15000, 16000],
+                fuel="diesel",
+            )
+            result = get_market_stats(
+                "Renault",
+                "Talisman",
+                2016,
+                "Bretagne",
+                fuel="diesel",
+                hp_range="120-150",
+            )
+            assert result is not None
+            assert result.hp_range is None
+
+
 class TestStoreWithFuel:
     """Tests de store_market_prices avec le parametre fuel."""
 

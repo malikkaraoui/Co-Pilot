@@ -237,6 +237,10 @@ def store_market_prices(
     precision: int | None = None,
     price_details: list[dict] | None = None,
     search_log: list[dict] | None = None,
+    hp_range: str | None = None,
+    fiscal_hp: int | None = None,
+    lbc_estimate_low: int | None = None,
+    lbc_estimate_high: int | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -322,6 +326,10 @@ def store_market_prices(
         "calculation_details": json.dumps(details),
         "collected_at": now,
         "refresh_after": now + timedelta(hours=CACHE_DURATION_HOURS),
+        "hp_range": hp_range,
+        "fiscal_hp": fiscal_hp,
+        "lbc_estimate_low": lbc_estimate_low,
+        "lbc_estimate_high": lbc_estimate_high,
     }
 
     # Recherche existante : si fuel est fourni, chercher par fuel d'abord
@@ -335,6 +343,11 @@ def store_market_prices(
         filters.append(func.lower(MarketPrice.fuel) == fuel)
     else:
         filters.append(MarketPrice.fuel.is_(None))
+
+    if hp_range:
+        filters.append(func.lower(MarketPrice.hp_range) == hp_range.lower())
+    else:
+        filters.append(MarketPrice.hp_range.is_(None))
 
     existing = MarketPrice.query.filter(*filters).first()
 
@@ -399,15 +412,37 @@ def store_market_prices(
     return mp
 
 
+def _hp_range_filters(hp_range_key: str | None, exact: bool) -> list:
+    """Build hp_range filter clauses for MarketPrice queries.
+
+    Args:
+        hp_range_key: Normalized hp_range value (lowercased) or None.
+        exact: If True, match the exact hp_range. If False, match hp_range=NULL (generic).
+
+    Returns:
+        List of SQLAlchemy filter clauses.
+    """
+    if hp_range_key and exact:
+        return [func.lower(MarketPrice.hp_range) == hp_range_key]
+    return [MarketPrice.hp_range.is_(None)]
+
+
 def get_market_stats(
-    make: str, model: str, year: int, region: str, fuel: str | None = None
+    make: str,
+    model: str,
+    year: int,
+    region: str,
+    fuel: str | None = None,
+    hp_range: str | None = None,
 ) -> MarketPrice | None:
     """Recupere les stats marche pour un vehicule/region.
 
     Strategie de recherche progressive :
-    1. Match exact avec fuel (make + model + year + region + fuel)
-    2. Match exact sans fuel (make + model + year + region)
-    3. Fallback : make + model + region, annee la plus proche (avec puis sans fuel)
+    1. Match exact avec fuel + hp_range (le plus precis)
+    2. Fallback hp_range=NULL (generique) sur meme fuel
+    3. Fallback fuel=NULL (generique) sur meme year
+    4. Fallback annee la plus proche (±3 ans), avec fuel puis sans
+    Chaque etape tente d'abord avec hp_range exact, puis hp_range=NULL.
 
     Les donnees restent valables indefiniment (argus maison).
     Le champ refresh_after indique seulement si un rafraichissement serait souhaitable.
@@ -418,6 +453,7 @@ def get_market_stats(
         year: Annee.
         region: Region.
         fuel: Type de motorisation (ex. "diesel", "essence"). Optionnel.
+        hp_range: Tranche de puissance DIN (ex. "120-150"). Optionnel.
 
     Returns:
         L'instance MarketPrice si elle existe, None sinon.
@@ -426,6 +462,7 @@ def get_market_stats(
     model_key = market_text_key(model)
     region_key = market_text_key(region)
     fuel_key = fuel.strip().lower() if fuel else None
+    hp_range_key = hp_range.strip().lower() if hp_range else None
 
     base_filters = [
         market_text_key_expr(MarketPrice.make) == make_key,
@@ -433,40 +470,75 @@ def get_market_stats(
         market_text_key_expr(MarketPrice.region) == region_key,
     ]
 
-    # 1. Match exact avec fuel (5 champs) -- le plus precis
-    if fuel_key:
-        result = MarketPrice.query.filter(
-            *base_filters,
-            MarketPrice.year == year,
-            func.lower(MarketPrice.fuel) == fuel_key,
+    # --- Helper: try a query with exact hp_range first, then fallback to hp_range=NULL ---
+    def _try_with_hp_fallback(extra_filters: list) -> MarketPrice | None:
+        """Try query with exact hp_range, then fallback to generic (hp_range=NULL)."""
+        if hp_range_key:
+            result = MarketPrice.query.filter(
+                *extra_filters, *_hp_range_filters(hp_range_key, exact=True)
+            ).first()
+            if result:
+                return result
+        # Fallback to hp_range=NULL (generic)
+        return MarketPrice.query.filter(
+            *extra_filters, *_hp_range_filters(hp_range_key, exact=False)
         ).first()
+
+    def _try_approx_with_hp_fallback(extra_filters: list) -> MarketPrice | None:
+        """Try approx year query with exact hp_range, then fallback to generic."""
+        if hp_range_key:
+            candidates = MarketPrice.query.filter(
+                *extra_filters, *_hp_range_filters(hp_range_key, exact=True)
+            ).all()
+            if candidates:
+                return min(candidates, key=lambda mp: abs(mp.year - year))
+        # Fallback to hp_range=NULL (generic)
+        candidates = MarketPrice.query.filter(
+            *extra_filters, *_hp_range_filters(hp_range_key, exact=False)
+        ).all()
+        if candidates:
+            return min(candidates, key=lambda mp: abs(mp.year - year))
+        return None
+
+    # 1. Match exact avec fuel (5+ champs) -- le plus precis
+    if fuel_key:
+        result = _try_with_hp_fallback(
+            [
+                *base_filters,
+                MarketPrice.year == year,
+                func.lower(MarketPrice.fuel) == fuel_key,
+            ]
+        )
         if result:
             logger.info(
-                "MarketPrice exact+fuel: %s %s %d %s %s (n=%d)",
+                "MarketPrice exact+fuel: %s %s %d %s %s hp=%s (n=%d)",
                 make,
                 model,
                 year,
                 region,
                 fuel_key,
+                result.hp_range,
                 result.sample_count,
             )
             return result
 
     # 2. Match exact sans fuel (4 champs) -- fallback anciennes donnees ou generique
-    filters_no_fuel = [
-        *base_filters,
-        MarketPrice.year == year,
-    ]
     # FIX: Si un fuel est demande, on ne doit pas tomber sur un fuel different (ex: diesel → essence)
     # On autorise seulement le fallback sur fuel=None (donnees generiques/anciennes)
+    filters_no_fuel = [*base_filters, MarketPrice.year == year]
     if fuel_key:
         filters_no_fuel.append(MarketPrice.fuel.is_(None))
 
-    result = MarketPrice.query.filter(*filters_no_fuel).first()
-
+    result = _try_with_hp_fallback(filters_no_fuel)
     if result:
         logger.info(
-            "MarketPrice exact: %s %s %d %s (n=%d)", make, model, year, region, result.sample_count
+            "MarketPrice exact: %s %s %d %s hp=%s (n=%d)",
+            make,
+            model,
+            year,
+            region,
+            result.hp_range,
+            result.sample_count,
         )
         return result
 
@@ -474,20 +546,22 @@ def get_market_stats(
     year_filters = [*base_filters, MarketPrice.year.between(year - 3, year + 3)]
 
     if fuel_key:
-        candidates = MarketPrice.query.filter(
-            *year_filters,
-            func.lower(MarketPrice.fuel) == fuel_key,
-        ).all()
-        if candidates:
-            result = min(candidates, key=lambda mp: abs(mp.year - year))
+        result = _try_approx_with_hp_fallback(
+            [
+                *year_filters,
+                func.lower(MarketPrice.fuel) == fuel_key,
+            ]
+        )
+        if result:
             logger.info(
-                "MarketPrice approx+fuel: %s %s %d->%d %s %s (n=%d)",
+                "MarketPrice approx+fuel: %s %s %d->%d %s %s hp=%s (n=%d)",
                 make,
                 model,
                 year,
                 result.year,
                 region,
                 fuel_key,
+                result.hp_range,
                 result.sample_count,
             )
             return result
@@ -497,19 +571,27 @@ def get_market_stats(
     if fuel_key:
         filters_approx_no_fuel.append(MarketPrice.fuel.is_(None))
 
-    candidates = MarketPrice.query.filter(*filters_approx_no_fuel).all()
-    if candidates:
-        result = min(candidates, key=lambda mp: abs(mp.year - year))
+    result = _try_approx_with_hp_fallback(filters_approx_no_fuel)
+    if result:
         logger.info(
-            "MarketPrice approx: %s %s %d->%d %s (n=%d)",
+            "MarketPrice approx: %s %s %d->%d %s hp=%s (n=%d)",
             make,
             model,
             year,
             result.year,
             region,
+            result.hp_range,
             result.sample_count,
         )
         return result
 
-    logger.info("No MarketPrice for %s %s %d %s fuel=%s", make, model, year, region, fuel_key)
+    logger.info(
+        "No MarketPrice for %s %s %d %s fuel=%s hp=%s",
+        make,
+        model,
+        year,
+        region,
+        fuel_key,
+        hp_range_key,
+    )
     return None
