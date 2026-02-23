@@ -1840,7 +1840,8 @@
         // sont des taches assignees par le serveur — on les execute quand meme
         if (bonusJobs.length > 0) {
           await executeBonusJobs(bonusJobs, progress);
-          localStorage.setItem("copilot_last_collect", String(Date.now()));
+          // PAS de localStorage.setItem ici : l'execution de bonus jobs
+          // ne doit pas reset le cooldown redirect (sinon cascade infinie)
         } else if (progress) {
           progress.update("bonus", "skip");
         }

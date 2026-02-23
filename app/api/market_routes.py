@@ -235,6 +235,16 @@ def mark_job_complete():
         ), 400
 
     job_id = data["job_id"]
+    if not isinstance(job_id, int):
+        return jsonify(
+            {
+                "success": False,
+                "error": "INVALID_JOB_ID",
+                "message": "Le champ job_id doit etre un entier.",
+                "data": None,
+            }
+        ), 400
+
     success = data.get("success", True)
 
     try:

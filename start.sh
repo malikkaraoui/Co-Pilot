@@ -106,19 +106,21 @@ with app.app_context():
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
 
-    # Migration market_prices : ancienne contrainte 4 colonnes → 5 colonnes (avec fuel)
+    # Migration market_prices : ancienne contrainte → 6 colonnes (make,model,year,region,fuel,hp_range)
     # SQLite ne supporte pas ALTER CONSTRAINT, on doit recréer la table
     if 'market_prices' in inspector.get_table_names():
         uqs = inspector.get_unique_constraints('market_prices')
-        old_constraint = any(
-            set(u['column_names']) == {'make', 'model', 'year', 'region'}
+        expected_cols = {'make', 'model', 'year', 'region', 'fuel', 'hp_range'}
+        needs_migration = any(
+            set(u['column_names']) != expected_cols
             for u in uqs
+            if 'uq_market_price' in (u.get('name') or '')
         )
-        if old_constraint:
+        if needs_migration:
             db.session.execute(text('DROP TABLE market_prices'))
             db.session.commit()
             db.metadata.tables['market_prices'].create(db.engine)
-            print('  ↻ market_prices recréée (migration fuel)')
+            print('  ↻ market_prices recréée (migration contrainte)')
 
     for table in db.metadata.sorted_tables:
         if table.name not in inspector.get_table_names():

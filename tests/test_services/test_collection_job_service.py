@@ -1,10 +1,14 @@
 """Tests for collection_job_service."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.extensions import db
 from app.models.collection_job import CollectionJob
 from app.services.collection_job_service import (
+    _expand_cache,
+    _reclaim_stale_jobs,
     expand_collection_jobs,
     mark_job_done,
     pick_bonus_jobs,
@@ -13,17 +17,15 @@ from app.services.collection_job_service import (
 
 @pytest.fixture(autouse=True)
 def _clean_collection_jobs(app):
-    """Supprime tous les CollectionJob avant et apres chaque test.
-
-    Necessaire car le fixture 'app' est session-scoped et d'autres tests
-    (test_collection_job.py) peuvent laisser des donnees residuelles.
-    """
+    """Supprime tous les CollectionJob et vide le cache avant/apres chaque test."""
     with app.app_context():
         CollectionJob.query.delete()
         db.session.commit()
+        _expand_cache.clear()
         yield
         CollectionJob.query.delete()
         db.session.commit()
+        _expand_cache.clear()
 
 
 class TestExpandCollectionJobs:
@@ -78,8 +80,8 @@ class TestExpandCollectionJobs:
             assert len(p3_jobs) == 13
             assert all(j.gearbox == "automatique" for j in p3_jobs)
 
-    def test_creates_year_variant_priority_4(self, app):
-        """Expanding year 2016 creates 2015 and 2017 jobs at priority 4."""
+    def test_creates_year_variant_priority_4_current_region_only(self, app):
+        """P4 creates year+/-1 jobs for current region only (2 jobs, not 26)."""
         with app.app_context():
             jobs = expand_collection_jobs(
                 make="Ford",
@@ -94,7 +96,8 @@ class TestExpandCollectionJobs:
             years = {j.year for j in p4_jobs}
             assert 2015 in years
             assert 2017 in years
-            assert len(p4_jobs) == 26  # 2 years x 13 regions
+            assert len(p4_jobs) == 2  # region courante seulement
+            assert all(j.region == "Corse" for j in p4_jobs)
 
     def test_no_fuel_variant_for_electrique(self, app):
         """No fuel variant created for electric vehicles."""
@@ -112,7 +115,7 @@ class TestExpandCollectionJobs:
             assert len(p2_jobs) == 0
 
     def test_deduplication_skips_existing_jobs(self, app):
-        """Calling expand twice does not create duplicates."""
+        """Calling expand with same vehicle after clearing cache does not duplicate."""
         with app.app_context():
             jobs1 = expand_collection_jobs(
                 make="Audi",
@@ -125,6 +128,10 @@ class TestExpandCollectionJobs:
             )
             count1 = len(jobs1)
             assert count1 > 0
+
+            # Vider le cache pour que le 2e appel ne soit pas court-circuite
+            _expand_cache.clear()
+
             jobs2 = expand_collection_jobs(
                 make="Audi",
                 model="A3",
@@ -152,6 +159,105 @@ class TestExpandCollectionJobs:
             )
             p3_jobs = [j for j in jobs if j.priority == 3]
             assert len(p3_jobs) == 0
+
+    def test_cache_prevents_re_expansion(self, app):
+        """Second call within cooldown returns empty (cache hit)."""
+        with app.app_context():
+            jobs1 = expand_collection_jobs(
+                make="Fiat",
+                model="500",
+                year=2020,
+                region="Corse",
+                fuel="essence",
+                gearbox="manual",
+                hp_range="50-70",
+            )
+            assert len(jobs1) > 0
+
+            # Cache is still warm — second call returns []
+            jobs2 = expand_collection_jobs(
+                make="Fiat",
+                model="500",
+                year=2020,
+                region="Corse",
+                fuel="essence",
+                gearbox="manual",
+                hp_range="50-70",
+            )
+            assert len(jobs2) == 0
+
+    def test_normalizes_inputs_case_insensitive(self, app):
+        """Expand normalizes make/model/fuel/gearbox (case-insensitive dedup)."""
+        with app.app_context():
+            jobs1 = expand_collection_jobs(
+                make="RENAULT",
+                model="CLIO",
+                year=2022,
+                region="Bretagne",
+                fuel="Diesel",
+                gearbox="Manual",
+                hp_range="70-120",
+            )
+            assert len(jobs1) > 0
+
+            _expand_cache.clear()
+
+            # Meme vehicule, casse differente — 0 nouveaux jobs
+            jobs2 = expand_collection_jobs(
+                make="renault",
+                model="clio",
+                year=2022,
+                region="Bretagne",
+                fuel="diesel",
+                gearbox="manual",
+                hp_range="70-120",
+            )
+            assert len(jobs2) == 0
+
+
+class TestReclaimStaleJobs:
+    def test_reclaims_stale_assigned(self, app):
+        """Jobs assigned > 30 min ago are reclaimed to pending."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Toyota",
+                model="Yaris",
+                year=2021,
+                region="Bretagne",
+                priority=1,
+                status="assigned",
+                assigned_at=datetime.now(timezone.utc) - timedelta(minutes=45),
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            count = _reclaim_stale_jobs()
+            assert count == 1
+            db.session.refresh(job)
+            assert job.status == "pending"
+            assert job.assigned_at is None
+
+    def test_does_not_reclaim_recent_assigned(self, app):
+        """Jobs assigned < 30 min ago are NOT reclaimed."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Toyota",
+                model="Corolla",
+                year=2022,
+                region="Normandie",
+                priority=1,
+                status="assigned",
+                assigned_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            count = _reclaim_stale_jobs()
+            assert count == 0
+            db.session.refresh(job)
+            assert job.status == "assigned"
 
 
 class TestPickBonusJobs:
@@ -205,9 +311,31 @@ class TestPickBonusJobs:
             ids2 = {j.id for j in pick2}
             assert ids1.isdisjoint(ids2)
 
+    def test_reclaims_stale_before_picking(self, app):
+        """pick_bonus_jobs reclaims stale assigned jobs and can re-pick them."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Kia",
+                model="Picanto",
+                year=2023,
+                region="Corse",
+                priority=1,
+                status="assigned",
+                assigned_at=datetime.now(timezone.utc) - timedelta(minutes=45),
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            picked = pick_bonus_jobs(max_jobs=3)
+            assert any(j.id == job.id for j in picked)
+            db.session.refresh(job)
+            assert job.status == "assigned"  # re-assigned
+
 
 class TestMarkJobDone:
-    def test_mark_done(self, app):
+    def test_mark_done_from_assigned(self, app):
+        """Mark an assigned job as done."""
         with app.app_context():
             job = CollectionJob(
                 make="Seat",
@@ -215,6 +343,7 @@ class TestMarkJobDone:
                 year=2020,
                 region="Bretagne",
                 priority=1,
+                status="assigned",
                 source_vehicle="test",
             )
             db.session.add(job)
@@ -224,7 +353,25 @@ class TestMarkJobDone:
             assert job.status == "done"
             assert job.completed_at is not None
 
+    def test_mark_done_from_pending(self, app):
+        """Mark a pending job as done (accepted status)."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Seat",
+                model="Leon",
+                year=2021,
+                region="Bretagne",
+                priority=1,
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+            mark_job_done(job.id, success=True)
+            db.session.refresh(job)
+            assert job.status == "done"
+
     def test_mark_failed_increments_attempts(self, app):
+        """Failing a job increments attempts; under MAX_ATTEMPTS goes back to pending."""
         with app.app_context():
             job = CollectionJob(
                 make="Seat",
@@ -232,6 +379,7 @@ class TestMarkJobDone:
                 year=2021,
                 region="Corse",
                 priority=1,
+                status="assigned",
                 source_vehicle="test",
             )
             db.session.add(job)
@@ -239,10 +387,10 @@ class TestMarkJobDone:
             mark_job_done(job.id, success=False)
             db.session.refresh(job)
             assert job.attempts == 1
-            # Under MAX_ATTEMPTS (3), back to pending for retry
             assert job.status == "pending"
 
     def test_mark_failed_stays_failed_after_max_attempts(self, app):
+        """Job stays failed after reaching MAX_ATTEMPTS."""
         with app.app_context():
             job = CollectionJob(
                 make="Opel",
@@ -250,12 +398,53 @@ class TestMarkJobDone:
                 year=2019,
                 region="Normandie",
                 priority=1,
+                status="assigned",
                 source_vehicle="test",
-                attempts=2,  # already at 2
+                attempts=2,
             )
             db.session.add(job)
             db.session.commit()
             mark_job_done(job.id, success=False)
             db.session.refresh(job)
             assert job.attempts == 3
-            assert job.status == "failed"  # stays failed at max
+            assert job.status == "failed"
+
+    def test_rejects_already_done_job(self, app):
+        """Cannot mark a done job as done again."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Opel",
+                model="Mokka",
+                year=2022,
+                region="Occitanie",
+                priority=1,
+                status="done",
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+            with pytest.raises(ValueError, match="expected 'assigned' or 'pending'"):
+                mark_job_done(job.id, success=True)
+
+    def test_rejects_already_failed_job(self, app):
+        """Cannot mark a failed job."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Opel",
+                model="Astra",
+                year=2020,
+                region="Grand Est",
+                priority=1,
+                status="failed",
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+            with pytest.raises(ValueError, match="expected 'assigned' or 'pending'"):
+                mark_job_done(job.id, success=False)
+
+    def test_raises_for_missing_job(self, app):
+        """Raises ValueError for non-existent job ID."""
+        with app.app_context():
+            with pytest.raises(ValueError, match="not found"):
+                mark_job_done(99999, success=True)
