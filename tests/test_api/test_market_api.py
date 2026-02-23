@@ -156,6 +156,36 @@ class TestMarketPricesAPI:
             assert "km" in first
             assert "fuel" in first
 
+    def test_submit_with_hp_range_and_lbc_estimate(self, app, client):
+        """POST with hp_range, fiscal_hp, lbc estimates stores them."""
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Renault",
+                    "model": "Talisman",
+                    "year": 2016,
+                    "region": "Ile-de-France",
+                    "prices": prices_20,
+                    "fuel": "diesel",
+                    "hp_range": "120-150",
+                    "fiscal_hp": 7,
+                    "lbc_estimate_low": 12000,
+                    "lbc_estimate_high": 15000,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        with app.app_context():
+            mp = MarketPrice.query.filter_by(make="Renault", model="Talisman", year=2016).first()
+            assert mp is not None
+            assert mp.hp_range == "120-150"
+            assert mp.fiscal_hp == 7
+            assert mp.lbc_estimate_low == 12000
+            assert mp.lbc_estimate_high == 15000
+
     def test_submit_invalid_year_returns_400(self, client):
         """POST avec annee hors limites retourne 400."""
         resp = client.post(

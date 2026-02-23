@@ -143,6 +143,10 @@ class MarketPricesRequest(BaseModel):
     fuel: str | None = Field(default=None, max_length=30)
     precision: int | None = Field(default=None, ge=1, le=5)
     search_log: list[SearchStep] | None = None
+    hp_range: str | None = Field(default=None, max_length=20)
+    fiscal_hp: int | None = Field(default=None, ge=1, le=100)
+    lbc_estimate_low: int | None = Field(default=None, ge=0)
+    lbc_estimate_high: int | None = Field(default=None, ge=0)
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -238,6 +242,10 @@ def submit_market_prices():
             precision=req.precision,
             price_details=raw_details,
             search_log=raw_search_log,
+            hp_range=req.hp_range,
+            fiscal_hp=req.fiscal_hp,
+            lbc_estimate_low=req.lbc_estimate_low,
+            lbc_estimate_high=req.lbc_estimate_high,
         )
     except (ValueError, TypeError, OSError) as exc:
         logger.error("Failed to store market prices: %s", exc)
