@@ -288,8 +288,7 @@ def mark_job_done(job_id: int, success: bool = True) -> None:
     """
     job = db.session.get(CollectionJob, job_id)
     if job is None:
-        logger.warning("mark_job_done: job %d not found", job_id)
-        return
+        raise ValueError(f"Job {job_id} not found")
 
     if success:
         job.status = "done"

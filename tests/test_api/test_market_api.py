@@ -664,6 +664,88 @@ class TestBonusJobs:
                 assert job["region"] != "Grand Est"
 
 
+class TestJobCompletion:
+    """Tests for POST /api/market-prices/job-done."""
+
+    def test_mark_job_done_via_api(self, app, client):
+        """POST /api/market-prices/job-done marks job as done."""
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            job = CollectionJob(
+                make="Renault",
+                model="Talisman",
+                year=2016,
+                region="Bretagne",
+                priority=1,
+                source_vehicle="test",
+                status="assigned",
+            )
+            db.session.add(job)
+            db.session.commit()
+            job_id = job.id
+
+        resp = client.post(
+            "/api/market-prices/job-done",
+            data=json.dumps({"job_id": job_id, "success": True}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["data"]["status"] == "done"
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            job = db.session.get(CollectionJob, job_id)
+            assert job.status == "done"
+
+    def test_mark_job_failed_via_api(self, app, client):
+        """POST /api/market-prices/job-done with success=false marks as failed."""
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            job = CollectionJob(
+                make="Peugeot",
+                model="208",
+                year=2020,
+                region="Corse",
+                priority=1,
+                source_vehicle="test",
+                status="assigned",
+            )
+            db.session.add(job)
+            db.session.commit()
+            job_id = job.id
+
+        resp = client.post(
+            "/api/market-prices/job-done",
+            data=json.dumps({"job_id": job_id, "success": False}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["data"]["status"] == "failed"
+
+    def test_missing_job_id_returns_400(self, client):
+        """POST without job_id returns 400."""
+        resp = client.post(
+            "/api/market-prices/job-done",
+            data=json.dumps({"success": True}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_invalid_job_id_returns_404(self, client):
+        """POST with non-existent job_id returns 404."""
+        resp = client.post(
+            "/api/market-prices/job-done",
+            data=json.dumps({"job_id": 99999, "success": True}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 404
+
+
 class TestNextJobWithQueue:
     """Tests for next-job integration with CollectionJob queue."""
 

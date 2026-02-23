@@ -213,6 +213,52 @@ def submit_market_prices():
     )
 
 
+@api_bp.route("/market-prices/job-done", methods=["POST"])
+@limiter.limit("60/minute")
+def mark_job_complete():
+    """Callback de l'extension pour signaler qu'un job de collecte est termine.
+
+    Body JSON :
+        { job_id: int, success: bool }
+    """
+    from app.services.collection_job_service import mark_job_done
+
+    data = request.get_json(silent=True)
+    if not data or "job_id" not in data:
+        return jsonify(
+            {
+                "success": False,
+                "error": "MISSING_JOB_ID",
+                "message": "Le champ job_id est requis.",
+                "data": None,
+            }
+        ), 400
+
+    job_id = data["job_id"]
+    success = data.get("success", True)
+
+    try:
+        mark_job_done(job_id, success=success)
+    except (ValueError, TypeError) as exc:
+        return jsonify(
+            {
+                "success": False,
+                "error": "INVALID_JOB",
+                "message": str(exc),
+                "data": None,
+            }
+        ), 404
+
+    return jsonify(
+        {
+            "success": True,
+            "error": None,
+            "message": None,
+            "data": {"job_id": job_id, "status": "done" if success else "failed"},
+        }
+    )
+
+
 @api_bp.route("/market-prices/next-job", methods=["GET"])
 @limiter.limit("60/minute")
 def next_market_job():
