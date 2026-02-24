@@ -3,9 +3,12 @@
 import json
 import logging
 import re
+import threading
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from flask import abort, current_app, flash, redirect, render_template, request, url_for
+from flask import abort, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -23,6 +26,11 @@ from app.models.vehicle_synthesis import VehicleSynthesis
 from app.models.youtube import YouTubeTranscript, YouTubeVideo
 
 logger = logging.getLogger(__name__)
+
+# ── Pipeline jobs (in-memory, thread-safe) ─────────────────────
+# Stocke les jobs de synthese YouTube en cours pour le suivi temps reel.
+_synthesis_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
 
 
 # ── Authentification ────────────────────────────────────────────
@@ -1446,159 +1454,319 @@ def youtube_fine_search():
 @admin_bp.route("/youtube/fine-search", methods=["POST"])
 @login_required
 def youtube_fine_search_run():
-    """Pipeline : build query → search YouTube → extract → concat → LLM → store."""
-    from app.services.llm_service import generate_synthesis, list_ollama_models
-    from app.services.youtube_service import build_search_query, search_and_extract_custom
-
-    # Recuperer les parametres du formulaire
+    """Lance le pipeline en background et redirige vers la page avec job_id."""
     make = request.form.get("make", "").strip()
     model_name = request.form.get("model", "").strip()
-    year = request.form.get("year", "", type=str).strip()
-    fuel = request.form.get("fuel", "").strip()
-    hp = request.form.get("hp", "").strip()
-    keywords = request.form.get("keywords", "").strip()
-    max_results = request.form.get("max_results", 5, type=int)
-    llm_model = request.form.get("llm_model", "").strip()
-    prompt = request.form.get("prompt", "").strip() or _DEFAULT_SYNTHESIS_PROMPT
-
-    form_data = {
-        "make": make,
-        "model": model_name,
-        "year": year,
-        "fuel": fuel,
-        "hp": hp,
-        "keywords": keywords,
-        "max_results": max_results,
-        "llm_model": llm_model,
-        "prompt": prompt,
-    }
-
-    catalog = _build_vehicle_catalog()
-    brand_list = sorted(catalog.keys())
-    ollama_models = list_ollama_models()
-    syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
-    catalog_data = catalog
 
     if not make or not model_name:
         flash("Marque et modele sont requis.", "error")
-        return render_template(
-            "admin/youtube_search.html",
-            brand_list=brand_list,
-            ollama_models=ollama_models,
-            syntheses=syntheses,
-            default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
-            form_data=form_data,
-            result=None,
-            vehicle_catalog=catalog_data,
-        )
+        return redirect(url_for("admin.youtube_fine_search"))
 
-    # Trouver le vehicle_id si le vehicule existe dans le referentiel
-    vehicle = Vehicle.query.filter(
-        Vehicle.brand.ilike(make),
-        Vehicle.model.ilike(model_name),
-    ).first()
-    vehicle_id = vehicle.id if vehicle else None
-
-    # Build query
-    year_int = int(year) if year else None
-    query = build_search_query(
-        make=make,
-        model=model_name,
-        year=year_int,
-        fuel=fuel or None,
-        hp=hp or None,
-        keywords=keywords or None,
-    )
-
-    # Search + extract
-    try:
-        stats = search_and_extract_custom(query, vehicle_id=vehicle_id, max_results=max_results)
-    except Exception as exc:
-        logger.exception("YouTube fine search failed: %s", exc)
-        flash(f"Erreur recherche YouTube : {exc}", "error")
-        return render_template(
-            "admin/youtube_search.html",
-            brand_list=brand_list,
-            ollama_models=ollama_models,
-            syntheses=syntheses,
-            default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
-            form_data=form_data,
-            result=None,
-            vehicle_catalog=catalog_data,
-        )
-
-    # Concatener les transcripts des videos trouvees
-    video_ids_db = stats.get("video_ids", [])
-    transcripts_parts = []
-    for vid_id in video_ids_db:
-        yt_video = db.session.get(YouTubeVideo, vid_id)
-        if yt_video and yt_video.transcript and yt_video.transcript.status == "extracted":
-            header = f"--- {yt_video.title} ({yt_video.channel_name}) ---"
-            transcripts_parts.append(f"{header}\n{yt_video.transcript.full_text}")
-
-    total_chars = sum(len(p) for p in transcripts_parts)
-    concatenated = "\n\n".join(transcripts_parts)
-
-    # LLM synthesis (only if we have transcripts)
-    synthesis_text = ""
-    synthesis_id = None
-    if concatenated and llm_model:
-        try:
-            synthesis_text = generate_synthesis(llm_model, prompt, concatenated)
-        except ConnectionError as exc:
-            logger.error("Ollama synthesis failed: %s", exc)
-            flash(f"Erreur LLM : {exc}", "error")
-
-        # Store VehicleSynthesis
-        if synthesis_text:
-            synth = VehicleSynthesis(
-                vehicle_id=vehicle_id,
-                make=make,
-                model=model_name,
-                year=year_int,
-                fuel=fuel or None,
-                llm_model=llm_model,
-                prompt_used=prompt,
-                source_video_ids=video_ids_db,
-                raw_transcript_chars=total_chars,
-                synthesis_text=synthesis_text,
-                status="draft",
-            )
-            db.session.add(synth)
-            db.session.commit()
-            synthesis_id = synth.id
-            logger.info(
-                "Synthesis created: %s %s (id=%d, llm=%s, %d chars input)",
-                make,
-                model_name,
-                synth.id,
-                llm_model,
-                total_chars,
-            )
-
-    # Refresh syntheses list
-    syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
-
-    result = {
-        "videos_found": stats["videos_found"],
-        "transcripts_ok": stats["transcripts_ok"],
-        "total_chars": total_chars,
-        "query": query,
-        "synthesis_text": synthesis_text,
-        "synthesis_id": synthesis_id,
-        "llm_model": llm_model,
+    # Creer le job
+    job_id = str(uuid.uuid4())[:8]
+    job = {
+        "id": job_id,
+        "status": "running",
+        "progress": 0,
+        "progress_label": "Demarrage...",
+        "pipeline_log": [],
+        "videos_detail": [],
+        "result": None,
+        "cancelled": False,
+        "form_data": {
+            "make": make,
+            "model": model_name,
+            "year": request.form.get("year", "").strip(),
+            "fuel": request.form.get("fuel", "").strip(),
+            "hp": request.form.get("hp", "").strip(),
+            "keywords": request.form.get("keywords", "").strip(),
+            "max_results": request.form.get("max_results", 5, type=int),
+            "llm_model": request.form.get("llm_model", "").strip(),
+            "prompt": request.form.get("prompt", "").strip() or _DEFAULT_SYNTHESIS_PROMPT,
+        },
     }
+    with _jobs_lock:
+        _synthesis_jobs[job_id] = job
 
-    return render_template(
-        "admin/youtube_search.html",
-        brand_list=brand_list,
-        ollama_models=ollama_models,
-        syntheses=syntheses,
-        default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
-        form_data=form_data,
-        result=result,
-        vehicle_catalog=catalog_data,
+    # Lancer le pipeline en background thread
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_synthesis_pipeline,
+        args=(app, job),
+        daemon=True,
     )
+    thread.start()
+
+    return redirect(url_for("admin.youtube_fine_search", job_id=job_id))
+
+
+def _run_synthesis_pipeline(app, job: dict) -> None:
+    """Execute le pipeline YouTube+LLM dans un thread background."""
+    from app.services.llm_service import generate_synthesis
+    from app.services.youtube_service import build_search_query, search_and_extract_custom
+
+    fd = job["form_data"]
+
+    def _log(step: int, label: str, status: str, detail: str) -> None:
+        job["pipeline_log"].append(
+            {
+                "step": step,
+                "label": label,
+                "status": status,
+                "detail": detail,
+            }
+        )
+
+    def _is_cancelled() -> bool:
+        return job.get("cancelled", False)
+
+    with app.app_context():
+        try:
+            # ── Etape 1 : Vehicule dans le referentiel (10%) ──
+            job["progress"] = 5
+            job["progress_label"] = "Recherche vehicule..."
+            vehicle = Vehicle.query.filter(
+                Vehicle.brand.ilike(fd["make"]),
+                Vehicle.model.ilike(fd["model"]),
+            ).first()
+            vehicle_id = vehicle.id if vehicle else None
+            _log(
+                1,
+                "Recherche vehicule dans le referentiel",
+                "ok" if vehicle else "warning",
+                f"Trouve : {vehicle.brand} {vehicle.model} (id={vehicle.id})"
+                if vehicle
+                else f"{fd['make']} {fd['model']} non trouve (recherche libre)",
+            )
+            job["progress"] = 10
+            if _is_cancelled():
+                job["status"] = "cancelled"
+                _log(0, "Pipeline annule", "error", "Annule par l'utilisateur")
+                return
+
+            # ── Etape 2 : Construction query (15%) ──
+            job["progress_label"] = "Construction query YouTube..."
+            year_int = int(fd["year"]) if fd["year"] else None
+            query = build_search_query(
+                make=fd["make"],
+                model=fd["model"],
+                year=year_int,
+                fuel=fd["fuel"] or None,
+                hp=fd["hp"] or None,
+                keywords=fd["keywords"] or None,
+            )
+            _log(2, "Construction query YouTube", "ok", query)
+            job["progress"] = 15
+            if _is_cancelled():
+                job["status"] = "cancelled"
+                _log(0, "Pipeline annule", "error", "Annule par l'utilisateur")
+                return
+
+            # ── Etape 3 : Recherche YouTube (15% → 50%) ──
+            job["progress_label"] = "Recherche YouTube en cours..."
+            t0 = time.monotonic()
+            try:
+                stats = search_and_extract_custom(
+                    query,
+                    vehicle_id=vehicle_id,
+                    max_results=fd["max_results"],
+                )
+            except Exception as exc:
+                logger.exception("YouTube fine search failed: %s", exc)
+                _log(3, "Recherche YouTube", "error", f"Erreur : {exc}")
+                job["status"] = "error"
+                job["progress"] = 100
+                job["progress_label"] = "Erreur recherche YouTube"
+                return
+            search_duration = round(time.monotonic() - t0, 1)
+            _log(
+                3,
+                f"Recherche YouTube ({search_duration}s)",
+                "ok" if stats["videos_found"] > 0 else "warning",
+                f"{stats['videos_found']} videos, {stats['transcripts_ok']} transcripts, "
+                f"{stats.get('transcripts_failed', 0)} echecs",
+            )
+            job["progress"] = 50
+            if _is_cancelled():
+                job["status"] = "cancelled"
+                _log(0, "Pipeline annule", "error", "Annule par l'utilisateur")
+                return
+
+            # ── Etape 4 : Detail videos (55%) ──
+            job["progress_label"] = "Extraction details videos..."
+            video_ids_db = stats.get("video_ids", [])
+            videos_detail = []
+            transcripts_parts = []
+            for vid_id in video_ids_db:
+                yt_video = db.session.get(YouTubeVideo, vid_id)
+                if not yt_video:
+                    continue
+                has_transcript = yt_video.transcript and yt_video.transcript.status == "extracted"
+                char_count = yt_video.transcript.char_count if has_transcript else 0
+                videos_detail.append(
+                    {
+                        "title": yt_video.title,
+                        "channel": yt_video.channel_name or "?",
+                        "video_id": yt_video.video_id,
+                        "url": f"https://www.youtube.com/watch?v={yt_video.video_id}",
+                        "has_transcript": has_transcript,
+                        "char_count": char_count,
+                    }
+                )
+                if has_transcript:
+                    header = f"--- {yt_video.title} ({yt_video.channel_name}) ---"
+                    transcripts_parts.append(f"{header}\n{yt_video.transcript.full_text}")
+
+            job["videos_detail"] = videos_detail
+            total_chars = sum(len(p) for p in transcripts_parts)
+            concatenated = "\n\n".join(transcripts_parts)
+            _log(
+                4,
+                "Videos et transcripts",
+                "ok" if transcripts_parts else "warning",
+                f"{len(videos_detail)} videos, {len(transcripts_parts)} avec transcript",
+            )
+            job["progress"] = 55
+            if _is_cancelled():
+                job["status"] = "cancelled"
+                _log(0, "Pipeline annule", "error", "Annule par l'utilisateur")
+                return
+
+            # ── Etape 5 : Synthese LLM (55% → 95%) ──
+            synthesis_text = ""
+            synthesis_id = None
+            llm_duration = 0.0
+            llm_model = fd["llm_model"]
+            prompt = fd["prompt"]
+
+            if concatenated and llm_model:
+                job["progress_label"] = f"Generation LLM ({llm_model})..."
+                _log(
+                    5,
+                    f"Envoi au LLM ({llm_model})",
+                    "pending",
+                    f"Prompt : {len(prompt)} chars, Input : {total_chars} chars",
+                )
+                t1 = time.monotonic()
+                try:
+                    synthesis_text = generate_synthesis(llm_model, prompt, concatenated)
+                except ConnectionError as exc:
+                    logger.error("Ollama synthesis failed: %s", exc)
+                    synthesis_text = ""
+                llm_duration = round(time.monotonic() - t1, 1)
+
+                if _is_cancelled():
+                    job["status"] = "cancelled"
+                    _log(0, "Pipeline annule", "error", "Annule pendant la generation LLM")
+                    job["progress"] = 100
+                    return
+
+                # Mettre a jour le log LLM
+                job["pipeline_log"][-1] = {
+                    "step": 5,
+                    "label": f"Synthese LLM ({llm_duration}s)",
+                    "status": "ok" if synthesis_text else "error",
+                    "detail": (
+                        f"{llm_model}, {len(synthesis_text)} chars en {llm_duration}s"
+                        if synthesis_text
+                        else f"Echec generation avec {llm_model}"
+                    ),
+                }
+                job["progress"] = 90
+
+                # Store VehicleSynthesis
+                if synthesis_text:
+                    synth = VehicleSynthesis(
+                        vehicle_id=vehicle_id,
+                        make=fd["make"],
+                        model=fd["model"],
+                        year=year_int,
+                        fuel=fd["fuel"] or None,
+                        llm_model=llm_model,
+                        prompt_used=prompt,
+                        source_video_ids=video_ids_db,
+                        raw_transcript_chars=total_chars,
+                        synthesis_text=synthesis_text,
+                        status="draft",
+                    )
+                    db.session.add(synth)
+                    db.session.commit()
+                    synthesis_id = synth.id
+                    _log(6, "Sauvegarde synthese", "ok", f"id={synth.id}, status=draft")
+                    logger.info(
+                        "Synthesis created: %s %s (id=%d, llm=%s, %d chars input)",
+                        fd["make"],
+                        fd["model"],
+                        synth.id,
+                        llm_model,
+                        total_chars,
+                    )
+            elif not concatenated:
+                _log(5, "Synthese LLM", "skip", "Aucun transcript, synthese impossible")
+
+            # ── Termine ──
+            job["progress"] = 100
+            job["progress_label"] = "Termine"
+            job["status"] = "done"
+            job["result"] = {
+                "videos_found": stats["videos_found"],
+                "transcripts_ok": stats["transcripts_ok"],
+                "total_chars": total_chars,
+                "query": query,
+                "synthesis_text": synthesis_text,
+                "synthesis_id": synthesis_id,
+                "llm_model": llm_model,
+                "llm_duration": llm_duration,
+                "search_duration": search_duration,
+                "prompt_used": prompt,
+            }
+        except Exception as exc:
+            logger.exception("Pipeline background thread failed: %s", exc)
+            job["pipeline_log"].append(
+                {
+                    "step": 0,
+                    "label": "Erreur fatale",
+                    "status": "error",
+                    "detail": str(exc),
+                }
+            )
+            job["status"] = "error"
+            job["progress"] = 100
+            job["progress_label"] = f"Erreur : {exc}"
+
+
+@admin_bp.route("/youtube/job-status/<job_id>")
+@login_required
+def youtube_job_status(job_id: str):
+    """API JSON pour le polling du statut d'un job pipeline."""
+    with _jobs_lock:
+        job = _synthesis_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job introuvable"}), 404
+    return jsonify(
+        {
+            "id": job["id"],
+            "status": job["status"],
+            "progress": job["progress"],
+            "progress_label": job["progress_label"],
+            "pipeline_log": job["pipeline_log"],
+            "videos_detail": job["videos_detail"],
+            "result": job["result"],
+            "form_data": job["form_data"],
+        }
+    )
+
+
+@admin_bp.route("/youtube/job-stop/<job_id>", methods=["POST"])
+@login_required
+def youtube_job_stop(job_id: str):
+    """Annule un job pipeline en cours."""
+    with _jobs_lock:
+        job = _synthesis_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job introuvable"}), 404
+    job["cancelled"] = True
+    return jsonify({"ok": True, "message": "Annulation demandee"})
 
 
 @admin_bp.route("/youtube/synthesis/<int:synthesis_id>/validate", methods=["POST"])

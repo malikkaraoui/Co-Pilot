@@ -17,6 +17,81 @@
   .badge-draft { background: #f59e0b; color: #fff; }
   .badge-validated { background: #22c55e; color: #fff; }
   .badge-published { background: #3b82f6; color: #fff; }
+
+  /* Pipeline log */
+  .pipeline-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 13px;
+  }
+  .pipeline-step:last-child { border-bottom: none; }
+  .step-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    font-weight: 700;
+    color: #fff;
+  }
+  .step-icon.ok { background: #22c55e; }
+  .step-icon.warning { background: #f59e0b; }
+  .step-icon.error { background: #ef4444; }
+  .step-icon.skip { background: #94a3b8; }
+  .step-icon.pending { background: #3b82f6; animation: pulse 1.5s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .step-label { font-weight: 600; color: #1e293b; }
+  .step-detail { color: #64748b; margin-top: 2px; word-break: break-word; }
+
+  .video-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .video-row .badge { font-size: 11px; }
+  .transcript-preview {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  /* Progress bar */
+  .pipeline-progress {
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .pipeline-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+  .pipeline-progress-bar.done { background: linear-gradient(90deg, #22c55e, #16a34a); }
+  .pipeline-progress-bar.error { background: linear-gradient(90deg, #ef4444, #dc2626); }
+  .pipeline-progress-bar.cancelled { background: linear-gradient(90deg, #f59e0b, #d97706); }
 </style>
 {% endblock %}
 
@@ -27,9 +102,9 @@
 </div>
 
 <!-- Search Form -->
-<div class="stat-card mb-4">
+<div class="stat-card mb-4" id="search-form-card">
   <h5 class="mb-3">Parametres de recherche</h5>
-  <form method="post" action="{{ url_for('admin.youtube_fine_search_run') }}">
+  <form method="post" action="{{ url_for('admin.youtube_fine_search_run') }}" id="search-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div class="row g-3 mb-3">
@@ -96,7 +171,7 @@
         </select>
       </div>
       <div class="col-md-3 d-flex align-items-end">
-        <button type="submit" class="btn btn-primary w-100"
+        <button type="submit" class="btn btn-primary w-100" id="btn-submit"
                 {% if not ollama_models %}disabled title="Ollama non connecte"{% endif %}>
           Rechercher &amp; Synthetiser
         </button>
@@ -112,57 +187,80 @@
   </form>
 </div>
 
-<!-- Results (after POST) -->
-{% if result %}
-<div class="stat-card mb-4">
-  <h5 class="mb-3">Resultat de la recherche</h5>
-  <div class="row g-3 mb-3">
+<!-- Live Pipeline Panel (hidden by default, shown by JS when job_id in URL) -->
+<div id="live-pipeline" class="d-none">
+
+  <!-- Progress bar + Stop button -->
+  <div class="stat-card mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Pipeline en cours...</h5>
+      <button class="btn btn-sm btn-danger" id="btn-stop" onclick="stopJob()">
+        Stopper le LLM
+      </button>
+    </div>
+    <div class="pipeline-progress">
+      <div class="pipeline-progress-bar" id="progress-bar" style="width:0%"></div>
+    </div>
+    <div style="font-size:13px;color:#64748b" id="progress-label">Demarrage...</div>
+  </div>
+
+  <!-- Pipeline log (filled by JS) -->
+  <div class="stat-card mb-4">
+    <h5 class="mb-3">Pipeline — Journal d'execution</h5>
+    <div id="pipeline-log-container"></div>
+  </div>
+
+  <!-- Videos (filled by JS) -->
+  <div class="stat-card mb-4 d-none" id="videos-panel">
+    <h5 class="mb-3" id="videos-title">Videos YouTube</h5>
+    <div id="videos-container"></div>
+  </div>
+
+  <!-- Stats (filled by JS) -->
+  <div class="row g-3 mb-4 d-none" id="stats-panel">
     <div class="col-md-3">
       <div class="stat-card" style="background:#f8fafc">
-        <div class="stat-value">{{ result.videos_found }}</div>
+        <div class="stat-value" id="stat-videos">-</div>
         <div class="stat-label">Videos trouvees</div>
       </div>
     </div>
     <div class="col-md-3">
       <div class="stat-card" style="background:#f8fafc">
-        <div class="stat-value" style="color:#22c55e">{{ result.transcripts_ok }}</div>
+        <div class="stat-value" style="color:#22c55e" id="stat-transcripts">-</div>
         <div class="stat-label">Transcripts extraits</div>
       </div>
     </div>
     <div class="col-md-3">
       <div class="stat-card" style="background:#f8fafc">
-        <div class="stat-value" style="color:#8b5cf6">{{ "{:,}".format(result.total_chars).replace(",", " ") }}</div>
+        <div class="stat-value" style="color:#8b5cf6" id="stat-chars">-</div>
         <div class="stat-label">Caracteres concatenes</div>
       </div>
     </div>
     <div class="col-md-3">
       <div class="stat-card" style="background:#f8fafc">
-        <div class="stat-value">{{ result.query[:30] }}{% if result.query|length > 30 %}...{% endif %}</div>
-        <div class="stat-label">Query YouTube</div>
+        <div class="stat-value" id="stat-duration">-</div>
+        <div class="stat-label">Recherche + LLM</div>
       </div>
     </div>
   </div>
 
-  {% if result.synthesis_text %}
-  <h6 class="mb-2">Synthese LLM ({{ result.llm_model }})</h6>
-  <div class="synthesis-box mb-3">{{ result.synthesis_text }}</div>
+  <!-- Prompt (collapsible) -->
+  <div class="stat-card mb-4 d-none" id="prompt-panel">
+    <h6 class="mb-2" style="cursor:pointer" onclick="document.getElementById('prompt-detail').classList.toggle('d-none')">
+      Prompt envoye au LLM &#9660;
+    </h6>
+    <div id="prompt-detail" class="d-none">
+      <div class="transcript-preview" id="prompt-text"></div>
+    </div>
+  </div>
 
-  {% if result.synthesis_id %}
-  <div class="d-flex gap-2">
-    <form method="post" action="{{ url_for('admin.youtube_synthesis_validate', synthesis_id=result.synthesis_id) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-sm btn-success">Valider la synthese</button>
-    </form>
-    <span class="badge badge-draft align-self-center">Draft</span>
+  <!-- Synthese -->
+  <div class="stat-card mb-4 d-none" id="synthesis-panel">
+    <h5 class="mb-3" id="synthesis-title">Synthese LLM</h5>
+    <div class="synthesis-box mb-3" id="synthesis-text"></div>
+    <div class="d-flex gap-2" id="synthesis-actions"></div>
   </div>
-  {% endif %}
-  {% elif result.transcripts_ok == 0 %}
-  <div class="alert alert-warning mb-0">
-    Aucun transcript extrait. La synthese LLM n'a pas pu etre generee.
-  </div>
-  {% endif %}
 </div>
-{% endif %}
 
 <!-- Previous syntheses -->
 {% if syntheses %}
@@ -211,13 +309,13 @@
 {% block extra_js %}
 <script>
 (function() {
+  /* ── Cascading selects ─────────────────────────────── */
   var catalog = {{ vehicle_catalog|tojson }};
   var selMake  = document.getElementById('sel-make');
   var selModel = document.getElementById('sel-model');
   var selYear  = document.getElementById('sel-year');
   var selHp    = document.getElementById('sel-hp');
 
-  /* Valeurs pre-selectionnees (restaurees apres POST) */
   var prevModel = {{ (form_data.model or "")|tojson }};
   var prevYear  = {{ (form_data.year or "")|tojson }};
   var prevHp    = {{ (form_data.hp or "")|tojson }};
@@ -254,21 +352,174 @@
     var brand = selMake.value;
     var model = selModel.value;
     var info = (brand && model && catalog[brand] && catalog[brand][model]) ? catalog[brand][model] : null;
-
     var years = info ? info.years.slice().reverse() : [];
     populateSelect(selYear, years, 'Toutes', prevYear);
-
     var hpValues = info ? info.hp : [];
     populateSelect(selHp, hpValues, 'Tous', prevHp);
   }
 
   selMake.addEventListener('change', onMakeChange);
   selModel.addEventListener('change', onModelChange);
+  if (selMake.value) { onMakeChange(); }
 
-  /* Init on page load (restore state after POST) */
-  if (selMake.value) {
-    onMakeChange();
+  /* ── Live pipeline polling ─────────────────────────── */
+  var params = new URLSearchParams(window.location.search);
+  var jobId = params.get('job_id');
+  var pollTimer = null;
+  var csrfToken = document.querySelector('input[name="csrf_token"]').value;
+
+  if (jobId) {
+    document.getElementById('live-pipeline').classList.remove('d-none');
+    startPolling(jobId);
   }
+
+  function startPolling(id) {
+    pollTimer = setInterval(function() { pollJob(id); }, 1000);
+    pollJob(id); /* immediate first call */
+  }
+
+  function pollJob(id) {
+    fetch('/admin/youtube/job-status/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(data) { renderJob(data); })
+      .catch(function(err) { console.error('Poll error:', err); });
+  }
+
+  function renderJob(data) {
+    /* Progress bar */
+    var bar = document.getElementById('progress-bar');
+    bar.style.width = data.progress + '%';
+    bar.className = 'pipeline-progress-bar';
+    if (data.status === 'done') bar.classList.add('done');
+    else if (data.status === 'error') bar.classList.add('error');
+    else if (data.status === 'cancelled') bar.classList.add('cancelled');
+
+    document.getElementById('progress-label').textContent =
+      data.progress_label + ' (' + data.progress + '%)';
+
+    /* Pipeline log */
+    var logEl = document.getElementById('pipeline-log-container');
+    var html = '';
+    for (var i = 0; i < data.pipeline_log.length; i++) {
+      var s = data.pipeline_log[i];
+      html += '<div class="pipeline-step">' +
+        '<div class="step-icon ' + s.status + '">' + s.step + '</div>' +
+        '<div><div class="step-label">' + escapeHtml(s.label) + '</div>' +
+        '<div class="step-detail">' + escapeHtml(s.detail) + '</div></div></div>';
+    }
+    logEl.textContent = '';
+    logEl.insertAdjacentHTML('beforeend', html);
+
+    /* Videos */
+    if (data.videos_detail && data.videos_detail.length > 0) {
+      var vPanel = document.getElementById('videos-panel');
+      vPanel.classList.remove('d-none');
+      document.getElementById('videos-title').textContent =
+        'Videos YouTube (' + data.videos_detail.length + ')';
+      var vContainer = document.getElementById('videos-container');
+      var vHtml = '';
+      for (var j = 0; j < data.videos_detail.length; j++) {
+        var v = data.videos_detail[j];
+        var icon = v.has_transcript ? '\u2705' : '\u274C';
+        var badge = v.has_transcript
+          ? '<span class="badge" style="background:#22c55e;color:#fff">' + formatNumber(v.char_count) + ' chars</span>'
+          : '<span class="badge" style="background:#ef4444;color:#fff">Pas de transcript</span>';
+        vHtml += '<div class="video-row">' +
+          '<span style="font-size:18px">' + icon + '</span>' +
+          '<div style="flex:1">' +
+          '<a href="' + escapeHtml(v.url) + '" target="_blank" rel="noopener" style="font-weight:600;color:#1e293b">' +
+          escapeHtml(v.title) + '</a>' +
+          '<div style="color:#64748b;font-size:12px">' + escapeHtml(v.channel) + ' \u00B7 ' + escapeHtml(v.video_id) + '</div>' +
+          '</div>' + badge + '</div>';
+      }
+      vContainer.textContent = '';
+      vContainer.insertAdjacentHTML('beforeend', vHtml);
+    }
+
+    /* When done or error: show stats, synthesis, stop polling */
+    if (data.status === 'done' || data.status === 'error' || data.status === 'cancelled') {
+      clearInterval(pollTimer);
+      document.getElementById('btn-stop').disabled = true;
+      document.getElementById('btn-stop').textContent =
+        data.status === 'cancelled' ? 'Annule' : (data.status === 'error' ? 'Erreur' : 'Termine');
+
+      /* Update header */
+      document.querySelector('#live-pipeline .stat-card h5').textContent =
+        data.status === 'done' ? 'Pipeline termine'
+        : data.status === 'cancelled' ? 'Pipeline annule'
+        : 'Pipeline en erreur';
+
+      if (data.result) {
+        var r = data.result;
+
+        /* Stats */
+        document.getElementById('stats-panel').classList.remove('d-none');
+        document.getElementById('stat-videos').textContent = r.videos_found;
+        document.getElementById('stat-transcripts').textContent = r.transcripts_ok;
+        document.getElementById('stat-chars').textContent = formatNumber(r.total_chars);
+        document.getElementById('stat-duration').textContent =
+          (r.search_duration || 0).toFixed(1) + 's + ' + (r.llm_duration || 0).toFixed(1) + 's';
+
+        /* Prompt */
+        if (r.prompt_used && r.synthesis_text) {
+          document.getElementById('prompt-panel').classList.remove('d-none');
+          document.getElementById('prompt-text').textContent = r.prompt_used;
+        }
+
+        /* Synthesis */
+        if (r.synthesis_text) {
+          document.getElementById('synthesis-panel').classList.remove('d-none');
+          document.getElementById('synthesis-title').textContent =
+            'Synthese LLM (' + r.llm_model + ', ' + (r.llm_duration || 0).toFixed(1) + 's)';
+          document.getElementById('synthesis-text').textContent = r.synthesis_text;
+
+          if (r.synthesis_id) {
+            var actionsEl = document.getElementById('synthesis-actions');
+            var form = document.createElement('form');
+            form.method = 'post';
+            form.action = '/admin/youtube/synthesis/' + r.synthesis_id + '/validate';
+            var csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrf_token';
+            csrf.value = csrfToken;
+            form.appendChild(csrf);
+            var btn = document.createElement('button');
+            btn.type = 'submit';
+            btn.className = 'btn btn-sm btn-success';
+            btn.textContent = 'Valider la synthese';
+            form.appendChild(btn);
+            actionsEl.appendChild(form);
+            var badge = document.createElement('span');
+            badge.className = 'badge badge-draft align-self-center';
+            badge.textContent = 'Draft';
+            actionsEl.appendChild(badge);
+          }
+        }
+      }
+    }
+  }
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(text || ''));
+    return div.innerHTML;
+  }
+
+  function formatNumber(n) {
+    return String(n || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  }
+
+  /* Stop button */
+  window.stopJob = function() {
+    if (!jobId) return;
+    fetch('/admin/youtube/job-stop/' + jobId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+    }).then(function() {
+      document.getElementById('btn-stop').textContent = 'Annulation...';
+      document.getElementById('btn-stop').disabled = true;
+    });
+  };
 })();
 </script>
 {% endblock %}
