@@ -6,7 +6,7 @@ from app.extensions import db
 
 
 class Vehicle(db.Model):
-    """Vehicule connu dans la base de reference (70 modeles, objectif 200+)."""
+    """Vehicule connu dans la base de reference (144+ modeles, objectif 200+)."""
 
     __tablename__ = "vehicles"
     __table_args__ = (db.UniqueConstraint("brand", "model", name="uq_vehicle_brand_model"),)
