@@ -85,23 +85,58 @@ def _float_or_none(val: str) -> float | None:
 
 
 @lru_cache(maxsize=1)
-def _load_model_index() -> frozenset[tuple[str, str]]:
-    """Charge l'index (make_lower, model_lower) du CSV en un seul pass.
+def _load_csv_catalog() -> dict[tuple[str, str], dict]:
+    """Charge le catalogue complet CSV avec métadonnées.
 
-    Cache en memoire apres le premier appel (~70k lignes → ~2k paires uniques).
+    Returns:
+        {
+            ("renault", "clio"): {
+                "year_start": 2012,
+                "year_end": 2024,
+                "specs_count": 35
+            },
+            ...
+        }
     """
     if not CSV_PATH.exists():
-        return frozenset()
-    pairs: set[tuple[str, str]] = set()
+        return {}
+
+    catalog: dict[tuple[str, str], dict] = {}
+
     with open(CSV_PATH, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             make = (row.get("Make") or "").strip().lower()
             model = (row.get("Modle") or "").strip().lower()
-            if make and model:
-                pairs.add((make, model))
-    logger.info("CSV index loaded: %d unique make/model pairs", len(pairs))
-    return frozenset(pairs)
+
+            if not make or not model:
+                continue
+
+            key = (make, model)
+            year_from = _int_or_none(row.get("Year_from", ""))
+            year_to = _int_or_none(row.get("Year_to", ""))
+
+            if key not in catalog:
+                catalog[key] = {
+                    "year_start": year_from,
+                    "year_end": year_to,
+                    "specs_count": 0,
+                }
+            else:
+                # Étendre la plage d'années si nécessaire
+                if year_from and (
+                    catalog[key]["year_start"] is None or year_from < catalog[key]["year_start"]
+                ):
+                    catalog[key]["year_start"] = year_from
+                if year_to and (
+                    catalog[key]["year_end"] is None or year_to > catalog[key]["year_end"]
+                ):
+                    catalog[key]["year_end"] = year_to
+
+            catalog[key]["specs_count"] += 1
+
+    logger.info("CSV catalog loaded: %d unique vehicles", len(catalog))
+    return catalog
 
 
 def _normalize_for_csv(brand: str, model: str) -> tuple[str, str]:
@@ -116,7 +151,7 @@ def _normalize_for_csv(brand: str, model: str) -> tuple[str, str]:
 def has_specs(brand: str, model: str) -> bool:
     """Verifie rapidement si un vehicule a des specs dans le CSV (O(1) apres chargement)."""
     b, m = _normalize_for_csv(brand, model)
-    return (b, m) in _load_model_index()
+    return (b, m) in _load_csv_catalog()
 
 
 def lookup_specs(brand: str, model: str) -> list[dict[str, Any]]:
