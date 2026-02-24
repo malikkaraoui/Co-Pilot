@@ -63,6 +63,8 @@
              href="{{ url_for('admin.car') }}">Vehicules</a>
           <a class="nav-link {% if request.endpoint == 'admin.database' %}active{% endif %}"
              href="{{ url_for('admin.database') }}">Base Vehicules</a>
+          <a class="nav-link {% if request.endpoint == 'admin.csv_prospection' %}active{% endif %}"
+             href="{{ url_for('admin.csv_prospection') }}">📊 Prospection CSV</a>
           <a class="nav-link {% if request.endpoint == 'admin.errors' %}active{% endif %}"
              href="{{ url_for('admin.errors') }}">Logs erreurs</a>
           <a class="nav-link {% if request.endpoint == 'admin.pipelines' %}active{% endif %}"

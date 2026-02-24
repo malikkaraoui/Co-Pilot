@@ -1,0 +1,103 @@
+{% extends "admin/base.html" %}
+{% block title %}Prospection CSV - Co-Pilot Admin{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Prospection CSV</h2>
+
+<!-- Stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_missing }}</div>
+      <div class="stat-label">Véhicules CSV non importés</div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="stat-card">
+      <div class="stat-value">{{ total_specs }}</div>
+      <div class="stat-label">Fiches specs disponibles au total</div>
+    </div>
+  </div>
+</div>
+
+<!-- Description -->
+<div class="alert alert-info mb-4">
+  <strong>💡 Comment ça marche :</strong> Ces véhicules sont présents dans le CSV Kaggle mais pas encore dans ton référentiel.
+  Clique sur "Chercher sur LBC" pour scanner des annonces avec ton extension, puis ajoute-les manuellement via <a href="{{ url_for('admin.car') }}">/admin/car</a>.
+</div>
+
+<!-- Tableau -->
+<div class="table-responsive">
+  <table class="table table-hover">
+    <thead>
+      <tr>
+        <th>Marque</th>
+        <th>Modèle</th>
+        <th>Plage années</th>
+        <th class="text-center">Fiches CSV</th>
+        <th class="text-center">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if missing_vehicles %}
+        {% for vehicle in missing_vehicles %}
+        <tr>
+          <td><strong>{{ vehicle.brand }}</strong></td>
+          <td>{{ vehicle.model }}</td>
+          <td>
+            {% if vehicle.year_start and vehicle.year_end %}
+              {{ vehicle.year_start }}-{{ vehicle.year_end }}
+            {% elif vehicle.year_start %}
+              Depuis {{ vehicle.year_start }}
+            {% else %}
+              <span class="text-muted">Non renseigné</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            <span class="badge bg-primary">{{ vehicle.specs_count }}</span>
+          </td>
+          <td class="text-center">
+            <a href="{{ vehicle.lbc_url }}"
+               target="_blank"
+               class="btn btn-sm btn-outline-primary"
+               title="Ouvrir la recherche LBC pour {{ vehicle.brand }} {{ vehicle.model }}">
+              🔍 Chercher sur LBC
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="5" class="text-center text-muted py-4">
+            🎉 Tous les véhicules CSV sont déjà importés !
+          </td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<nav>
+  <ul class="pagination justify-content-center">
+    {% if page > 1 %}
+    <li class="page-item">
+      <a class="page-link" href="{{ url_for('admin.csv_prospection', page=page-1) }}">Précédent</a>
+    </li>
+    {% endif %}
+
+    <li class="page-item disabled">
+      <span class="page-link">Page {{ page }} / {{ total_pages }}</span>
+    </li>
+
+    {% if page < total_pages %}
+    <li class="page-item">
+      <a class="page-link" href="{{ url_for('admin.csv_prospection', page=page+1) }}">Suivant</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+
+{% endblock %}

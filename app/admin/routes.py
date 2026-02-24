@@ -198,6 +198,11 @@ def dashboard():
     market_total_samples = db.session.query(db.func.sum(MarketPrice.sample_count)).scalar() or 0
     recent_market = MarketPrice.query.order_by(MarketPrice.collected_at.desc()).limit(10).all()
 
+    # Prospection CSV : vehicules disponibles
+    from app.services.csv_enrichment import get_csv_missing_vehicles
+
+    csv_missing_count = len(get_csv_missing_vehicles())
+
     return render_template(
         "admin/dashboard.html",
         total_scans=total_scans,
@@ -218,6 +223,7 @@ def dashboard():
         market_fresh=market_fresh,
         market_total_samples=market_total_samples,
         recent_market=recent_market,
+        csv_missing_count=csv_missing_count,
         now=now,
     )
 
@@ -668,6 +674,51 @@ def database():
         page=page,
         total_pages=total_pages,
         total_results=total_results,
+    )
+
+
+# ── Prospection CSV ─────────────────────────────────────────
+
+
+@admin_bp.route("/csv-prospection")
+@login_required
+def csv_prospection():
+    """Prospection CSV : véhicules disponibles dans les CSV mais pas encore importés."""
+    from urllib.parse import quote_plus
+
+    from app.services.csv_enrichment import get_csv_missing_vehicles
+
+    # Récupérer les véhicules manquants
+    missing_vehicles = get_csv_missing_vehicles()
+
+    # Stats pour les cards
+    total_missing = len(missing_vehicles)
+    total_specs = sum(v["specs_count"] for v in missing_vehicles)
+
+    # Pagination
+    page = request.args.get("page", 1, type=int)
+    per_page = 50
+    total_pages = max(1, (total_missing + per_page - 1) // per_page)
+    page = min(page, total_pages)
+
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated_vehicles = missing_vehicles[start:end]
+
+    # Préconstruire les URLs LBC (Option B : plus simple dans le template)
+    for vehicle in paginated_vehicles:
+        query = f"{vehicle['brand']} {vehicle['model']}"
+        vehicle["lbc_url"] = (
+            f"https://www.leboncoin.fr/recherche?category=2&text={quote_plus(query)}"
+        )
+
+    return render_template(
+        "admin/csv_prospection.html",
+        missing_vehicles=paginated_vehicles,
+        total_missing=total_missing,
+        total_specs=total_specs,
+        page=page,
+        total_pages=total_pages,
     )
 
 

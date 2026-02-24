@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed du referentiel vehicules -- Top 77 modeles les plus vendus en France.
+"""Seed du referentiel vehicules -- Top 144+ modeles les plus vendus en France.
 
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_vehicles.py
@@ -15,7 +15,7 @@ from app.extensions import db  # noqa: E402
 from app.models.vehicle import Vehicle, VehicleSpec  # noqa: E402
 from app.services.pipeline_tracker import track_pipeline  # noqa: E402
 
-# Top 70 modeles les plus vendus en France (ventes 2024-2025 + parc occasion)
+# Top 144+ modeles les plus vendus en France (ventes 2024-2025 + parc occasion)
 VEHICLES = [
     # (marque, modele, generation, annee_debut, annee_fin)
     # --- Existants (20 originaux) ---

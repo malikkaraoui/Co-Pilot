@@ -9,6 +9,9 @@ node_modules/
 .vscode/
 .idea/
 
+# Worktrees
+.worktrees/
+
 # Datasets locaux (CSV/XLSX volumineux, non versionnes)
 docs/
 
