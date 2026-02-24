@@ -46,8 +46,7 @@ def test_csv_prospection_page_loads(client, admin_user):
         assert response.status_code == 200
         assert b"Prospection CSV" in response.data
 
-        # Cleanup session
-        client.get("/admin/logout")
+        # Cleanup automatique via fixture _auto_logout_after_test
 
 
 def test_csv_prospection_displays_missing_vehicles(client, admin_user, app):

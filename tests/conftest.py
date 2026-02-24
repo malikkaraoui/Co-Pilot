@@ -25,6 +25,22 @@ def client(app):
 
 
 @pytest.fixture(autouse=True)
+def _auto_logout_after_test(client):
+    """Logout automatique après chaque test utilisant client.
+
+    Prévient la pollution de session Flask-Login entre tests.
+    Les tests peuvent maintenant omettre le logout manuel.
+    """
+    yield
+    # Cleanup : logout si une session existe
+    try:
+        with client:
+            client.get("/admin/logout", follow_redirects=False)
+    except Exception:
+        pass  # Si pas de session active, pas grave
+
+
+@pytest.fixture(autouse=True)
 def _mock_l7_siret_api():
     """Empeche tout appel reseau vers l'API SIRET dans les tests.
 

@@ -7,12 +7,20 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  # Security check with bandit
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: [-r, app/, -ll, --skip, B101]  # Low severity, skip assert warnings
+        exclude: ^tests/
+
   # Pytest -- bloque le commit si les tests echouent
   - repo: local
     hooks:
       - id: pytest
         name: pytest
-        entry: python -m pytest tests/ -x -q --tb=short
+        entry: python -m pytest tests/ -x -q --tb=short --cov=app --cov-fail-under=70
         language: system
         pass_filenames: false
         always_run: true
