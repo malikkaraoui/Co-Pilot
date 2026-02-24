@@ -32,6 +32,9 @@ class Config:
     # Journalisation
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
+    # Ollama LLM local
+    OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+
 
 class DevConfig(Config):
     """Configuration de developpement."""

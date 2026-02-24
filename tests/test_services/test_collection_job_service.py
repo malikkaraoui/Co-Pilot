@@ -8,6 +8,8 @@ from app.extensions import db
 from app.models.collection_job import CollectionJob
 from app.services.collection_job_service import (
     LOW_DATA_FAIL_THRESHOLD,
+    MAX_ATTEMPTS,
+    _cancel_low_data_pending,
     _expand_cache,
     _get_low_data_vehicles,
     _reclaim_stale_jobs,
@@ -619,3 +621,67 @@ class TestLowDataVehicleSkip:
             picked = pick_bonus_jobs(max_jobs=3)
             assert len(picked) == 1
             assert picked[0].id == job.id
+
+    def test_cancel_low_data_pending_marks_zombies_failed(self, app):
+        """Pending/assigned jobs for low-data vehicles are cancelled as failed."""
+        with app.app_context():
+            # Seuil atteint -> Kia Optima devient low-data
+            self._create_failed_jobs("Kia", "Optima", LOW_DATA_FAIL_THRESHOLD)
+
+            pending_bad = CollectionJob(
+                make="Kia",
+                model="Optima",
+                year=2019,
+                region="Corse",
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+                priority=1,
+                status="pending",
+                attempts=0,
+                source_vehicle="test",
+            )
+            assigned_bad = CollectionJob(
+                make="Kia",
+                model="Optima",
+                year=2019,
+                region="Bretagne",
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+                priority=1,
+                status="assigned",
+                attempts=1,
+                assigned_at=datetime.now(timezone.utc),
+                source_vehicle="test",
+            )
+            db.session.add_all([pending_bad, assigned_bad])
+            db.session.commit()
+
+            low_data = _get_low_data_vehicles()
+            cancelled = _cancel_low_data_pending(low_data)
+            assert cancelled >= 2
+
+            db.session.refresh(pending_bad)
+            db.session.refresh(assigned_bad)
+            assert pending_bad.status == "failed"
+            assert assigned_bad.status == "failed"
+            assert pending_bad.attempts == MAX_ATTEMPTS
+            assert assigned_bad.attempts == MAX_ATTEMPTS
+
+    def test_expand_skips_low_data_vehicle(self, app):
+        """expand_collection_jobs returns [] for low-data vehicles."""
+        with app.app_context():
+            self._create_failed_jobs("Kia", "Optima", LOW_DATA_FAIL_THRESHOLD)
+
+            created = expand_collection_jobs(
+                make="Kia",
+                model="Optima",
+                year=2019,
+                region="Île-de-France",
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+            )
+
+            assert created == []

@@ -10,4 +10,5 @@ from app.models.scan import ScanLog  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.vehicle import Vehicle, VehicleSpec  # noqa: F401
 from app.models.vehicle_observed_spec import VehicleObservedSpec  # noqa: F401
+from app.models.vehicle_synthesis import VehicleSynthesis  # noqa: F401
 from app.models.youtube import YouTubeTranscript, YouTubeVideo  # noqa: F401

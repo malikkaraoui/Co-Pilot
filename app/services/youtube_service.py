@@ -23,6 +23,39 @@ DELAY_BETWEEN_VIDEOS = 2.0  # secondes
 DELAY_BETWEEN_MODELS = 5.0  # secondes
 
 
+def build_search_query(
+    make: str,
+    model: str,
+    year: int | None = None,
+    fuel: str | None = None,
+    hp: str | None = None,
+    keywords: str | None = None,
+) -> str:
+    """Construit une query YouTube precise a partir des parametres vehicule.
+
+    Exemples:
+        ("Peugeot", "308", 2019, "diesel", "130", "fiabilite") ->
+        "Peugeot 308 2019 diesel 130ch fiabilite"
+
+        ("Renault", "Clio") -> "Renault Clio essai test avis"
+    """
+    parts = [make.strip(), model.strip()]
+
+    if year:
+        parts.append(str(year))
+    if fuel:
+        parts.append(fuel.strip())
+    if hp:
+        parts.append(f"{hp.strip()}ch")
+    if keywords:
+        parts.append(keywords.strip())
+
+    if not keywords and not fuel and not hp and not year:
+        parts.extend(["essai", "test", "avis"])
+
+    return " ".join(parts)
+
+
 def search_videos(query: str, max_results: int = 5) -> list[dict]:
     """Recherche YouTube via yt-dlp.
 
@@ -224,6 +257,55 @@ def search_and_extract_for_vehicle(vehicle, max_videos: int = 5) -> dict:
         except RequestBlocked:
             stats["transcripts_failed"] += 1
             raise
+
+        time.sleep(DELAY_BETWEEN_VIDEOS)
+
+    return stats
+
+
+def search_and_extract_custom(
+    query: str,
+    vehicle_id: int | None,
+    max_results: int = 10,
+) -> dict:
+    """Pipeline de recherche avec query custom : search -> store -> extract.
+
+    Retourne {videos_found, transcripts_ok, transcripts_failed, transcripts_skipped, video_ids}.
+    """
+    stats = {
+        "videos_found": 0,
+        "transcripts_ok": 0,
+        "transcripts_failed": 0,
+        "transcripts_skipped": 0,
+        "video_ids": [],
+    }
+
+    try:
+        videos_data = search_videos(query, max_results=max_results)
+    except OSError as exc:
+        logger.error("YouTube search failed for query '%s': %s", query, exc)
+        return stats
+
+    stats["videos_found"] = len(videos_data)
+
+    for vdata in videos_data:
+        video = store_video(vdata, vehicle_id=vehicle_id, search_query=query)
+        stats["video_ids"].append(video.id)
+
+        if video.transcript and video.transcript.status == "extracted":
+            stats["transcripts_skipped"] += 1
+            continue
+
+        try:
+            transcript = extract_and_store_transcript(video)
+            if transcript.status == "extracted":
+                stats["transcripts_ok"] += 1
+            else:
+                stats["transcripts_failed"] += 1
+        except RequestBlocked:
+            stats["transcripts_failed"] += 1
+            logger.error("YouTube blocked during extraction, stopping")
+            break
 
         time.sleep(DELAY_BETWEEN_VIDEOS)
 

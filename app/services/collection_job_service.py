@@ -251,6 +251,16 @@ def expand_collection_jobs(
     if gearbox:
         gearbox = gearbox.strip().lower()
 
+    # Skip si ce vehicule est low-data (trop de fails recents)
+    low_data = _get_low_data_vehicles()
+    if (make.strip().lower(), model.strip().lower()) in low_data:
+        logger.info(
+            "Skipping expansion for low-data vehicle %s %s",
+            make,
+            model,
+        )
+        return []
+
     # Cache : skip si deja expanded recemment (evite ~128 queries par appel)
     cache_key = market_text_key(f"{make}:{model}:{year}")
     now_mono = time.monotonic()
@@ -402,36 +412,56 @@ def _get_low_data_vehicles() -> set[tuple[str, str]]:
     return {(make, model) for make, model, _ in rows}
 
 
+def _cancel_low_data_pending(low_data: set[tuple[str, str]]) -> int:
+    """Annule (status=failed) tous les jobs pending/assigned pour les vehicules low-data.
+
+    Evite que des dizaines de jobs P2/P3/P4 restent en queue et soient
+    re-selectionnes sans fin quand le vehicule est manifestement introuvable.
+    """
+    if not low_data:
+        return 0
+
+    cancelled = 0
+    for make, model in low_data:
+        zombies = CollectionJob.query.filter(
+            func.lower(CollectionJob.make) == make,
+            func.lower(CollectionJob.model) == model,
+            CollectionJob.status.in_(("pending", "assigned")),
+        ).all()
+        for job in zombies:
+            job.status = "failed"
+            job.attempts = MAX_ATTEMPTS
+            cancelled += 1
+        if zombies:
+            logger.info(
+                "Cancelled %d zombie jobs for low-data vehicle %s %s",
+                len(zombies),
+                make,
+                model,
+            )
+
+    if cancelled:
+        db.session.commit()
+    return cancelled
+
+
 def pick_bonus_jobs(max_jobs: int = 3) -> list[CollectionJob]:
     """Selectionne les N jobs pending les plus prioritaires et les assigne.
 
     Reclame d'abord les jobs stale (assigned > 30 min).
-    Exclut les vehicules low-data (>= LOW_DATA_FAIL_THRESHOLD fails recents).
+    Annule les jobs des vehicules low-data (>= LOW_DATA_FAIL_THRESHOLD fails recents).
     ORDER BY priority ASC (P1 d'abord), created_at ASC (FIFO).
     """
     _reclaim_stale_jobs()
 
     low_data = _get_low_data_vehicles()
 
+    # Annuler definitivement les jobs des vehicules low-data
+    _cancel_low_data_pending(low_data)
+
     query = CollectionJob.query.filter(CollectionJob.status == "pending").order_by(
         CollectionJob.priority.asc(), CollectionJob.created_at.asc()
     )
-
-    if low_data:
-        # Exclure les vehicules low-data de la selection
-        for make, model in low_data:
-            query = query.filter(
-                ~db.and_(
-                    func.lower(CollectionJob.make) == make,
-                    func.lower(CollectionJob.model) == model,
-                )
-            )
-            logger.info(
-                "Skipping low-data vehicle %s %s (%d+ recent fails)",
-                make,
-                model,
-                LOW_DATA_FAIL_THRESHOLD,
-            )
 
     jobs = query.limit(max_jobs).all()
 
