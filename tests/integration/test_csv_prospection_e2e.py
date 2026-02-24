@@ -95,9 +95,9 @@ def test_csv_prospection_pagination_works(client, admin_user, app):
 @pytest.fixture()
 def admin_user(app):
     """Crée un utilisateur admin pour les tests E2E."""
-    from app.extensions import db
     from werkzeug.security import generate_password_hash
 
+    from app.extensions import db
     from app.models.user import User
 
     with app.app_context():
