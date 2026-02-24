@@ -1382,15 +1382,52 @@ _DEFAULT_SYNTHESIS_PROMPT = (
 )
 
 
+def _build_vehicle_catalog() -> dict:
+    """Construit le catalogue vehicules pour les selects en cascade.
+
+    Retourne un dict JSON-serialisable :
+    {brand: {model: {years: [2015, 2016, ...], hp: [90, 110, 130, ...]}}}
+    """
+    from app.models.vehicle import VehicleSpec
+
+    catalog: dict[str, dict[str, dict]] = {}
+
+    vehicles = Vehicle.query.order_by(Vehicle.brand, Vehicle.model).all()
+    for v in vehicles:
+        if v.brand not in catalog:
+            catalog[v.brand] = {}
+
+        # Annees depuis year_start/year_end
+        years = []
+        if v.year_start:
+            end = v.year_end or datetime.now(timezone.utc).year
+            years = list(range(v.year_start, end + 1))
+
+        # Chevaux depuis VehicleSpec (valeurs uniques, triees)
+        hp_rows = (
+            db.session.query(db.distinct(VehicleSpec.power_hp))
+            .filter(
+                VehicleSpec.vehicle_id == v.id,
+                VehicleSpec.power_hp.isnot(None),
+            )
+            .order_by(VehicleSpec.power_hp)
+            .all()
+        )
+        hp_values = [row[0] for row in hp_rows]
+
+        catalog[v.brand][v.model] = {"years": years, "hp": hp_values}
+
+    return catalog
+
+
 @admin_bp.route("/youtube/fine-search")
 @login_required
 def youtube_fine_search():
     """Page de recherche YouTube fine avec parametres vehicule et synthese LLM."""
     from app.services.llm_service import list_ollama_models
 
-    brand_list = [
-        b.brand for b in db.session.query(Vehicle.brand).distinct().order_by(Vehicle.brand).all()
-    ]
+    catalog = _build_vehicle_catalog()
+    brand_list = sorted(catalog.keys())
     ollama_models = list_ollama_models()
     syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
 
@@ -1402,6 +1439,7 @@ def youtube_fine_search():
         default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
         form_data={},
         result=None,
+        vehicle_catalog=json.dumps(catalog),
     )
 
 
@@ -1435,11 +1473,11 @@ def youtube_fine_search_run():
         "prompt": prompt,
     }
 
-    brand_list = [
-        b.brand for b in db.session.query(Vehicle.brand).distinct().order_by(Vehicle.brand).all()
-    ]
+    catalog = _build_vehicle_catalog()
+    brand_list = sorted(catalog.keys())
     ollama_models = list_ollama_models()
     syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
+    catalog_json = json.dumps(catalog)
 
     if not make or not model_name:
         flash("Marque et modele sont requis.", "error")
@@ -1451,6 +1489,7 @@ def youtube_fine_search_run():
             default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
             form_data=form_data,
             result=None,
+            vehicle_catalog=catalog_json,
         )
 
     # Trouver le vehicle_id si le vehicule existe dans le referentiel
@@ -1485,6 +1524,7 @@ def youtube_fine_search_run():
             default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
             form_data=form_data,
             result=None,
+            vehicle_catalog=catalog_json,
         )
 
     # Concatener les transcripts des videos trouvees
@@ -1557,6 +1597,7 @@ def youtube_fine_search_run():
         default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
         form_data=form_data,
         result=result,
+        vehicle_catalog=catalog_json,
     )
 
 

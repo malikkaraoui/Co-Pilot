@@ -35,7 +35,7 @@
     <div class="row g-3 mb-3">
       <div class="col-md-3">
         <label class="form-label">Marque</label>
-        <select name="make" class="form-select form-select-sm" id="make-select" required>
+        <select name="make" class="form-select form-select-sm" id="sel-make" required>
           <option value="">Choisir...</option>
           {% for b in brand_list %}
           <option value="{{ b }}" {% if form_data.make == b %}selected{% endif %}>{{ b }}</option>
@@ -44,15 +44,15 @@
       </div>
       <div class="col-md-3">
         <label class="form-label">Modele</label>
-        <input type="text" name="model" class="form-control form-control-sm"
-               placeholder="ex: 308, Clio, Golf..."
-               value="{{ form_data.model or '' }}" required>
+        <select name="model" class="form-select form-select-sm" id="sel-model" required>
+          <option value="">Choisir marque d'abord...</option>
+        </select>
       </div>
       <div class="col-md-2">
         <label class="form-label">Annee</label>
-        <input type="number" name="year" class="form-control form-control-sm"
-               placeholder="2019" min="1990" max="2026"
-               value="{{ form_data.year or '' }}">
+        <select name="year" class="form-select form-select-sm" id="sel-year">
+          <option value="">Toutes</option>
+        </select>
       </div>
       <div class="col-md-2">
         <label class="form-label">Motorisation</label>
@@ -65,8 +65,9 @@
       </div>
       <div class="col-md-2">
         <label class="form-label">Chevaux</label>
-        <input type="text" name="hp" class="form-control form-control-sm"
-               placeholder="130" value="{{ form_data.hp or '' }}">
+        <select name="hp" class="form-select form-select-sm" id="sel-hp">
+          <option value="">Tous</option>
+        </select>
       </div>
     </div>
 
@@ -205,4 +206,69 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  var catalog = {{ vehicle_catalog|safe }};
+  var selMake  = document.getElementById('sel-make');
+  var selModel = document.getElementById('sel-model');
+  var selYear  = document.getElementById('sel-year');
+  var selHp    = document.getElementById('sel-hp');
+
+  /* Valeurs pre-selectionnees (restaurees apres POST) */
+  var prevModel = {{ form_data.model|tojson if form_data.model else '""' }};
+  var prevYear  = {{ form_data.year|tojson if form_data.year else '""' }};
+  var prevHp    = {{ form_data.hp|tojson if form_data.hp else '""' }};
+
+  function clearSelect(sel) {
+    while (sel.options.length > 0) { sel.remove(0); }
+  }
+
+  function addOption(sel, value, text, selected) {
+    var opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = text;
+    if (selected) { opt.selected = true; }
+    sel.appendChild(opt);
+  }
+
+  function populateSelect(sel, options, placeholder, selectedValue) {
+    clearSelect(sel);
+    addOption(sel, '', placeholder, false);
+    for (var i = 0; i < options.length; i++) {
+      var val = options[i];
+      addOption(sel, val, val, String(val) === String(selectedValue));
+    }
+  }
+
+  function onMakeChange() {
+    var brand = selMake.value;
+    var models = (brand && catalog[brand]) ? Object.keys(catalog[brand]).sort() : [];
+    populateSelect(selModel, models, models.length ? 'Choisir...' : 'Choisir marque d\'abord...', prevModel);
+    onModelChange();
+  }
+
+  function onModelChange() {
+    var brand = selMake.value;
+    var model = selModel.value;
+    var info = (brand && model && catalog[brand] && catalog[brand][model]) ? catalog[brand][model] : null;
+
+    var years = info ? info.years.slice().reverse() : [];
+    populateSelect(selYear, years, 'Toutes', prevYear);
+
+    var hpValues = info ? info.hp : [];
+    populateSelect(selHp, hpValues, 'Tous', prevHp);
+  }
+
+  selMake.addEventListener('change', onMakeChange);
+  selModel.addEventListener('change', onModelChange);
+
+  /* Init on page load (restore state after POST) */
+  if (selMake.value) {
+    onMakeChange();
+  }
+})();
+</script>
 {% endblock %}
