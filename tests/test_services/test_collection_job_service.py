@@ -7,7 +7,9 @@ import pytest
 from app.extensions import db
 from app.models.collection_job import CollectionJob
 from app.services.collection_job_service import (
+    LOW_DATA_FAIL_THRESHOLD,
     _expand_cache,
+    _get_low_data_vehicles,
     _reclaim_stale_jobs,
     expand_collection_jobs,
     mark_job_done,
@@ -448,3 +450,172 @@ class TestMarkJobDone:
         with app.app_context():
             with pytest.raises(ValueError, match="not found"):
                 mark_job_done(99999, success=True)
+
+
+class TestJobExistsBlocksFailedRecent:
+    """_job_exists blocks re-creation of recently failed jobs."""
+
+    def test_failed_recent_blocks_expansion(self, app):
+        """A failed job < 7 days old prevents creating the same job again."""
+        with app.app_context():
+            # Create and fail a job manually
+            job = CollectionJob(
+                make="Kia",
+                model="Optima",
+                year=2019,
+                region="Nouvelle-Aquitaine",
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+                priority=1,
+                status="failed",
+                attempts=3,
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            # Expand same vehicle — should NOT re-create Nouvelle-Aquitaine
+            jobs = expand_collection_jobs(
+                make="Kia",
+                model="Optima",
+                year=2019,
+                region="Île-de-France",  # scanning from IDF
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+            )
+            regions = {j.region for j in jobs if j.priority == 1}
+            assert "Nouvelle-Aquitaine" not in regions
+
+    def test_failed_old_allows_re_creation(self, app):
+        """A failed job > 7 days old allows re-creating the same job."""
+        with app.app_context():
+            old_date = datetime.now(timezone.utc) - timedelta(days=10)
+            job = CollectionJob(
+                make="Kia",
+                model="Stonic",
+                year=2020,
+                region="Bretagne",
+                fuel="essence",
+                gearbox="manuelle",
+                hp_range="70-120",
+                priority=1,
+                status="failed",
+                attempts=3,
+                source_vehicle="test",
+                created_at=old_date,
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            # Expand same vehicle — Bretagne should be re-created (old fail)
+            jobs = expand_collection_jobs(
+                make="Kia",
+                model="Stonic",
+                year=2020,
+                region="Île-de-France",
+                fuel="essence",
+                gearbox="manuelle",
+                hp_range="70-120",
+            )
+            regions = {j.region for j in jobs if j.priority == 1}
+            assert "Bretagne" in regions
+
+
+class TestLowDataVehicleSkip:
+    """pick_bonus_jobs skips vehicles with too many recent fails."""
+
+    def _create_failed_jobs(self, make, model, count):
+        """Helper: create N failed jobs for a vehicle across different regions."""
+        from app.services.collection_job_service import POST_2016_REGIONS
+
+        for i in range(count):
+            job = CollectionJob(
+                make=make,
+                model=model,
+                year=2019,
+                region=POST_2016_REGIONS[i % len(POST_2016_REGIONS)],
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+                priority=1,
+                status="failed",
+                attempts=3,
+                source_vehicle="test",
+            )
+            db.session.add(job)
+        db.session.commit()
+
+    def test_low_data_vehicles_detected(self, app):
+        """Vehicles with >= threshold fails are detected as low-data."""
+        with app.app_context():
+            self._create_failed_jobs("Kia", "Optima", LOW_DATA_FAIL_THRESHOLD)
+            low_data = _get_low_data_vehicles()
+            assert ("kia", "optima") in low_data
+
+    def test_below_threshold_not_detected(self, app):
+        """Vehicles with < threshold fails are NOT detected as low-data."""
+        with app.app_context():
+            self._create_failed_jobs("Kia", "Niro", LOW_DATA_FAIL_THRESHOLD - 1)
+            low_data = _get_low_data_vehicles()
+            assert ("kia", "niro") not in low_data
+
+    def test_pick_bonus_skips_low_data_vehicle(self, app):
+        """pick_bonus_jobs does not pick pending jobs from low-data vehicles."""
+        with app.app_context():
+            # Create 3 failed jobs for Kia Optima (= threshold)
+            self._create_failed_jobs("Kia", "Optima", LOW_DATA_FAIL_THRESHOLD)
+
+            # Create a pending job for the same low-data vehicle
+            pending_bad = CollectionJob(
+                make="Kia",
+                model="Optima",
+                year=2019,
+                region="Corse",
+                fuel="diesel",
+                gearbox="automatique",
+                hp_range="100-150",
+                priority=1,
+                source_vehicle="test",
+            )
+            # Create a pending job for a healthy vehicle
+            pending_good = CollectionJob(
+                make="Renault",
+                model="Clio",
+                year=2022,
+                region="Île-de-France",
+                fuel="essence",
+                gearbox="manuelle",
+                hp_range="70-120",
+                priority=1,
+                source_vehicle="test",
+            )
+            db.session.add_all([pending_bad, pending_good])
+            db.session.commit()
+
+            picked = pick_bonus_jobs(max_jobs=3)
+            picked_ids = {j.id for j in picked}
+            assert pending_bad.id not in picked_ids
+            assert pending_good.id in picked_ids
+
+    def test_pick_bonus_still_works_without_low_data(self, app):
+        """pick_bonus_jobs works normally when no low-data vehicles exist."""
+        with app.app_context():
+            job = CollectionJob(
+                make="Peugeot",
+                model="208",
+                year=2021,
+                region="Bretagne",
+                fuel="essence",
+                gearbox="manuelle",
+                hp_range="70-120",
+                priority=1,
+                source_vehicle="test",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            picked = pick_bonus_jobs(max_jobs=3)
+            assert len(picked) == 1
+            assert picked[0].id == job.id

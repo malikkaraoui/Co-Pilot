@@ -207,7 +207,7 @@ class TestYouTubeFeatured:
         client.post(f"/admin/youtube/{video2.id}/featured", follow_redirects=True)
 
         with app.app_context():
-            v1 = YouTubeVideo.query.get(video1.id)
-            v2 = YouTubeVideo.query.get(video2.id)
+            v1 = _db.session.get(YouTubeVideo, video1.id)
+            v2 = _db.session.get(YouTubeVideo, video2.id)
             assert v1.is_featured is False
             assert v2.is_featured is True

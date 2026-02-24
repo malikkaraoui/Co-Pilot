@@ -1,4 +1,4 @@
-"""Filtre L5 Visuel / NumPy -- analyse statistique des donnees de l'annonce par rapport a la reference."""
+"""Filtre L5 Visuel / NumPy -- analyse statistique des prix par z-scores par rapport a la reference."""
 
 import logging
 from typing import Any
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class L5VisualFilter(BaseFilter):
-    """Analyse statistique prix/kilometrage par z-scores NumPy par rapport aux donnees de reference."""
+    """Analyse statistique des prix par z-scores NumPy par rapport aux donnees de reference."""
 
     filter_id = "L5"
 
@@ -84,8 +84,8 @@ class L5VisualFilter(BaseFilter):
         price = data.get("price_eur")
         mileage = data.get("mileage_km")
 
-        if price is None and mileage is None:
-            return self.skip("Ni prix ni kilométrage disponibles")
+        if price is None:
+            return self.skip("Prix non disponible pour l'analyse statistique")
 
         make = data.get("make")
         model = data.get("model")

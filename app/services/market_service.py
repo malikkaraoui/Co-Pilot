@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.extensions import db
 from app.models.market_price import MarketPrice
@@ -395,7 +396,7 @@ def store_market_prices(
                 vehicle.model,
                 vehicle.id,
             )
-    except Exception:
+    except (IntegrityError, SQLAlchemyError):
         # Ne pas faire echouer le store_market_prices pour une auto-creation
         logger.debug("Auto-create skipped for %s %s", make, model, exc_info=True)
 
@@ -406,7 +407,7 @@ def store_market_prices(
         found = find_vehicle(make, model)
         if found and price_details:
             _enrich_observed_specs(found.id, price_details)
-    except Exception:
+    except (IntegrityError, SQLAlchemyError):
         logger.debug("Observed spec enrichment skipped for %s %s", make, model, exc_info=True)
 
     return mp

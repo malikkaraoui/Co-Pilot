@@ -2,7 +2,8 @@
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from flask import Flask
 
@@ -11,43 +12,15 @@ from app.logging_config import setup_logging
 from app.version import get_version
 from config import config_by_name
 
-# Fuseau Europe/Paris : UTC+1 (hiver) / UTC+2 (ete)
-# Regles IETF simplifiees : dernier dimanche de mars → dernier dimanche d'octobre
-_CET = timezone(timedelta(hours=1))
-_CEST = timezone(timedelta(hours=2))
-
-
-def _is_summer_time(dt: datetime) -> bool:
-    """True si la date tombe en heure d'ete (CEST) pour l'Europe centrale."""
-    year = dt.year
-    # Dernier dimanche de mars
-    march_last = datetime(year, 3, 31)
-    march_switch = march_last - timedelta(days=march_last.weekday() + 1 % 7)
-    if march_last.weekday() == 6:
-        march_switch = march_last
-    else:
-        march_switch = march_last - timedelta(days=(march_last.weekday() + 1) % 7)
-    march_switch = march_switch.replace(hour=1, tzinfo=timezone.utc)
-
-    # Dernier dimanche d'octobre
-    oct_last = datetime(year, 10, 31)
-    if oct_last.weekday() == 6:
-        oct_switch = oct_last
-    else:
-        oct_switch = oct_last - timedelta(days=(oct_last.weekday() + 1) % 7)
-    oct_switch = oct_switch.replace(hour=1, tzinfo=timezone.utc)
-
-    dt_utc = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-    return march_switch <= dt_utc < oct_switch
+_PARIS_TZ = ZoneInfo("Europe/Paris")
 
 
 def _to_paris(dt: datetime) -> datetime:
     """Convertit un datetime UTC (ou naive UTC) en heure de Paris."""
     if dt is None:
         return dt
-    offset = _CEST if _is_summer_time(dt) else _CET
     utc_dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-    return utc_dt.astimezone(offset)
+    return utc_dt.astimezone(_PARIS_TZ)
 
 
 logger = logging.getLogger(__name__)

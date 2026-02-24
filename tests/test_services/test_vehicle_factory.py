@@ -178,7 +178,7 @@ class TestAutoCreateVehicle:
                 assert vehicle.brand == "DS"
                 assert vehicle.enrichment_status in ("partial", "complete")
                 # Verifier en DB
-                found = Vehicle.query.get(vehicle.id)
+                found = db.session.get(Vehicle, vehicle.id)
                 assert found is not None
 
     @pytest.mark.usefixtures("_seed_scans", "_seed_market")

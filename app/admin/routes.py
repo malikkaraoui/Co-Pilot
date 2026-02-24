@@ -5,13 +5,13 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from flask import current_app, flash, redirect, render_template, request, url_for
+from flask import abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.admin import admin_bp
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models.filter_result import FilterResultDB
 from app.models.log import AppLog
 from app.models.market_price import MarketPrice
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 @admin_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("5/minute")
 def login():
     """Page de connexion administrateur."""
     if current_user.is_authenticated:
@@ -842,9 +843,10 @@ _FILTER_META = [
     },
     {
         "id": "L5",
-        "name": "Analyse statistique",
+        "name": "Analyse statistique prix",
         "description": "Analyse par z-scores NumPy pour detecter les prix outliers "
-        "par rapport a la distribution de reference du marche.",
+        "par rapport a la distribution de reference du marche. "
+        "Detecte aussi les diesels en zone urbaine dense (risque FAP/injecteurs).",
         "data_source": "Crowdsource LeBonCoin (prix reels collectes par les extensions)",
         "data_source_type": "real",
         "maturity": 60,
@@ -1142,7 +1144,7 @@ def argus():
 @login_required
 def set_argus_threshold(vehicle_id: int):
     """Override manuel du seuil minimum d'annonces pour l'argus d'un vehicule."""
-    vehicle = Vehicle.query.get_or_404(vehicle_id)
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
     threshold_str = request.form.get("threshold", "").strip()
 
     if not threshold_str or threshold_str.lower() == "auto":
@@ -1262,7 +1264,7 @@ def youtube():
 @login_required
 def youtube_detail(video_id: int):
     """Page de detail d'une video YouTube."""
-    video = YouTubeVideo.query.get_or_404(video_id)
+    video = db.session.get(YouTubeVideo, video_id) or abort(404)
     return render_template(
         "admin/youtube_detail.html",
         video=video,
@@ -1276,7 +1278,7 @@ def youtube_extract(video_id: int):
     """Extraction manuelle du transcript d'une video."""
     from app.services.youtube_service import extract_and_store_transcript
 
-    video = YouTubeVideo.query.get_or_404(video_id)
+    video = db.session.get(YouTubeVideo, video_id) or abort(404)
     try:
         transcript = extract_and_store_transcript(video)
         if transcript.status == "extracted":
@@ -1307,7 +1309,7 @@ def youtube_search():
         flash("Veuillez selectionner un vehicule.", "error")
         return redirect(url_for("admin.youtube"))
 
-    vehicle = Vehicle.query.get_or_404(vehicle_id)
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
     try:
         stats = search_and_extract_for_vehicle(vehicle, max_videos=5)
         flash(
@@ -1326,7 +1328,7 @@ def youtube_search():
 @login_required
 def youtube_archive(video_id: int):
     """Toggle l'archivage d'une video."""
-    video = YouTubeVideo.query.get_or_404(video_id)
+    video = db.session.get(YouTubeVideo, video_id) or abort(404)
     video.is_archived = not video.is_archived
     db.session.commit()
 
@@ -1343,7 +1345,7 @@ def youtube_featured(video_id: int):
     Une seule video featured par vehicule : si on marque celle-ci,
     les autres du meme vehicule perdent leur featured.
     """
-    video = YouTubeVideo.query.get_or_404(video_id)
+    video = db.session.get(YouTubeVideo, video_id) or abort(404)
 
     if video.is_featured:
         # Retirer le featured

@@ -89,20 +89,32 @@ def _job_exists(
     gearbox: str | None,
     hp_range: str | None,
 ) -> bool:
-    """Verifie si un CollectionJob actif identique existe deja.
+    """Verifie si un CollectionJob identique existe deja (actif OU failed recent).
 
     Utilise func.lower() pour make/model (ASCII) et comparaison exacte
     pour region (vient de POST_2016_REGIONS), fuel/gearbox (deja normalises).
     SQLite LOWER() ne gere pas les accents Unicode (Î, Ô, etc.),
     donc on evite func.lower() sur les colonnes avec accents.
-    Ne cherche que les jobs pending/assigned (les done/failed ne bloquent pas).
+
+    Bloque la creation si :
+    - un job pending/assigned existe, OU
+    - un job failed existe et a ete cree dans les FRESHNESS_DAYS derniers jours.
+    Un failed > FRESHNESS_DAYS sera recree (le marche peut changer).
     """
+    failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
+
     filters = [
         func.lower(CollectionJob.make) == make.strip().lower(),
         func.lower(CollectionJob.model) == model.strip().lower(),
         CollectionJob.year == year,
         CollectionJob.region == region,  # exact match (from POST_2016_REGIONS)
-        CollectionJob.status.in_(("pending", "assigned")),
+        db.or_(
+            CollectionJob.status.in_(("pending", "assigned")),
+            db.and_(
+                CollectionJob.status == "failed",
+                CollectionJob.created_at >= failed_cutoff,
+            ),
+        ),
     ]
 
     for col, val in [
@@ -118,6 +130,40 @@ def _job_exists(
     return db.session.query(CollectionJob.id).filter(*filters).first() is not None
 
 
+def _find_old_failed_job(
+    make: str,
+    model: str,
+    year: int,
+    region: str,
+    fuel: str | None,
+    gearbox: str | None,
+    hp_range: str | None,
+) -> CollectionJob | None:
+    """Cherche un job failed ancien (> FRESHNESS_DAYS) pour le recycler."""
+    failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
+
+    filters = [
+        func.lower(CollectionJob.make) == make.strip().lower(),
+        func.lower(CollectionJob.model) == model.strip().lower(),
+        CollectionJob.year == year,
+        CollectionJob.region == region,
+        CollectionJob.status == "failed",
+        CollectionJob.created_at < failed_cutoff,
+    ]
+
+    for col, val in [
+        (CollectionJob.fuel, fuel),
+        (CollectionJob.gearbox, gearbox),
+        (CollectionJob.hp_range, hp_range),
+    ]:
+        if val is None:
+            filters.append(col.is_(None))
+        else:
+            filters.append(col == val)
+
+    return CollectionJob.query.filter(*filters).first()
+
+
 def _try_create_job(
     make: str,
     model: str,
@@ -129,12 +175,28 @@ def _try_create_job(
     priority: int,
     source_vehicle: str,
 ) -> CollectionJob | None:
-    """Tente de creer un CollectionJob. Retourne None si doublon ou deja frais."""
+    """Tente de creer un CollectionJob. Retourne None si doublon ou deja frais.
+
+    Si un vieux job failed existe (> FRESHNESS_DAYS), le reinitialise
+    au lieu d'en creer un nouveau (UniqueConstraint).
+    """
     if _has_fresh_market_price(make, model, year, region, fuel, hp_range):
         return None
 
     if _job_exists(make, model, year, region, fuel, gearbox, hp_range):
         return None
+
+    # Recycler un vieux job failed (la UniqueConstraint empeche un INSERT)
+    old = _find_old_failed_job(make, model, year, region, fuel, gearbox, hp_range)
+    if old:
+        old.status = "pending"
+        old.priority = priority
+        old.attempts = 0
+        old.assigned_at = None
+        old.completed_at = None
+        old.created_at = datetime.now(timezone.utc)
+        old.source_vehicle = source_vehicle
+        return old
 
     job = CollectionJob(
         make=make,
@@ -311,20 +373,67 @@ def _reclaim_stale_jobs() -> int:
     return len(stale)
 
 
+LOW_DATA_FAIL_THRESHOLD = 3
+
+
+def _get_low_data_vehicles() -> set[tuple[str, str]]:
+    """Identifie les vehicules (make, model) avec >= LOW_DATA_FAIL_THRESHOLD jobs failed recents.
+
+    Si les 3 regions les plus peuplees (IDF, ARA, PACA) echouent,
+    les petites regions n'auront pas mieux. On skip ce vehicule.
+    """
+    failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
+
+    rows = (
+        db.session.query(
+            func.lower(CollectionJob.make),
+            func.lower(CollectionJob.model),
+            func.count(CollectionJob.id),
+        )
+        .filter(
+            CollectionJob.status == "failed",
+            CollectionJob.created_at >= failed_cutoff,
+        )
+        .group_by(func.lower(CollectionJob.make), func.lower(CollectionJob.model))
+        .having(func.count(CollectionJob.id) >= LOW_DATA_FAIL_THRESHOLD)
+        .all()
+    )
+
+    return {(make, model) for make, model, _ in rows}
+
+
 def pick_bonus_jobs(max_jobs: int = 3) -> list[CollectionJob]:
     """Selectionne les N jobs pending les plus prioritaires et les assigne.
 
     Reclame d'abord les jobs stale (assigned > 30 min).
+    Exclut les vehicules low-data (>= LOW_DATA_FAIL_THRESHOLD fails recents).
     ORDER BY priority ASC (P1 d'abord), created_at ASC (FIFO).
     """
     _reclaim_stale_jobs()
 
-    jobs = (
-        CollectionJob.query.filter(CollectionJob.status == "pending")
-        .order_by(CollectionJob.priority.asc(), CollectionJob.created_at.asc())
-        .limit(max_jobs)
-        .all()
+    low_data = _get_low_data_vehicles()
+
+    query = CollectionJob.query.filter(CollectionJob.status == "pending").order_by(
+        CollectionJob.priority.asc(), CollectionJob.created_at.asc()
     )
+
+    if low_data:
+        # Exclure les vehicules low-data de la selection
+        for make, model in low_data:
+            query = query.filter(
+                ~db.and_(
+                    func.lower(CollectionJob.make) == make,
+                    func.lower(CollectionJob.model) == model,
+                )
+            )
+            logger.info(
+                "Skipping low-data vehicle %s %s (%d+ recent fails)",
+                make,
+                model,
+                LOW_DATA_FAIL_THRESHOLD,
+            )
+
+    jobs = query.limit(max_jobs).all()
 
     now = datetime.now(timezone.utc)
     for job in jobs:

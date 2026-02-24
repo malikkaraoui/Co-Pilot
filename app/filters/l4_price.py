@@ -19,7 +19,7 @@ class L4PriceFilter(BaseFilter):
     def _get_min_samples(self, data: dict[str, Any]) -> int:
         """Seuil dynamique base sur la puissance du vehicule."""
         # Si l'annonce indique la puissance, l'utiliser directement
-        power = data.get("power_hp") or data.get("horse_power_din")
+        power = data.get("power_din_hp") or data.get("power_hp") or data.get("horse_power_din")
         if power:
             try:
                 hp = int(power)

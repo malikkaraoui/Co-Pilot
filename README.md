@@ -11,7 +11,7 @@
 
 Co-Pilot est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur Leboncoin et attribue un **score de confiance de 0 à 100**.
 
-L'utilisateur navigue sur Leboncoin, clique sur "Analyser avec Co-Pilot", et obtient un verdict instantané avec le détail de 9 filtres indépendants.
+L'utilisateur navigue sur Leboncoin, clique sur "Analyser avec Co-Pilot", et obtient un verdict instantané avec le détail de 10 filtres indépendants.
 
 ## Fonctionnement
 
@@ -21,7 +21,7 @@ Extension Chrome                API Flask (Python)
      |  1. Extrait __NEXT_DATA__     |
      |  2. POST /api/analyze ------> |
      |                               | 3. Extraction des données
-     |                               | 4. Exécution des 9 filtres (parallèle)
+     |                               | 4. Exécution des 10 filtres (parallèle)
      |                               | 5. Calcul du score global
      |  6. Affiche la popup  <------ |
      |     avec jauge + détails      |
@@ -96,19 +96,20 @@ MarketPrice crowdsourcé (>= 5 échantillons)
 - **Transparence** : l'extension affiche un badge "Données simulées" quand L4/L5 utilisent le fallback ArgusPrice
 - **Admin** : page `/admin/argus` avec stats, filtres par marque/région, tableau paginé des cotations
 
-## Les 9 filtres
+## Les 10 filtres
 
-| ID  | Nom                    | Description                                                                 |
-| --- | ---------------------- | --------------------------------------------------------------------------- |
-| L1  | Complétude des données | Vérifie la présence des champs critiques (prix, marque, modèle, année, km)  |
-| L2  | Modèle reconnu         | Recherche le véhicule dans le référentiel (20 modèles)                      |
-| L3  | Cohérence km / année   | Détecte les kilométrages anormaux par rapport à l'âge                       |
-| L4  | Prix vs Argus          | Compare le prix annoncé à l'argus géolocalisé par région                    |
-| L5  | Analyse statistique    | Calcul de z-scores via NumPy pour détecter les outliers                     |
-| L6  | Téléphone              | Détecte les indicatifs étrangers et formats suspects                        |
-| L7  | SIRET vendeur          | Vérifie le SIRET via l'API publique gouv.fr                                 |
-| L8  | Détection import       | Repère les signaux d'un véhicule importé                                    |
-| L9  | Évaluation globale     | Synthèse des points forts / faibles de l'annonce                            |
+| ID  | Nom                      | Description                                                                 |
+| --- | ------------------------ | --------------------------------------------------------------------------- |
+| L1  | Complétude des données   | Vérifie la présence des champs critiques (prix, marque, modèle, année, km)  |
+| L2  | Modèle reconnu           | Recherche le véhicule dans le référentiel                                   |
+| L3  | Cohérence km / année     | Détecte les kilométrages anormaux par rapport à l'âge                       |
+| L4  | Prix vs Argus            | Compare le prix annoncé à l'argus géolocalisé par région                    |
+| L5  | Analyse statistique prix | Calcul de z-scores via NumPy pour détecter les prix outliers                |
+| L6  | Téléphone                | Détecte les indicatifs étrangers et formats suspects                        |
+| L7  | SIRET vendeur            | Vérifie le SIRET via l'API publique gouv.fr                                 |
+| L8  | Détection import         | Repère les signaux d'un véhicule importé                                    |
+| L9  | Évaluation globale       | Synthèse des points forts / faibles de l'annonce                            |
+| L10 | Ancienneté annonce       | Analyse la durée de mise en vente et détecte les republications             |
 
 ## Stack technique
 
@@ -188,7 +189,7 @@ Co-Pilot/
 │   ├── __init__.py          # Flask Application Factory
 │   ├── api/                 # Blueprint API (routes, erreurs)
 │   ├── admin/               # Blueprint admin (dashboard)
-│   ├── filters/             # 9 filtres L1-L9 + BaseFilter + FilterEngine
+│   ├── filters/             # 10 filtres L1-L10 + BaseFilter + FilterEngine
 │   ├── models/              # Modèles SQLAlchemy (Vehicle, ScanLog, MarketPrice…)
 │   ├── schemas/             # Schémas Pydantic (validation)
 │   ├── services/            # Logique métier (extraction, scoring, market_service…)

@@ -17,7 +17,9 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # CORS -- uniquement l'origine de l'extension Chrome
+    # CORS -- uniquement l'origine de l'extension Chrome.
+    # En production, definir CORS_ORIGINS avec l'ID exact de l'extension publiee :
+    #   CORS_ORIGINS=chrome-extension://abcdefghijklmnop
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "chrome-extension://*").split(",")
 
     # Identifiants admin

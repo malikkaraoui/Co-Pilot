@@ -175,4 +175,4 @@ class TestYouTubeTranscriptModel:
             _db.session.delete(video)
             _db.session.commit()
 
-            assert YouTubeTranscript.query.get(transcript_id) is None
+            assert _db.session.get(YouTubeTranscript, transcript_id) is None
