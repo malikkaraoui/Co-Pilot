@@ -11,6 +11,7 @@ from pathlib import Path
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
+    IpBlocked,
     NoTranscriptFound,
     RequestBlocked,
     TranscriptsDisabled,
@@ -142,8 +143,8 @@ def _fetch_transcript_ytdlp(video_id: str) -> dict | None:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
         except yt_dlp.utils.DownloadError as exc:
-            logger.warning("yt-dlp subtitle download failed for %s: %s", video_id, exc)
-            return None
+            # 429 ou autre erreur partielle — des VTT ont pu etre ecrits avant l'echec
+            logger.warning("yt-dlp subtitle download error for %s: %s", video_id, exc)
 
         # Chercher les fichiers VTT generes (priorite FR > EN)
         vtt_files = sorted(Path(tmpdir).glob("*.vtt"))
@@ -195,28 +196,36 @@ def _fetch_transcript_ytdlp(video_id: str) -> dict | None:
         }
 
 
-def fetch_transcript(video_id: str) -> dict | None:
-    """Extrait le transcript francais d'une video YouTube.
+def _make_transcript_result(transcript, language_override: str | None = None) -> dict:
+    """Construit le dict resultat a partir d'un transcript fetch."""
+    snippets = transcript.to_raw_data()
+    full_text = " ".join(s["text"] for s in snippets)
+    return {
+        "language": language_override or transcript.language_code,
+        "is_generated": transcript.is_generated,
+        "full_text": full_text,
+        "snippets": snippets,
+        "snippet_count": len(snippets),
+        "char_count": len(full_text),
+    }
 
-    Strategie :
-    1. youtube-transcript-api (rapide, pas de fichier temporaire)
-    2. Si RequestBlocked → fallback yt-dlp (resilient, chemin different)
+
+def fetch_transcript(video_id: str) -> dict | None:
+    """Extrait le transcript d'une video YouTube.
+
+    Strategie (du plus fiable au moins fiable) :
+    1. Sous-titres FR directs (youtube-transcript-api)
+    2. Sous-titres EN directs (youtube-transcript-api)
+    3. Traduction vers FR (youtube-transcript-api)
+    4. Fallback yt-dlp (telecharge VTT, resilient chemin different)
     Retourne None si aucun sous-titre disponible.
     """
     ytt_api = YouTubeTranscriptApi()
 
+    # 1. Essai FR direct
     try:
         transcript = ytt_api.fetch(video_id, languages=["fr"])
-        snippets = transcript.to_raw_data()
-        full_text = " ".join(s["text"] for s in snippets)
-        return {
-            "language": transcript.language_code,
-            "is_generated": transcript.is_generated,
-            "full_text": full_text,
-            "snippets": snippets,
-            "snippet_count": len(snippets),
-            "char_count": len(full_text),
-        }
+        return _make_transcript_result(transcript)
     except NoTranscriptFound:
         pass
     except TranscriptsDisabled:
@@ -225,34 +234,37 @@ def fetch_transcript(video_id: str) -> dict | None:
     except VideoUnavailable:
         logger.info("Video indisponible : %s", video_id)
         return None
-    except RequestBlocked:
+    except (RequestBlocked, IpBlocked):
         logger.warning("youtube-transcript-api bloque pour %s, fallback yt-dlp...", video_id)
         return _fetch_transcript_ytdlp(video_id)
 
-    # Fallback : traduction depuis une autre langue
+    # 2. Essai EN direct (beaucoup de videos auto ont des sous-titres EN)
+    try:
+        transcript = ytt_api.fetch(video_id, languages=["en"])
+        return _make_transcript_result(transcript)
+    except NoTranscriptFound:
+        pass
+    except (RequestBlocked, IpBlocked):
+        logger.warning("youtube-transcript-api bloque (EN) pour %s, fallback yt-dlp...", video_id)
+        return _fetch_transcript_ytdlp(video_id)
+
+    # 3. Fallback : traduction depuis une autre langue vers FR
     try:
         transcript_list = ytt_api.list(video_id)
         for t in transcript_list:
             if t.is_translatable:
                 translated = t.translate("fr")
                 fetched = translated.fetch()
-                snippets = fetched.to_raw_data()
-                full_text = " ".join(s["text"] for s in snippets)
-                return {
-                    "language": "fr (translated)",
-                    "is_generated": True,
-                    "full_text": full_text,
-                    "snippets": snippets,
-                    "snippet_count": len(snippets),
-                    "char_count": len(full_text),
-                }
+                return _make_transcript_result(fetched, language_override="fr (translated)")
     except (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound):
         pass
-    except RequestBlocked:
-        logger.warning("youtube-transcript-api bloque (list) pour %s, fallback yt-dlp...", video_id)
+    except (RequestBlocked, IpBlocked):
+        logger.warning(
+            "youtube-transcript-api bloque (translate) pour %s, fallback yt-dlp...", video_id
+        )
         return _fetch_transcript_ytdlp(video_id)
 
-    # Dernier recours : yt-dlp directement
+    # 4. Dernier recours : yt-dlp directement
     return _fetch_transcript_ytdlp(video_id)
 
 
