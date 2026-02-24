@@ -54,7 +54,7 @@
   </div>
 </div>
 
-<!-- Carte referentiel : vehicules non reconnus -->
+<!-- Carte referentiel : vehicules non reconnus + prospection CSV -->
 <div class="row g-3 mb-4">
   <div class="col-md-4">
     <div class="stat-card">
@@ -64,6 +64,18 @@
       <div class="stat-label">
         <a href="{{ url_for('admin.car') }}" style="text-decoration:none; color:#64748b;">
           Vehicules non reconnus &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color: {% if csv_missing_count > 100 %}#3b82f6{% elif csv_missing_count > 50 %}#6366f1{% else %}#8b5cf6{% endif %};">
+        {{ csv_missing_count }}
+      </div>
+      <div class="stat-label">
+        <a href="{{ url_for('admin.csv_prospection') }}" style="text-decoration:none; color:#64748b;">
+          📊 Prospection CSV &rarr;
         </a>
       </div>
     </div>

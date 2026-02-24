@@ -198,6 +198,11 @@ def dashboard():
     market_total_samples = db.session.query(db.func.sum(MarketPrice.sample_count)).scalar() or 0
     recent_market = MarketPrice.query.order_by(MarketPrice.collected_at.desc()).limit(10).all()
 
+    # Prospection CSV : vehicules disponibles
+    from app.services.csv_enrichment import get_csv_missing_vehicles
+
+    csv_missing_count = len(get_csv_missing_vehicles())
+
     return render_template(
         "admin/dashboard.html",
         total_scans=total_scans,
@@ -218,6 +223,7 @@ def dashboard():
         market_fresh=market_fresh,
         market_total_samples=market_total_samples,
         recent_market=recent_market,
+        csv_missing_count=csv_missing_count,
         now=now,
     )
 
