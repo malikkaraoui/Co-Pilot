@@ -1439,7 +1439,7 @@ def youtube_fine_search():
         default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
         form_data={},
         result=None,
-        vehicle_catalog=json.dumps(catalog),
+        vehicle_catalog=catalog,
     )
 
 
@@ -1477,7 +1477,7 @@ def youtube_fine_search_run():
     brand_list = sorted(catalog.keys())
     ollama_models = list_ollama_models()
     syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
-    catalog_json = json.dumps(catalog)
+    catalog_data = catalog
 
     if not make or not model_name:
         flash("Marque et modele sont requis.", "error")
@@ -1489,7 +1489,7 @@ def youtube_fine_search_run():
             default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
             form_data=form_data,
             result=None,
-            vehicle_catalog=catalog_json,
+            vehicle_catalog=catalog_data,
         )
 
     # Trouver le vehicle_id si le vehicule existe dans le referentiel
@@ -1524,7 +1524,7 @@ def youtube_fine_search_run():
             default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
             form_data=form_data,
             result=None,
-            vehicle_catalog=catalog_json,
+            vehicle_catalog=catalog_data,
         )
 
     # Concatener les transcripts des videos trouvees
@@ -1597,7 +1597,7 @@ def youtube_fine_search_run():
         default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
         form_data=form_data,
         result=result,
-        vehicle_catalog=catalog_json,
+        vehicle_catalog=catalog_data,
     )
 
 

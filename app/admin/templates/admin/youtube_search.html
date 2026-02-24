@@ -211,16 +211,16 @@
 {% block extra_js %}
 <script>
 (function() {
-  var catalog = {{ vehicle_catalog|safe }};
+  var catalog = {{ vehicle_catalog|tojson }};
   var selMake  = document.getElementById('sel-make');
   var selModel = document.getElementById('sel-model');
   var selYear  = document.getElementById('sel-year');
   var selHp    = document.getElementById('sel-hp');
 
   /* Valeurs pre-selectionnees (restaurees apres POST) */
-  var prevModel = {{ form_data.model|tojson if form_data.model else '""' }};
-  var prevYear  = {{ form_data.year|tojson if form_data.year else '""' }};
-  var prevHp    = {{ form_data.hp|tojson if form_data.hp else '""' }};
+  var prevModel = {{ (form_data.model or "")|tojson }};
+  var prevYear  = {{ (form_data.year or "")|tojson }};
+  var prevHp    = {{ (form_data.hp or "")|tojson }};
 
   function clearSelect(sel) {
     while (sel.options.length > 0) { sel.remove(0); }
