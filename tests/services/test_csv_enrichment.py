@@ -1,5 +1,7 @@
 """Tests pour csv_enrichment service."""
 
+import pytest
+
 from app.models.vehicle import Vehicle
 from app.services.csv_enrichment import _load_csv_catalog, get_csv_missing_vehicles
 

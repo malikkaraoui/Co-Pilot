@@ -8,7 +8,7 @@ from app.services.csv_enrichment import get_csv_missing_vehicles
 
 def test_csv_prospection_workflow(client, admin_user, db, app):
     """Test du workflow complet : consulter → voir véhicules → liens LBC."""
-    with app.app_context():
+    with app.app_context(), client:
         # Étape 1 : Login admin
         response = client.post(
             "/admin/login",
@@ -36,10 +36,13 @@ def test_csv_prospection_workflow(client, admin_user, db, app):
         assert b"hicules CSV non import" in response.data  # Véhicules (accent)
         assert b"Fiches specs disponibles" in response.data
 
+        # Cleanup session
+        client.get("/admin/logout")
+
 
 def test_csv_prospection_excludes_existing_vehicles(client, admin_user, db, app):
     """Les véhicules déjà dans le référentiel ne doivent PAS apparaître."""
-    with app.app_context():
+    with app.app_context(), client:
         # Login
         client.post(
             "/admin/login",
@@ -64,10 +67,13 @@ def test_csv_prospection_excludes_existing_vehicles(client, admin_user, db, app)
             key = (vehicle["brand"].lower(), vehicle["model"].lower())
             assert key not in existing_keys
 
+        # Cleanup session
+        client.get("/admin/logout")
+
 
 def test_csv_prospection_pagination_works(client, admin_user, app):
     """La pagination doit afficher au max 50 véhicules par page."""
-    with app.app_context():
+    with app.app_context(), client:
         # Login
         client.post(
             "/admin/login",
@@ -90,6 +96,9 @@ def test_csv_prospection_pagination_works(client, admin_user, app):
             # Accéder à la page 2
             response = client.get("/admin/csv-prospection?page=2")
             assert response.status_code == 200
+
+        # Cleanup session
+        client.get("/admin/logout")
 
 
 @pytest.fixture()

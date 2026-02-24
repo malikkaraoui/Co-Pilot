@@ -46,6 +46,9 @@ def test_csv_prospection_page_loads(client, admin_user):
         assert response.status_code == 200
         assert b"Prospection CSV" in response.data
 
+        # Cleanup session
+        client.get("/admin/logout")
+
 
 def test_csv_prospection_displays_missing_vehicles(client, admin_user, app):
     """La page doit afficher les véhicules CSV manquants."""
@@ -75,6 +78,9 @@ def test_csv_prospection_displays_missing_vehicles(client, admin_user, app):
         # Au moins l'un des deux doit être présent
         assert has_empty_state or has_vehicles
 
+        # Cleanup session
+        client.get("/admin/logout")
+
 
 def test_csv_prospection_lbc_urls_valid(client, admin_user):
     """Les URLs LBC doivent être valides."""
@@ -92,6 +98,9 @@ def test_csv_prospection_lbc_urls_valid(client, admin_user):
 
         # Vérifier qu'il y a des liens vers leboncoin.fr
         assert b"leboncoin.fr/recherche" in response.data or b"leboncoin" in response.data
+
+        # Cleanup session
+        client.get("/admin/logout")
 
 
 def test_csv_prospection_pagination(client, admin_user):
@@ -111,3 +120,6 @@ def test_csv_prospection_pagination(client, admin_user):
         # Accès à une page invalide (devrait être clampée)
         response = client.get("/admin/csv-prospection?page=9999")
         assert response.status_code == 200
+
+        # Cleanup session
+        client.get("/admin/logout")
