@@ -1,8 +1,12 @@
 """Service d'extraction de sous-titres YouTube."""
 
 import logging
+import os
+import re
+import tempfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -86,10 +90,117 @@ def search_videos(query: str, max_results: int = 5) -> list[dict]:
     return videos
 
 
+def _parse_vtt_to_text(vtt_content: str) -> str:
+    """Parse un fichier VTT et extrait le texte brut sans timestamps ni doublons."""
+    lines = vtt_content.splitlines()
+    seen: set[str] = set()
+    text_parts: list[str] = []
+
+    for line in lines:
+        line = line.strip()
+        # Skip header, empty lines, timestamps, NOTE/STYLE blocks
+        if not line or line.startswith("WEBVTT") or line.startswith("Kind:"):
+            continue
+        if line.startswith("Language:") or line.startswith("NOTE"):
+            continue
+        if "-->" in line:
+            continue
+        # Skip pure numeric cue identifiers
+        if re.match(r"^\d+$", line):
+            continue
+        # Strip HTML-like tags (<c>, </c>, <b>, etc.)
+        clean = re.sub(r"<[^>]+>", "", line)
+        clean = clean.strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            text_parts.append(clean)
+
+    return " ".join(text_parts)
+
+
+def _fetch_transcript_ytdlp(video_id: str) -> dict | None:
+    """Extrait les sous-titres via yt-dlp (fallback quand youtube-transcript-api est bloque).
+
+    Telecharge les fichiers VTT dans un dossier temporaire, parse le texte.
+    Priorite : FR manual > FR auto > EN manual > EN auto.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        opts = {
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "subtitleslangs": ["fr", "en"],
+            "subtitlesformat": "vtt",
+            "skip_download": True,
+            "outtmpl": os.path.join(tmpdir, "%(id)s"),
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        except yt_dlp.utils.DownloadError as exc:
+            logger.warning("yt-dlp subtitle download failed for %s: %s", video_id, exc)
+            return None
+
+        # Chercher les fichiers VTT generes (priorite FR > EN)
+        vtt_files = sorted(Path(tmpdir).glob("*.vtt"))
+        if not vtt_files:
+            logger.info("yt-dlp: aucun sous-titre trouve pour %s", video_id)
+            return None
+
+        # Trier par priorite: fr > en, manual > auto
+        best_file = None
+        best_lang = ""
+        is_generated = True
+        for vtt_path in vtt_files:
+            name = vtt_path.name.lower()
+            if ".fr." in name and best_lang != "fr":
+                best_file = vtt_path
+                best_lang = "fr"
+                is_generated = "auto" in name or best_lang != "fr"
+            elif ".en." in name and not best_lang:
+                best_file = vtt_path
+                best_lang = "en"
+                is_generated = True
+
+        if best_file is None:
+            best_file = vtt_files[0]
+            best_lang = "unknown"
+
+        vtt_content = best_file.read_text(encoding="utf-8")
+        full_text = _parse_vtt_to_text(vtt_content)
+
+        if not full_text or len(full_text) < 50:
+            logger.info(
+                "yt-dlp: transcript trop court pour %s (%d chars)", video_id, len(full_text)
+            )
+            return None
+
+        logger.info(
+            "yt-dlp: transcript extrait pour %s (%d chars, lang=%s)",
+            video_id,
+            len(full_text),
+            best_lang,
+        )
+        return {
+            "language": f"{best_lang} (yt-dlp)",
+            "is_generated": is_generated,
+            "full_text": full_text,
+            "snippets": [],
+            "snippet_count": 0,
+            "char_count": len(full_text),
+        }
+
+
 def fetch_transcript(video_id: str) -> dict | None:
     """Extrait le transcript francais d'une video YouTube.
 
-    Tente d'abord les sous-titres FR directs, puis la traduction vers FR.
+    Strategie :
+    1. youtube-transcript-api (rapide, pas de fichier temporaire)
+    2. Si RequestBlocked → fallback yt-dlp (resilient, chemin different)
     Retourne None si aucun sous-titre disponible.
     """
     ytt_api = YouTubeTranscriptApi()
@@ -115,8 +226,8 @@ def fetch_transcript(video_id: str) -> dict | None:
         logger.info("Video indisponible : %s", video_id)
         return None
     except RequestBlocked:
-        logger.error("Requete bloquee par YouTube pour %s", video_id)
-        raise
+        logger.warning("youtube-transcript-api bloque pour %s, fallback yt-dlp...", video_id)
+        return _fetch_transcript_ytdlp(video_id)
 
     # Fallback : traduction depuis une autre langue
     try:
@@ -138,9 +249,11 @@ def fetch_transcript(video_id: str) -> dict | None:
     except (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound):
         pass
     except RequestBlocked:
-        raise
+        logger.warning("youtube-transcript-api bloque (list) pour %s, fallback yt-dlp...", video_id)
+        return _fetch_transcript_ytdlp(video_id)
 
-    return None
+    # Dernier recours : yt-dlp directement
+    return _fetch_transcript_ytdlp(video_id)
 
 
 def store_video(
@@ -185,13 +298,7 @@ def extract_and_store_transcript(video: YouTubeVideo) -> YouTubeTranscript:
         db.session.add(transcript_record)
         db.session.commit()
 
-    try:
-        result = fetch_transcript(video.video_id)
-    except RequestBlocked:
-        transcript_record.status = "error"
-        transcript_record.error_message = "Requete bloquee par YouTube"
-        db.session.commit()
-        raise
+    result = fetch_transcript(video.video_id)
 
     if result is None:
         transcript_record.status = "no_subtitles"
@@ -248,15 +355,11 @@ def search_and_extract_for_vehicle(vehicle, max_videos: int = 5) -> dict:
             stats["transcripts_skipped"] += 1
             continue
 
-        try:
-            transcript = extract_and_store_transcript(video)
-            if transcript.status == "extracted":
-                stats["transcripts_ok"] += 1
-            else:
-                stats["transcripts_failed"] += 1
-        except RequestBlocked:
+        transcript = extract_and_store_transcript(video)
+        if transcript.status == "extracted":
+            stats["transcripts_ok"] += 1
+        else:
             stats["transcripts_failed"] += 1
-            raise
 
         time.sleep(DELAY_BETWEEN_VIDEOS)
 
@@ -296,16 +399,11 @@ def search_and_extract_custom(
             stats["transcripts_skipped"] += 1
             continue
 
-        try:
-            transcript = extract_and_store_transcript(video)
-            if transcript.status == "extracted":
-                stats["transcripts_ok"] += 1
-            else:
-                stats["transcripts_failed"] += 1
-        except RequestBlocked:
+        transcript = extract_and_store_transcript(video)
+        if transcript.status == "extracted":
+            stats["transcripts_ok"] += 1
+        else:
             stats["transcripts_failed"] += 1
-            logger.error("YouTube blocked during extraction, stopping")
-            break
 
         time.sleep(DELAY_BETWEEN_VIDEOS)
 

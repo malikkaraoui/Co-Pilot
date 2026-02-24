@@ -2,12 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.extensions import db as _db
 from app.models.vehicle import Vehicle
 from app.models.youtube import YouTubeTranscript, YouTubeVideo
 from app.services.youtube_service import (
+    _parse_vtt_to_text,
     extract_and_store_transcript,
     fetch_transcript,
     get_featured_video,
@@ -107,16 +106,137 @@ class TestFetchTranscript:
         result = fetch_transcript("abc123")
         assert result is None
 
+    @patch("app.services.youtube_service._fetch_transcript_ytdlp")
     @patch("app.services.youtube_service.YouTubeTranscriptApi")
-    def test_fetch_request_blocked_raises(self, mock_api_cls):
+    def test_fetch_request_blocked_falls_back_to_ytdlp(self, mock_api_cls, mock_ytdlp):
         from youtube_transcript_api._errors import RequestBlocked
 
         mock_api = MagicMock()
         mock_api_cls.return_value = mock_api
         mock_api.fetch.side_effect = RequestBlocked("abc123")
 
-        with pytest.raises(RequestBlocked):
-            fetch_transcript("abc123")
+        mock_ytdlp.return_value = {
+            "language": "fr (yt-dlp)",
+            "is_generated": True,
+            "full_text": "Fallback transcript via yt-dlp",
+            "snippets": [],
+            "snippet_count": 0,
+            "char_count": 31,
+        }
+
+        result = fetch_transcript("abc123")
+        assert result is not None
+        assert result["language"] == "fr (yt-dlp)"
+        assert result["char_count"] == 31
+        mock_ytdlp.assert_called_once_with("abc123")
+
+    @patch("app.services.youtube_service._fetch_transcript_ytdlp")
+    @patch("app.services.youtube_service.YouTubeTranscriptApi")
+    def test_fetch_falls_back_to_ytdlp_when_no_transcript(self, mock_api_cls, mock_ytdlp):
+        """When youtube-transcript-api finds nothing, yt-dlp is tried as last resort."""
+        from youtube_transcript_api._errors import NoTranscriptFound
+
+        mock_api = MagicMock()
+        mock_api_cls.return_value = mock_api
+        mock_api.fetch.side_effect = NoTranscriptFound("vid1", ["fr"], [])
+
+        mock_list = MagicMock()
+        mock_list.__iter__ = MagicMock(return_value=iter([]))
+        mock_api.list.return_value = mock_list
+
+        mock_ytdlp.return_value = {
+            "language": "fr (yt-dlp)",
+            "is_generated": True,
+            "full_text": "Got it via yt-dlp",
+            "snippets": [],
+            "snippet_count": 0,
+            "char_count": 17,
+        }
+
+        result = fetch_transcript("vid1")
+        assert result is not None
+        assert "yt-dlp" in result["language"]
+        mock_ytdlp.assert_called_once_with("vid1")
+
+
+class TestParseVttToText:
+    """Tests du parser VTT vers texte brut."""
+
+    def test_basic_vtt_parsing(self):
+        vtt = """WEBVTT
+Kind: captions
+Language: fr
+
+00:00:00.000 --> 00:00:02.000
+Bonjour a tous
+
+00:00:02.000 --> 00:00:04.000
+bienvenue sur la chaine
+"""
+        result = _parse_vtt_to_text(vtt)
+        assert "Bonjour a tous" in result
+        assert "bienvenue sur la chaine" in result
+        assert "-->" not in result
+        assert "WEBVTT" not in result
+
+    def test_strips_html_tags(self):
+        vtt = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+<c>Bonjour</c> <b>monde</b>
+"""
+        result = _parse_vtt_to_text(vtt)
+        assert result == "Bonjour monde"
+
+    def test_deduplicates_lines(self):
+        vtt = """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Bonjour
+
+00:00:02.000 --> 00:00:04.000
+Bonjour
+
+00:00:04.000 --> 00:00:06.000
+Au revoir
+"""
+        result = _parse_vtt_to_text(vtt)
+        assert result.count("Bonjour") == 1
+        assert "Au revoir" in result
+
+    def test_skips_numeric_cue_ids(self):
+        vtt = """WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+Premier segment
+
+2
+00:00:02.000 --> 00:00:04.000
+Deuxieme segment
+"""
+        result = _parse_vtt_to_text(vtt)
+        assert "Premier segment" in result
+        assert "Deuxieme segment" in result
+        # Pure numeric lines should not appear as text
+        assert result == "Premier segment Deuxieme segment"
+
+    def test_empty_vtt(self):
+        vtt = "WEBVTT\n\n"
+        result = _parse_vtt_to_text(vtt)
+        assert result == ""
+
+    def test_skips_note_blocks(self):
+        vtt = """WEBVTT
+
+NOTE This is a comment
+
+00:00:00.000 --> 00:00:02.000
+Contenu reel
+"""
+        result = _parse_vtt_to_text(vtt)
+        assert "NOTE" not in result
+        assert "Contenu reel" in result
 
 
 class TestStoreVideo:
