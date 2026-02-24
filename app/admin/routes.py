@@ -19,6 +19,7 @@ from app.models.pipeline_run import PipelineRun
 from app.models.scan import ScanLog
 from app.models.user import User
 from app.models.vehicle import Vehicle
+from app.models.vehicle_synthesis import VehicleSynthesis
 from app.models.youtube import YouTubeTranscript, YouTubeVideo
 
 logger = logging.getLogger(__name__)
@@ -1364,6 +1365,213 @@ def youtube_featured(video_id: int):
         flash(f'Video featured : "{video.title[:60]}".', "success")
 
     return redirect(request.referrer or url_for("admin.youtube"))
+
+
+# ── YouTube Recherche Fine ────────────────────────────────────────
+
+_DEFAULT_SYNTHESIS_PROMPT = (
+    "Tu es un expert automobile francais. A partir des transcripts de tests "
+    "YouTube ci-dessous, redige une synthese structuree du vehicule.\n\n"
+    "Inclus:\n"
+    "- Points forts (3-5)\n"
+    "- Points faibles (3-5)\n"
+    "- Fiabilite et problemes connus\n"
+    "- A qui s'adresse ce vehicule\n"
+    "- Verdict global\n\n"
+    "Sois factuel et concis. Ne repete pas le contenu des transcripts mot pour mot."
+)
+
+
+@admin_bp.route("/youtube/fine-search")
+@login_required
+def youtube_fine_search():
+    """Page de recherche YouTube fine avec parametres vehicule et synthese LLM."""
+    from app.services.llm_service import list_ollama_models
+
+    brand_list = [
+        b.brand for b in db.session.query(Vehicle.brand).distinct().order_by(Vehicle.brand).all()
+    ]
+    ollama_models = list_ollama_models()
+    syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
+
+    return render_template(
+        "admin/youtube_search.html",
+        brand_list=brand_list,
+        ollama_models=ollama_models,
+        syntheses=syntheses,
+        default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
+        form_data={},
+        result=None,
+    )
+
+
+@admin_bp.route("/youtube/fine-search", methods=["POST"])
+@login_required
+def youtube_fine_search_run():
+    """Pipeline : build query → search YouTube → extract → concat → LLM → store."""
+    from app.services.llm_service import generate_synthesis, list_ollama_models
+    from app.services.youtube_service import build_search_query, search_and_extract_custom
+
+    # Recuperer les parametres du formulaire
+    make = request.form.get("make", "").strip()
+    model_name = request.form.get("model", "").strip()
+    year = request.form.get("year", "", type=str).strip()
+    fuel = request.form.get("fuel", "").strip()
+    hp = request.form.get("hp", "").strip()
+    keywords = request.form.get("keywords", "").strip()
+    max_results = request.form.get("max_results", 5, type=int)
+    llm_model = request.form.get("llm_model", "").strip()
+    prompt = request.form.get("prompt", "").strip() or _DEFAULT_SYNTHESIS_PROMPT
+
+    form_data = {
+        "make": make,
+        "model": model_name,
+        "year": year,
+        "fuel": fuel,
+        "hp": hp,
+        "keywords": keywords,
+        "max_results": max_results,
+        "llm_model": llm_model,
+        "prompt": prompt,
+    }
+
+    brand_list = [
+        b.brand for b in db.session.query(Vehicle.brand).distinct().order_by(Vehicle.brand).all()
+    ]
+    ollama_models = list_ollama_models()
+    syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
+
+    if not make or not model_name:
+        flash("Marque et modele sont requis.", "error")
+        return render_template(
+            "admin/youtube_search.html",
+            brand_list=brand_list,
+            ollama_models=ollama_models,
+            syntheses=syntheses,
+            default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
+            form_data=form_data,
+            result=None,
+        )
+
+    # Trouver le vehicle_id si le vehicule existe dans le referentiel
+    vehicle = Vehicle.query.filter(
+        Vehicle.brand.ilike(make),
+        Vehicle.model.ilike(model_name),
+    ).first()
+    vehicle_id = vehicle.id if vehicle else None
+
+    # Build query
+    year_int = int(year) if year else None
+    query = build_search_query(
+        make=make,
+        model=model_name,
+        year=year_int,
+        fuel=fuel or None,
+        hp=hp or None,
+        keywords=keywords or None,
+    )
+
+    # Search + extract
+    try:
+        stats = search_and_extract_custom(query, vehicle_id=vehicle_id, max_results=max_results)
+    except Exception as exc:
+        logger.exception("YouTube fine search failed: %s", exc)
+        flash(f"Erreur recherche YouTube : {exc}", "error")
+        return render_template(
+            "admin/youtube_search.html",
+            brand_list=brand_list,
+            ollama_models=ollama_models,
+            syntheses=syntheses,
+            default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
+            form_data=form_data,
+            result=None,
+        )
+
+    # Concatener les transcripts des videos trouvees
+    video_ids_db = stats.get("video_ids", [])
+    transcripts_parts = []
+    for vid_id in video_ids_db:
+        yt_video = db.session.get(YouTubeVideo, vid_id)
+        if yt_video and yt_video.transcript and yt_video.transcript.status == "extracted":
+            header = f"--- {yt_video.title} ({yt_video.channel_name}) ---"
+            transcripts_parts.append(f"{header}\n{yt_video.transcript.full_text}")
+
+    total_chars = sum(len(p) for p in transcripts_parts)
+    concatenated = "\n\n".join(transcripts_parts)
+
+    # LLM synthesis (only if we have transcripts)
+    synthesis_text = ""
+    synthesis_id = None
+    if concatenated and llm_model:
+        try:
+            synthesis_text = generate_synthesis(llm_model, prompt, concatenated)
+        except ConnectionError as exc:
+            logger.error("Ollama synthesis failed: %s", exc)
+            flash(f"Erreur LLM : {exc}", "error")
+
+        # Store VehicleSynthesis
+        if synthesis_text:
+            synth = VehicleSynthesis(
+                vehicle_id=vehicle_id,
+                make=make,
+                model=model_name,
+                year=year_int,
+                fuel=fuel or None,
+                llm_model=llm_model,
+                prompt_used=prompt,
+                source_video_ids=video_ids_db,
+                raw_transcript_chars=total_chars,
+                synthesis_text=synthesis_text,
+                status="draft",
+            )
+            db.session.add(synth)
+            db.session.commit()
+            synthesis_id = synth.id
+            logger.info(
+                "Synthesis created: %s %s (id=%d, llm=%s, %d chars input)",
+                make,
+                model_name,
+                synth.id,
+                llm_model,
+                total_chars,
+            )
+
+    # Refresh syntheses list
+    syntheses = VehicleSynthesis.query.order_by(VehicleSynthesis.created_at.desc()).limit(20).all()
+
+    result = {
+        "videos_found": stats["videos_found"],
+        "transcripts_ok": stats["transcripts_ok"],
+        "total_chars": total_chars,
+        "query": query,
+        "synthesis_text": synthesis_text,
+        "synthesis_id": synthesis_id,
+        "llm_model": llm_model,
+    }
+
+    return render_template(
+        "admin/youtube_search.html",
+        brand_list=brand_list,
+        ollama_models=ollama_models,
+        syntheses=syntheses,
+        default_prompt=_DEFAULT_SYNTHESIS_PROMPT,
+        form_data=form_data,
+        result=result,
+    )
+
+
+@admin_bp.route("/youtube/synthesis/<int:synthesis_id>/validate", methods=["POST"])
+@login_required
+def youtube_synthesis_validate(synthesis_id: int):
+    """Toggle la synthese de draft vers validated."""
+    synth = db.session.get(VehicleSynthesis, synthesis_id) or abort(404)
+    if synth.status == "draft":
+        synth.status = "validated"
+        db.session.commit()
+        flash(f"Synthese {synth.make} {synth.model} validee.", "success")
+    else:
+        flash("Cette synthese n'est pas en draft.", "warning")
+    return redirect(url_for("admin.youtube_fine_search"))
 
 
 # ── Issues collecte (CollectionJob queue) ─────────────────────────
