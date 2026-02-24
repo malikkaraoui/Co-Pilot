@@ -1,6 +1,7 @@
 """Tests pour csv_enrichment service."""
 
-from app.services.csv_enrichment import _load_csv_catalog
+from app.models.vehicle import Vehicle
+from app.services.csv_enrichment import _load_csv_catalog, get_csv_missing_vehicles
 
 
 def test_load_csv_catalog_structure():
@@ -51,3 +52,56 @@ def test_load_csv_catalog_cache():
 
     # Même objet en mémoire grâce au cache LRU
     assert catalog1 is catalog2
+
+
+def test_get_csv_missing_vehicles_structure(app):
+    """La fonction doit retourner une liste de dicts avec structure attendue."""
+    with app.app_context():
+        missing = get_csv_missing_vehicles()
+
+        # Doit retourner une liste
+        assert isinstance(missing, list)
+
+        # Si la liste n'est pas vide, vérifier la structure
+        if missing:
+            first = missing[0]
+            assert "brand" in first
+            assert "model" in first
+            assert "year_start" in first
+            assert "year_end" in first
+            assert "specs_count" in first
+
+            # Vérifier les types
+            assert isinstance(first["brand"], str)
+            assert isinstance(first["model"], str)
+            assert isinstance(first["specs_count"], int)
+            assert first["specs_count"] > 0
+
+
+def test_get_csv_missing_vehicles_excludes_existing(app, db):
+    """Les véhicules du référentiel ne doivent PAS apparaître dans missing."""
+    with app.app_context():
+        missing = get_csv_missing_vehicles()
+
+        # Récupérer tous les véhicules du référentiel
+        existing = {(v.brand.lower(), v.model.lower()) for v in Vehicle.query.all()}
+
+        # Vérifier qu'aucun véhicule manquant n'est dans le référentiel
+        for vehicle in missing:
+            key = (vehicle["brand"].lower(), vehicle["model"].lower())
+            assert key not in existing, (
+                f"{vehicle['brand']} {vehicle['model']} ne devrait pas être "
+                f"dans missing car il est dans le référentiel"
+            )
+
+
+def test_get_csv_missing_vehicles_sorted_by_specs(app):
+    """La liste doit être triée par specs_count descendant."""
+    with app.app_context():
+        missing = get_csv_missing_vehicles()
+
+        # Si au moins 2 éléments, vérifier le tri
+        if len(missing) >= 2:
+            specs_counts = [v["specs_count"] for v in missing]
+            # Vérifier que la liste est triée par ordre décroissant
+            assert specs_counts == sorted(specs_counts, reverse=True)

@@ -154,6 +154,49 @@ def has_specs(brand: str, model: str) -> bool:
     return (b, m) in _load_csv_catalog()
 
 
+def get_csv_missing_vehicles() -> list[dict]:
+    """Retourne les véhicules présents dans le CSV mais absents du référentiel.
+
+    Returns:
+        [
+            {
+                "brand": "Renault",
+                "model": "Clio",
+                "year_start": 2012,
+                "year_end": 2024,
+                "specs_count": 35
+            },
+            ...
+        ]
+        Trié par specs_count descendant (modèles les plus riches d'abord).
+    """
+    from app.models.vehicle import Vehicle
+
+    catalog = _load_csv_catalog()
+
+    # Récupérer tous les véhicules du référentiel (lower case pour comparaison)
+    existing = {(v.brand.lower(), v.model.lower()) for v in Vehicle.query.all()}
+
+    # Diff : véhicules CSV non présents dans Vehicle
+    missing = []
+    for (make, model), meta in catalog.items():
+        if (make, model) not in existing:
+            missing.append(
+                {
+                    "brand": make.title(),  # Capitalisation pour affichage
+                    "model": model.title(),
+                    "year_start": meta["year_start"],
+                    "year_end": meta["year_end"],
+                    "specs_count": meta["specs_count"],
+                }
+            )
+
+    # Tri par nombre de fiches (descendant)
+    missing.sort(key=lambda x: x["specs_count"], reverse=True)
+
+    return missing
+
+
 def lookup_specs(brand: str, model: str) -> list[dict[str, Any]]:
     """Cherche les specs d'un vehicule dans le CSV Kaggle.
 
