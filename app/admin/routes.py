@@ -1566,10 +1566,19 @@ def _run_synthesis_pipeline(app, job: dict) -> None:
             job["progress_label"] = "Recherche YouTube en cours..."
             t0 = time.monotonic()
             try:
+                # Convertir year en int si fourni
+                year_int = None
+                if fd.get("year"):
+                    try:
+                        year_int = int(fd["year"])
+                    except ValueError:
+                        pass
+
                 stats = search_and_extract_custom(
                     query,
                     vehicle_id=vehicle_id,
                     max_results=fd["max_results"],
+                    vehicle_year=year_int,
                 )
             except Exception as exc:
                 logger.exception("YouTube fine search failed: %s", exc)

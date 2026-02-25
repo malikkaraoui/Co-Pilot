@@ -27,6 +27,28 @@ logger = logging.getLogger(__name__)
 DELAY_BETWEEN_VIDEOS = 2.0  # secondes
 DELAY_BETWEEN_MODELS = 5.0  # secondes
 
+# Chaines YouTube de confiance (bonus de score)
+TRUSTED_CHANNELS = {
+    "L'argus",
+    "Fiches auto",
+    "Vilebrequin",
+    "Les Pilotes du Dimanche",
+    "Auto Moto",
+    "Caradisiac",
+    "AutoPlus",
+}
+
+# Mots-cles a eviter dans les titres (presentations pre-sortie, salons)
+EXCLUDED_TITLE_KEYWORDS = [
+    "présentation mondiale",
+    "salon de l'auto",
+    "avant-première",
+    "en avant première",
+    "teaser",
+    "sneak peek",
+    "coming soon",
+]
+
 
 def build_search_query(
     make: str,
@@ -61,15 +83,22 @@ def build_search_query(
     return " ".join(parts)
 
 
-def search_videos(query: str, max_results: int = 5) -> list[dict]:
+def search_videos(query: str, max_results: int = 5, extract_metadata: bool = True) -> list[dict]:
     """Recherche YouTube via yt-dlp.
 
-    Retourne une liste de dicts : [{id, title, channel, duration}, ...].
+    Args:
+        query: Requete de recherche
+        max_results: Nombre max de resultats (avant filtrage)
+        extract_metadata: Si True, extrait toutes les metadonnees (plus lent mais necessaire pour le scoring)
+
+    Retourne une liste de dicts avec toutes les metadonnees si extract_metadata=True:
+        [{id, title, channel, duration, view_count, like_count, comment_count,
+          upload_date, channel_follower_count, channel_is_verified}, ...]
     """
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
-        "extract_flat": True,
+        "extract_flat": not extract_metadata,  # False pour avoir toutes les metadonnees
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -80,15 +109,159 @@ def search_videos(query: str, max_results: int = 5) -> list[dict]:
 
     videos = []
     for entry in result.get("entries", []):
-        videos.append(
-            {
-                "id": entry["id"],
-                "title": entry.get("title", ""),
-                "channel": entry.get("channel", entry.get("uploader", "")),
-                "duration": entry.get("duration"),
-            }
-        )
+        video_data = {
+            "id": entry["id"],
+            "title": entry.get("title", ""),
+            "channel": entry.get("channel", entry.get("uploader", "")),
+            "duration": entry.get("duration"),
+        }
+
+        # Metadonnees supplementaires si extract_metadata=True
+        if extract_metadata:
+            video_data.update(
+                {
+                    "view_count": entry.get("view_count", 0) or 0,
+                    "like_count": entry.get("like_count", 0) or 0,
+                    "comment_count": entry.get("comment_count", 0) or 0,
+                    "upload_date": entry.get("upload_date"),  # YYYYMMDD
+                    "channel_follower_count": entry.get("channel_follower_count", 0) or 0,
+                    "channel_is_verified": entry.get("channel_is_verified", False),
+                }
+            )
+
+        videos.append(video_data)
+
     return videos
+
+
+def _score_video_relevance(video: dict, vehicle_year: int | None = None) -> float:
+    """Calcule un score de pertinence (0-100) pour une video YouTube.
+
+    Criteres:
+    - Duree optimale (6-25 min = essai complet)
+    - Engagement (vues, likes, comments)
+    - Chaine etablie et verified
+    - Fraicheur (publiee apres sortie du modele)
+    - Mots-cles pertinents dans titre
+    - Exclusion de titres pre-sortie
+    """
+    score = 0.0
+    title_lower = video.get("title", "").lower()
+
+    # ❌ Exclusion immediate si titre suspect
+    for keyword in EXCLUDED_TITLE_KEYWORDS:
+        if keyword.lower() in title_lower:
+            return 0.0
+
+    # Duree optimale (6-25 min = essai complet detaille)
+    duration = video.get("duration", 0)
+    if duration:
+        if 360 <= duration <= 1500:  # 6-25 min
+            score += 30.0
+        elif 180 <= duration < 360 or 1500 < duration <= 2700:  # 3-6 min ou 25-45 min
+            score += 15.0
+        elif duration < 60:  # Short
+            return 0.0  # Exclusion des shorts
+        elif duration > 2700:  # > 45 min (livestreams, podcasts)
+            return 0.0
+
+    # Engagement (vues + ratio like)
+    view_count = video.get("view_count", 0)
+    like_count = video.get("like_count", 0)
+
+    if view_count > 100000:
+        score += 20.0
+    elif view_count > 50000:
+        score += 15.0
+    elif view_count > 10000:
+        score += 10.0
+
+    if view_count > 0 and like_count > 0:
+        like_ratio = like_count / view_count
+        if like_ratio > 0.03:  # 3%+ de like rate = tres bon engagement
+            score += 15.0
+        elif like_ratio > 0.02:
+            score += 10.0
+
+    # Chaine etablie
+    channel = video.get("channel", "")
+    channel_follower_count = video.get("channel_follower_count", 0)
+    is_verified = video.get("channel_is_verified", False)
+
+    if channel in TRUSTED_CHANNELS:
+        score += 25.0  # Bonus chaine de confiance
+    elif is_verified and channel_follower_count > 100000:
+        score += 15.0
+    elif channel_follower_count > 50000:
+        score += 10.0
+
+    # Fraicheur (publiee apres sortie du modele si annee connue)
+    upload_date = video.get("upload_date")
+    if upload_date and vehicle_year:
+        try:
+            upload_year = int(str(upload_date)[:4])
+            # Video publiee l'annee du modele ou les 2 annees suivantes
+            if vehicle_year <= upload_year <= vehicle_year + 2:
+                score += 20.0
+            elif upload_year > vehicle_year + 2:  # Trop recente (millésime futur)
+                score += 5.0
+            # Sinon : video trop ancienne, pas de bonus
+        except (ValueError, TypeError):
+            pass
+
+    # Mots-cles pertinents dans titre
+    relevant_keywords = ["essai", "test", "avis", "retour", "review", "POV"]
+    if any(kw in title_lower for kw in relevant_keywords):
+        score += 10.0
+
+    return min(score, 100.0)  # Cap a 100
+
+
+def filter_and_rank_videos(
+    videos: list[dict],
+    vehicle_year: int | None = None,
+    max_results: int = 5,
+) -> list[dict]:
+    """Filtre et classe les videos par score de pertinence.
+
+    Args:
+        videos: Liste de videos avec metadonnees completes
+        vehicle_year: Annee du modele (pour scoring fraicheur)
+        max_results: Nombre max de videos a retourner
+
+    Returns:
+        Liste triee par score decroissant (top max_results)
+    """
+    # Calcul des scores
+    scored_videos = []
+    for video in videos:
+        score = _score_video_relevance(video, vehicle_year)
+        if score > 0:  # Exclure les videos avec score 0 (filtrees)
+            video_with_score = video.copy()
+            video_with_score["relevance_score"] = score
+            scored_videos.append(video_with_score)
+
+    # Tri par score decroissant
+    scored_videos.sort(key=lambda v: v["relevance_score"], reverse=True)
+
+    # Log des resultats
+    logger.info(
+        "Filtrage YouTube: %d/%d videos retenues (top %d)",
+        len(scored_videos),
+        len(videos),
+        max_results,
+    )
+    for i, v in enumerate(scored_videos[:max_results], 1):
+        logger.debug(
+            "#%d (score=%.1f): %s - %s (%ds)",
+            i,
+            v["relevance_score"],
+            v["channel"],
+            v["title"][:50],
+            v.get("duration", 0),
+        )
+
+    return scored_videos[:max_results]
 
 
 def _parse_vtt_to_text(vtt_content: str) -> str:
@@ -352,7 +525,12 @@ def search_and_extract_for_vehicle(vehicle, max_videos: int = 5) -> dict:
     }
 
     try:
-        videos_data = search_videos(query, max_results=max_videos)
+        # Chercher plus de videos (3x) puis filtrer/scorer pour garder les meilleures
+        raw_videos = search_videos(query, max_results=max_videos * 3, extract_metadata=True)
+        vehicle_year = getattr(vehicle, "year", None)
+        videos_data = filter_and_rank_videos(
+            raw_videos, vehicle_year=vehicle_year, max_results=max_videos
+        )
     except OSError as exc:
         logger.error("Recherche YouTube echouee pour %s %s: %s", vehicle.brand, vehicle.model, exc)
         return stats
@@ -382,8 +560,15 @@ def search_and_extract_custom(
     query: str,
     vehicle_id: int | None,
     max_results: int = 10,
+    vehicle_year: int | None = None,
 ) -> dict:
     """Pipeline de recherche avec query custom : search -> store -> extract.
+
+    Args:
+        query: Requete de recherche YouTube
+        vehicle_id: ID du vehicule (optionnel)
+        max_results: Nombre max de videos a extraire
+        vehicle_year: Annee du modele (optionnel, pour scoring)
 
     Retourne {videos_found, transcripts_ok, transcripts_failed, transcripts_skipped, video_ids}.
     """
@@ -396,7 +581,11 @@ def search_and_extract_custom(
     }
 
     try:
-        videos_data = search_videos(query, max_results=max_results)
+        # Chercher plus de videos puis filtrer/scorer
+        raw_videos = search_videos(query, max_results=max_results * 2, extract_metadata=True)
+        videos_data = filter_and_rank_videos(
+            raw_videos, vehicle_year=vehicle_year, max_results=max_results
+        )
     except OSError as exc:
         logger.error("YouTube search failed for query '%s': %s", query, exc)
         return stats
