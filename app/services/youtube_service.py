@@ -134,7 +134,11 @@ def search_videos(query: str, max_results: int = 5, extract_metadata: bool = Tru
     return videos
 
 
-def _score_video_relevance(video: dict, vehicle_year: int | None = None) -> float:
+def _score_video_relevance(
+    video: dict,
+    vehicle_year: int | None = None,
+    focus_channels: list[str] | None = None,
+) -> float:
     """Calcule un score de pertinence (0-100) pour une video YouTube.
 
     Criteres:
@@ -144,14 +148,24 @@ def _score_video_relevance(video: dict, vehicle_year: int | None = None) -> floa
     - Fraicheur (publiee apres sortie du modele)
     - Mots-cles pertinents dans titre
     - Exclusion de titres pre-sortie
+    - Focus channels (bonus massif si specifiee par l'utilisateur)
     """
     score = 0.0
     title_lower = video.get("title", "").lower()
+    channel = video.get("channel", "")
 
     # ❌ Exclusion immediate si titre suspect
     for keyword in EXCLUDED_TITLE_KEYWORDS:
         if keyword.lower() in title_lower:
             return 0.0
+
+    # 🎯 BONUS MASSIF si chaine focus (50 pts) - priorite absolue
+    if focus_channels:
+        for focus_ch in focus_channels:
+            if focus_ch.lower() in channel.lower() or channel.lower() in focus_ch.lower():
+                score += 50.0
+                logger.info("Focus channel match: %s (bonus +50pts)", channel)
+                break
 
     # Duree optimale (6-25 min = essai complet detaille)
     duration = video.get("duration", 0)
@@ -184,7 +198,6 @@ def _score_video_relevance(video: dict, vehicle_year: int | None = None) -> floa
             score += 10.0
 
     # Chaine etablie
-    channel = video.get("channel", "")
     channel_follower_count = video.get("channel_follower_count", 0)
     is_verified = video.get("channel_is_verified", False)
 
@@ -221,6 +234,7 @@ def filter_and_rank_videos(
     videos: list[dict],
     vehicle_year: int | None = None,
     max_results: int = 5,
+    focus_channels: list[str] | None = None,
 ) -> list[dict]:
     """Filtre et classe les videos par score de pertinence.
 
@@ -228,6 +242,7 @@ def filter_and_rank_videos(
         videos: Liste de videos avec metadonnees completes
         vehicle_year: Annee du modele (pour scoring fraicheur)
         max_results: Nombre max de videos a retourner
+        focus_channels: Chaines YouTube a privilegier (bonus massif)
 
     Returns:
         Liste triee par score decroissant (top max_results)
@@ -235,7 +250,7 @@ def filter_and_rank_videos(
     # Calcul des scores
     scored_videos = []
     for video in videos:
-        score = _score_video_relevance(video, vehicle_year)
+        score = _score_video_relevance(video, vehicle_year, focus_channels)
         if score > 0:  # Exclure les videos avec score 0 (filtrees)
             video_with_score = video.copy()
             video_with_score["relevance_score"] = score
@@ -561,6 +576,7 @@ def search_and_extract_custom(
     vehicle_id: int | None,
     max_results: int = 10,
     vehicle_year: int | None = None,
+    focus_channels: list[str] | None = None,
 ) -> dict:
     """Pipeline de recherche avec query custom : search -> store -> extract.
 
@@ -569,6 +585,7 @@ def search_and_extract_custom(
         vehicle_id: ID du vehicule (optionnel)
         max_results: Nombre max de videos a extraire
         vehicle_year: Annee du modele (optionnel, pour scoring)
+        focus_channels: Chaines YouTube a privilegier (bonus massif)
 
     Retourne {videos_found, transcripts_ok, transcripts_failed, transcripts_skipped, video_ids}.
     """
@@ -584,7 +601,10 @@ def search_and_extract_custom(
         # Chercher plus de videos puis filtrer/scorer
         raw_videos = search_videos(query, max_results=max_results * 2, extract_metadata=True)
         videos_data = filter_and_rank_videos(
-            raw_videos, vehicle_year=vehicle_year, max_results=max_results
+            raw_videos,
+            vehicle_year=vehicle_year,
+            max_results=max_results,
+            focus_channels=focus_channels,
         )
     except OSError as exc:
         logger.error("YouTube search failed for query '%s': %s", query, exc)

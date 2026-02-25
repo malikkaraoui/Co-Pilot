@@ -1480,6 +1480,7 @@ def youtube_fine_search_run():
             "fuel": request.form.get("fuel", "").strip(),
             "hp": request.form.get("hp", "").strip(),
             "keywords": request.form.get("keywords", "").strip(),
+            "focus_channel": request.form.get("focus_channel", "").strip(),
             "max_results": request.form.get("max_results", 5, type=int),
             "llm_model": request.form.get("llm_model", "").strip(),
             "prompt": request.form.get("prompt", "").strip() or _DEFAULT_SYNTHESIS_PROMPT,
@@ -1574,11 +1575,19 @@ def _run_synthesis_pipeline(app, job: dict) -> None:
                     except ValueError:
                         pass
 
+                # Parser les chaines a privilegier (comma-separated)
+                focus_channels = []
+                if fd.get("focus_channel"):
+                    focus_channels = [
+                        ch.strip() for ch in fd["focus_channel"].split(",") if ch.strip()
+                    ]
+
                 stats = search_and_extract_custom(
                     query,
                     vehicle_id=vehicle_id,
                     max_results=fd["max_results"],
                     vehicle_year=year_int,
+                    focus_channels=focus_channels,
                 )
             except Exception as exc:
                 logger.exception("YouTube fine search failed: %s", exc)

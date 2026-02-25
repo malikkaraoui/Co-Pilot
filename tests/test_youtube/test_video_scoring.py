@@ -115,6 +115,44 @@ class TestScoreVideoRelevance:
 
         assert score_with > score_without
 
+    def test_focus_channel_massive_bonus(self):
+        """Chaine focus doit recevoir un bonus massif (+50 pts)."""
+        video_focus = {
+            "title": "Test",
+            "duration": 600,
+            "channel": "Ma Chaine Preferee",
+            "view_count": 1000,
+        }
+        video_random = {
+            "title": "Test",
+            "duration": 600,
+            "channel": "Random Channel",
+            "view_count": 1000,
+        }
+
+        score_focus = _score_video_relevance(video_focus, focus_channels=["Ma Chaine Preferee"])
+        score_random = _score_video_relevance(video_random, focus_channels=["Ma Chaine Preferee"])
+
+        assert score_focus > score_random + 45  # Au moins 50 pts de difference
+
+    def test_focus_channel_partial_match(self):
+        """Chaine focus doit matcher partiellement (case insensitive)."""
+        video = {
+            "title": "Test",
+            "duration": 600,
+            "channel": "L'argus",
+            "view_count": 1000,
+        }
+
+        score_exact = _score_video_relevance(video, focus_channels=["L'argus"])
+        score_partial = _score_video_relevance(video, focus_channels=["argus"])
+        score_case = _score_video_relevance(video, focus_channels=["L'ARGUS"])
+
+        # Tous doivent matcher
+        assert score_exact > 50
+        assert score_partial > 50
+        assert score_case > 50
+
 
 class TestFilterAndRankVideos:
     """Tests du filtrage et classement de videos."""
@@ -178,3 +216,27 @@ class TestFilterAndRankVideos:
         result = filter_and_rank_videos(videos)
         assert "relevance_score" in result[0]
         assert isinstance(result[0]["relevance_score"], float)
+
+    def test_focus_channels_priority(self):
+        """Videos des chaines focus doivent etre en tete du classement."""
+        videos = [
+            {
+                "id": "random",
+                "title": "Essai",
+                "duration": 600,
+                "channel": "Random",
+                "view_count": 500000,  # Beaucoup de vues mais pas focus
+                "like_count": 20000,
+            },
+            {
+                "id": "focus",
+                "title": "Test",
+                "duration": 600,
+                "channel": "Fiches auto",
+                "view_count": 10000,  # Moins de vues mais focus
+            },
+        ]
+        result = filter_and_rank_videos(videos, focus_channels=["Fiches auto"], max_results=2)
+        # La video focus doit etre en premiere position malgre moins de vues
+        assert result[0]["id"] == "focus"
+        assert result[1]["id"] == "random"
