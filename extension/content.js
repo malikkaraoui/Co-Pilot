@@ -11,6 +11,7 @@
 
   // ── Configuration ──────────────────────────────────────────────
   const API_URL = "http://localhost:5001/api/analyze";
+  let lastScanId = null;
   // Messages de dégradation UX (humour automobile)
   const ERROR_MESSAGES = [
     "Oh mince, on a crevé ! Réessayez dans un instant.",
@@ -19,6 +20,48 @@
     "Embrayage patiné... L'analyse n'a pas pu démarrer.",
     "Vidange en cours ! Le serveur revient dans un instant.",
   ];
+
+  // ── Proxy backend (mixed-content fix) ─────────────────────────
+
+  /** Fetch vers le backend Co-Pilot via le background service worker.
+   *  Chrome MV3 bloque les requetes HTTP depuis une page HTTPS.
+   *  Fallback sur fetch() direct si le runtime n'est pas disponible.
+   *  Retourne un objet Response-like (ok, status, json(), text()). */
+  async function backendFetch(url, options = {}) {
+    // Fallback : pas de runtime Chrome (tests, Safari, …)
+    if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
+      return fetch(url, options);
+    }
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          action: "backend_fetch",
+          url,
+          method: options.method || "GET",
+          headers: options.headers || null,
+          body: options.body || null,
+        },
+        (resp) => {
+          if (chrome.runtime.lastError || !resp || resp.error) {
+            // Proxy indisponible -- fallback direct
+            fetch(url, options).then(resolve).catch(reject);
+            return;
+          }
+          let parsed;
+          try { parsed = JSON.parse(resp.body); } catch { parsed = null; }
+          resolve({
+            ok: resp.ok,
+            status: resp.status,
+            json: async () => {
+              if (parsed !== null) return parsed;
+              throw new SyntaxError("Invalid JSON");
+            },
+            text: async () => resp.body,
+          });
+        },
+      );
+    });
+  }
 
   // ── Utilitaires ────────────────────────────────────────────────
 
@@ -399,6 +442,34 @@
       </div>`;
   }
 
+  /**
+   * Construit le bandeau "Rediger un email" dans la popup.
+   */
+  function buildEmailBanner() {
+    return `
+      <div class="copilot-email-banner" id="copilot-email-section">
+        <button class="copilot-email-btn" id="copilot-email-btn">
+          &#x2709; Rédiger un email au vendeur
+        </button>
+        <div class="copilot-email-result" id="copilot-email-result" style="display:none;">
+          <textarea class="copilot-email-textarea" id="copilot-email-text" rows="8" readonly></textarea>
+          <div class="copilot-email-actions">
+            <button class="copilot-email-copy" id="copilot-email-copy">
+              &#x1F4CB; Copier
+            </button>
+            <span class="copilot-email-copied" id="copilot-email-copied" style="display:none;">
+              Copié !
+            </span>
+          </div>
+        </div>
+        <div class="copilot-email-loading" id="copilot-email-loading" style="display:none;">
+          <span class="copilot-mini-spinner"></span> Génération en cours...
+        </div>
+        <div class="copilot-email-error" id="copilot-email-error" style="display:none;"></div>
+      </div>
+    `;
+  }
+
   /** Construit la popup complete des resultats. */
   function buildResultsPopup(data, options = {}) {
     const { score, is_partial, filters, vehicle, featured_video } = data;
@@ -466,6 +537,8 @@
             <span class="copilot-carvertical-arrow">&rsaquo;</span>
           </a>
         </div>
+
+        ${buildEmailBanner()}
 
         <div class="copilot-popup-footer">
           <p>Co-Pilot v1.0 &middot; Analyse automatisée</p>
@@ -580,6 +653,58 @@
         // Premium CTA -- Stripe integration Phase 2
         premiumBtn.textContent = "Bientôt disponible !";
         premiumBtn.disabled = true;
+      });
+    }
+
+    // Bouton email vendeur
+    const emailBtn = document.getElementById("copilot-email-btn");
+    if (emailBtn) {
+      emailBtn.addEventListener("click", async () => {
+        const loading = document.getElementById("copilot-email-loading");
+        const result = document.getElementById("copilot-email-result");
+        const errorDiv = document.getElementById("copilot-email-error");
+        const textArea = document.getElementById("copilot-email-text");
+
+        emailBtn.style.display = "none";
+        loading.style.display = "flex";
+        errorDiv.style.display = "none";
+
+        try {
+          const emailUrl = API_URL.replace("/analyze", "/email-draft");
+          const resp = await backendFetch(emailUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scan_id: lastScanId }),
+          });
+          const data = await resp.json();
+
+          if (data.success) {
+            textArea.value = data.data.generated_text;
+            result.style.display = "block";
+          } else {
+            errorDiv.textContent = data.error || "Erreur de génération";
+            errorDiv.style.display = "block";
+            emailBtn.style.display = "block";
+          }
+        } catch (err) {
+          errorDiv.textContent = "Service indisponible";
+          errorDiv.style.display = "block";
+          emailBtn.style.display = "block";
+        }
+        loading.style.display = "none";
+      });
+    }
+
+    // Bouton copier email
+    const copyBtn = document.getElementById("copilot-email-copy");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", () => {
+        const textArea = document.getElementById("copilot-email-text");
+        navigator.clipboard.writeText(textArea.value).then(() => {
+          const copied = document.getElementById("copilot-email-copied");
+          copied.style.display = "inline";
+          setTimeout(() => { copied.style.display = "none"; }, 2000);
+        });
       });
     }
   }
@@ -1133,7 +1258,7 @@
 
     async function fetchAnalysisOnce() {
       console.log("[CoPilot] fetchAnalysisOnce → POST", API_URL);
-      const response = await fetch(API_URL, {
+      const response = await backendFetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: window.location.href, next_data: nextData }),
@@ -1194,6 +1319,9 @@
           if (retried) result = retried;
         }
       }
+
+      // Stocker le scan_id pour la generation d'email
+      lastScanId = result.data.scan_id || null;
 
       // Afficher les resultats des filtres dans la checklist
       progress.update("analyze", "done", (result.data.filters || []).length + " filtres analysés");
@@ -1591,7 +1719,7 @@
   async function reportJobDone(jobDoneUrl, jobId, success) {
     if (!jobId) return;
     try {
-      await fetch(jobDoneUrl, {
+      await backendFetch(jobDoneUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: jobId, success }),
@@ -1692,7 +1820,7 @@
                 reason: `bonus job queue: ${bonusPrices.length} annonces`,
               }],
             };
-            const bResp = await fetch(marketUrl, {
+            const bResp = await backendFetch(marketUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(bonusPayload),
@@ -1780,7 +1908,7 @@
     let jobResp;
     try {
       console.log("[CoPilot] next-job →", jobUrl);
-      jobResp = await fetch(jobUrl).then((r) => r.json());
+      jobResp = await backendFetch(jobUrl).then((r) => r.json());
       console.log("[CoPilot] next-job ←", JSON.stringify(jobResp));
     } catch (err) {
       console.warn("[CoPilot] next-job erreur:", err);
@@ -2032,7 +2160,7 @@
           search_log: searchLog,
         };
         console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
-        const marketResp = await fetch(marketUrl, {
+        const marketResp = await backendFetch(marketUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

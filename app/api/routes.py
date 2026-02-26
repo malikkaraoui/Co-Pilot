@@ -185,6 +185,7 @@ def _do_analyze():
         logger.info("Persisted ScanLog id=%d score=%d", scan.id, score)
     except (OSError, ValueError, TypeError) as exc:
         db.session.rollback()
+        scan = None
         logger.warning("Failed to persist scan: %s", exc)
 
     # Construction de la reponse
@@ -211,6 +212,7 @@ def _do_analyze():
             logger.debug("Featured video lookup failed: %s", exc)
 
     response = AnalyzeResponse(
+        scan_id=scan.id if scan else None,
         score=score,
         is_partial=is_partial,
         filters=filters_out,
