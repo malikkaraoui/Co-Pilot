@@ -255,14 +255,49 @@ def _extract_price(ad: dict) -> int | None:
     return None
 
 
+def _normalize_region(region: str | None) -> str | None:
+    """Normalise les noms de regions LBC vers les noms post-reforme 2016.
+
+    LBC envoie parfois les anciens noms (ex. 'Aquitaine' au lieu de
+    'Nouvelle-Aquitaine'), ce qui casse le matching argus et market price.
+    """
+    if not region:
+        return None
+    _OLD_TO_NEW: dict[str, str] = {
+        "aquitaine": "Nouvelle-Aquitaine",
+        "limousin": "Nouvelle-Aquitaine",
+        "poitou-charentes": "Nouvelle-Aquitaine",
+        "alsace": "Grand Est",
+        "lorraine": "Grand Est",
+        "champagne-ardenne": "Grand Est",
+        "nord-pas-de-calais": "Hauts-de-France",
+        "picardie": "Hauts-de-France",
+        "languedoc-roussillon": "Occitanie",
+        "midi-pyrenees": "Occitanie",
+        "midi-pyrénées": "Occitanie",
+        "bourgogne": "Bourgogne-Franche-Comte",
+        "franche-comte": "Bourgogne-Franche-Comte",
+        "franche-comté": "Bourgogne-Franche-Comte",
+        "haute-normandie": "Normandie",
+        "basse-normandie": "Normandie",
+        "auvergne": "Auvergne-Rhone-Alpes",
+        "rhone-alpes": "Auvergne-Rhone-Alpes",
+        "rhône-alpes": "Auvergne-Rhone-Alpes",
+        "provence-alpes-cote d'azur": "Provence-Alpes-Cote d'Azur",
+        "paca": "Provence-Alpes-Cote d'Azur",
+    }
+    return _OLD_TO_NEW.get(region.strip().lower(), region)
+
+
 def _extract_location(ad: dict) -> dict[str, Any]:
     """Extrait les informations de localisation de l'annonce."""
     location = ad.get("location") or {}
+    raw_region = location.get("region_name") or location.get("region")
     return {
         "city": location.get("city"),
         "zipcode": location.get("zipcode"),
         "department": location.get("department_name"),
-        "region": location.get("region_name") or location.get("region"),
+        "region": _normalize_region(raw_region),
         "lat": location.get("lat"),
         "lng": location.get("lng"),
     }

@@ -1273,6 +1273,32 @@
    * Extrait les infos vehicule (make, model, year) depuis __NEXT_DATA__
    * pour pouvoir lancer la collecte AVANT l'analyse.
    */
+  /**
+   * Extrait les tokens u_car_brand / u_car_model depuis le DOM de la page LBC.
+   *
+   * Chaque annonce a un lien "Voir d'autres annonces <modele>" dont le href
+   * contient les tokens exacts : /c/voitures/u_car_brand:BMW+u_car_model:BMW_Série%203
+   * Ces tokens sont la source de verite pour les recherches LBC (accents inclus).
+   * __NEXT_DATA__ peut renvoyer "Serie 3" (sans accent) alors que LBC attend "Série 3".
+   */
+  function extractLbcTokensFromDom() {
+    const result = { brandToken: null, modelToken: null };
+    try {
+      const link = document.querySelector('a[href*="u_car_model"]');
+      if (!link) return result;
+      const url = new URL(link.href, location.origin);
+      // Le pathname est du type /c/voitures/u_car_brand:BMW+u_car_model:BMW_Série%203
+      const path = decodeURIComponent(url.pathname + url.search + url.hash);
+      const brandMatch = path.match(/u_car_brand:([^+&\s]+)/);
+      const modelMatch = path.match(/u_car_model:([^+&\s]+)/);
+      if (brandMatch) result.brandToken = brandMatch[1];
+      if (modelMatch) result.modelToken = modelMatch[1];
+    } catch (e) {
+      console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
+    }
+    return result;
+  }
+
   function extractVehicleFromNextData(nextData) {
     const ad = nextData?.props?.pageProps?.ad;
     if (!ad) return {};
@@ -1297,6 +1323,10 @@
       if (extracted) model = extracted;
     }
 
+    // Extraire les tokens LBC depuis le DOM (source de verite pour les URLs de recherche).
+    // __NEXT_DATA__ peut avoir "Serie 3" sans accent mais LBC attend "Série 3" dans l'URL.
+    const domTokens = extractLbcTokensFromDom();
+
     return {
       make,
       model,
@@ -1304,6 +1334,9 @@
       fuel: attrs["fuel"] || attrs["Énergie"] || attrs["energie"] || "",
       gearbox: attrs["gearbox"] || attrs["Boîte de vitesse"] || attrs["Boite de vitesse"] || attrs["Transmission"] || "",
       horse_power: attrs["horse_power_din"] || attrs["Puissance DIN"] || "",
+      // Tokens LBC pour les URLs de recherche (avec accents corrects)
+      site_brand_token: domTokens.brandToken,
+      site_model_token: domTokens.modelToken,
     };
   }
 
@@ -2042,15 +2075,17 @@
         await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
 
         // Build LBC URL from job data
+        // Preferer les tokens serveur (auto-appris depuis le DOM) pour les accents corrects
         const brandUpper = toLbcBrandToken(job.make);
         const modelIsGeneric = GENERIC_MODELS.includes((job.model || "").toLowerCase());
         let jobCoreUrl = "https://www.leboncoin.fr/recherche?category=2";
         if (modelIsGeneric) {
           jobCoreUrl += `&text=${encodeURIComponent(job.make)}`;
         } else {
-          const modelParam = `${brandUpper}_${job.model}`;
-          jobCoreUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
-          jobCoreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
+          const jobBrand = job.site_brand_token || brandUpper;
+          const jobModel = job.site_model_token || `${brandUpper}_${job.model}`;
+          jobCoreUrl += `&u_car_brand=${encodeURIComponent(jobBrand)}`;
+          jobCoreUrl += `&u_car_model=${encodeURIComponent(jobModel)}`;
         }
 
         // Add filters from job data
@@ -2290,19 +2325,30 @@
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
 
     // URL core : marque/modele uniquement (les filtres sont separes pour l'escalade)
+    // Preferer les tokens DOM (extraits du lien "Voir d'autres annonces") car ils
+    // contiennent les accents corrects (ex: "BMW_Série 3" vs "BMW_Serie 3").
+    // __NEXT_DATA__ renvoie parfois le modele sans accent, mais LBC exige le token exact.
     const brandUpper = toLbcBrandToken(target.make);
+    // Priorite : tokens DOM (vehicule courant) > tokens serveur (auto-appris) > fallback manuel
+    const hasDomTokens = isCurrentVehicle && vehicle.site_brand_token && vehicle.site_model_token;
+    const hasServerTokens = target.site_brand_token && target.site_model_token;
+    const effectiveBrand = hasDomTokens ? vehicle.site_brand_token
+      : hasServerTokens ? target.site_brand_token
+      : brandUpper;
+    const effectiveModel = hasDomTokens ? vehicle.site_model_token
+      : hasServerTokens ? target.site_model_token
+      : `${brandUpper}_${target.model}`;
+    const tokenSource = hasDomTokens ? "DOM" : hasServerTokens ? "serveur" : "fallback";
     if (progress) {
-      progress.addSubStep("collect", "Diagnostic LBC", "done", `Token marque: ${target.make} → ${brandUpper}`);
+      progress.addSubStep("collect", "Diagnostic LBC", "done",
+        `Token marque: ${target.make} → ${effectiveBrand} (${tokenSource})`);
     }
     let coreUrl = "https://www.leboncoin.fr/recherche?category=2";
     if (modelIsGeneric) {
       coreUrl += `&text=${encodeURIComponent(target.make)}`;
     } else {
-      // LBC convention : BRAND_Model (marque majuscule, modele casse originale)
-      // Ex: FORD_Puma, RENAULT_Clio, AUDI_A3 -- PAS FORD_PUMA
-      const modelParam = `${brandUpper}_${target.model}`;
-      coreUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
-      coreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
+      coreUrl += `&u_car_brand=${encodeURIComponent(effectiveBrand)}`;
+      coreUrl += `&u_car_model=${encodeURIComponent(effectiveModel)}`;
     }
 
     // GARDE-FOU : quand le serveur redirige vers un AUTRE vehicule du referentiel,
@@ -2464,6 +2510,10 @@
           hp_range: hpRange || null,
           precision: collectedPrecision,
           search_log: searchLog,
+          // Auto-apprentissage : envoyer les tokens DOM pour que le serveur
+          // les persiste sur le Vehicle (accents corrects pour futures recherches)
+          site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
+          site_model_token: isCurrentVehicle ? vehicle.site_model_token : null,
         };
         console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
         const marketResp = await backendFetch(marketUrl, {
@@ -2493,6 +2543,31 @@
           progress.update("collect", "warning", prices.length + " annonces trouvées (minimum " + MIN_PRICES_FOR_ARGUS + ")");
           progress.update("submit", "skip", "Pas assez de données");
           progress.update("bonus", "skip");
+        }
+
+        // Reporter la recherche echouee au serveur pour diagnostic
+        // (URLs mal construites, tokens manquants, etc.)
+        try {
+          const failedUrl = API_URL.replace("/analyze", "/market-prices/failed-search");
+          await backendFetch(failedUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              make: target.make,
+              model: target.model,
+              year: parseInt(target.year, 10),
+              region: targetRegion,
+              fuel: targetFuel || null,
+              hp_range: hpRange || null,
+              brand_token_used: effectiveBrand,
+              model_token_used: effectiveModel,
+              token_source: tokenSource,
+              search_log: searchLog,
+            }),
+          });
+          console.log("[CoPilot] failed search reported to server");
+        } catch (e) {
+          console.warn("[CoPilot] failed-search report error:", e);
         }
       }
     } catch (err) {

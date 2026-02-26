@@ -1,0 +1,191 @@
+{% extends "admin/base.html" %}
+{% block title %}Recherches echouees - Co-Pilot Admin{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Recherches echouees</h2>
+<p class="text-muted mb-4">URLs de recherche LBC qui ont retourne 0 annonces. Diagnostic des tokens et filtres.</p>
+
+<!-- Stats resume -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #ef4444;">{{ unresolved }}</div>
+      <div class="stat-label">Non resolues</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #22c55e;">{{ resolved_count }}</div>
+      <div class="stat-label">Resolues</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ total }}</div>
+      <div class="stat-label">Total</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="font-size:14px">
+        {% for src, cnt in source_stats.items() %}
+        <span class="badge bg-{{ 'success' if src == 'DOM' else 'info' if src == 'serveur' else 'warning text-dark' }} me-1">{{ src or '?' }}: {{ cnt }}</span>
+        {% endfor %}
+      </div>
+      <div class="stat-label">Par source token</div>
+    </div>
+  </div>
+</div>
+
+<!-- Filtres -->
+<div class="stat-card mb-4">
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label mb-1" style="font-size:13px">Statut</label>
+      <select name="resolved" class="form-select form-select-sm">
+        <option value="">Toutes</option>
+        <option value="0" {% if resolved_filter == '0' %}selected{% endif %}>Non resolues</option>
+        <option value="1" {% if resolved_filter == '1' %}selected{% endif %}>Resolues</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label mb-1" style="font-size:13px">Marque</label>
+      <select name="make" class="form-select form-select-sm">
+        <option value="">Toutes</option>
+        {% for m in make_list %}
+        <option value="{{ m }}" {% if m == make_filter %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+      {% if resolved_filter or make_filter %}
+      <a href="{{ url_for('admin.failed_searches') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      {% endif %}
+    </div>
+    <div class="col-md-3 text-end text-muted" style="font-size:13px">
+      {{ total_results }} resultat{{ 's' if total_results != 1 else '' }}
+    </div>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="stat-card">
+  {% if records %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Vehicule</th>
+          <th>Region</th>
+          <th>Token source</th>
+          <th>Token modele utilise</th>
+          <th class="text-center">Ads</th>
+          <th class="text-center">Statut</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for fs in records %}
+        <tr class="{% if fs.resolved %}table-light{% endif %}">
+          <td>
+            <strong>{{ fs.make }}</strong> {{ fs.model }}
+            <span class="text-muted" style="font-size:12px">{{ fs.year }}</span>
+            {% if fs.fuel %}<span class="badge bg-secondary ms-1" style="font-size:10px">{{ fs.fuel }}</span>{% endif %}
+          </td>
+          <td>{{ fs.region }}</td>
+          <td>
+            {% set src_colors = {'DOM': 'success', 'serveur': 'info', 'fallback': 'warning'} %}
+            <span class="badge bg-{{ src_colors.get(fs.token_source, 'secondary') }} {% if fs.token_source == 'fallback' %}text-dark{% endif %}">
+              {{ fs.token_source or '?' }}
+            </span>
+          </td>
+          <td style="font-size:12px; max-width:250px" class="text-truncate" title="{{ fs.model_token_used or '' }}">
+            <code>{{ fs.model_token_used or '-' }}</code>
+          </td>
+          <td class="text-center">
+            <span class="badge bg-{{ 'danger' if fs.total_ads_found == 0 else 'warning text-dark' }}">{{ fs.total_ads_found }}</span>
+          </td>
+          <td class="text-center">
+            {% if fs.resolved %}
+            <span class="badge bg-success">Resolu</span>
+            {% else %}
+            <span class="badge bg-danger">Non resolu</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px; white-space:nowrap">
+            {{ fs.created_at.strftime('%d/%m/%Y %H:%M') if fs.created_at else '-' }}
+          </td>
+          <td>
+            {% if not fs.resolved %}
+            <form method="post" action="{{ url_for('admin.resolve_failed_search', fs_id=fs.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-success" title="Marquer comme resolu">OK</button>
+            </form>
+            {% endif %}
+            {% if fs.search_log %}
+            <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#log-{{ fs.id }}">Log</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% if fs.search_log %}
+        <tr class="collapse" id="log-{{ fs.id }}">
+          <td colspan="8" style="background:#f8f9fa; padding:12px">
+            <strong>Strategies tentees :</strong>
+            {% set log = fs.get_search_log() %}
+            {% if log %}
+            <table class="table table-sm table-bordered mt-2 mb-0" style="font-size:12px">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Precision</th>
+                  <th>Location</th>
+                  <th>Annee +/-</th>
+                  <th>Filtres</th>
+                  <th>Annonces</th>
+                  <th>URL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for step in log %}
+                <tr>
+                  <td>{{ step.step }}</td>
+                  <td>{{ step.precision }}</td>
+                  <td>{{ step.location_type }}</td>
+                  <td>{{ step.year_spread }}</td>
+                  <td>{{ step.filters_applied|join(', ') if step.filters_applied else '-' }}</td>
+                  <td><span class="badge bg-{{ 'success' if step.ads_found > 0 else 'danger' }}">{{ step.ads_found }}</span></td>
+                  <td><a href="{{ step.url }}" target="_blank" rel="noopener" style="font-size:11px; word-break:break-all">Ouvrir</a></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted mb-0">Log non disponible</p>
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center mb-0">
+      {% for p in range(1, total_pages + 1) %}
+      <li class="page-item {% if p == page %}active{% endif %}">
+        <a class="page-link" href="?page={{ p }}{% if resolved_filter %}&resolved={{ resolved_filter }}{% endif %}{% if make_filter %}&make={{ make_filter }}{% endif %}">{{ p }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <p class="text-muted text-center py-4 mb-0">Aucune recherche echouee enregistree.</p>
+  {% endif %}
+</div>
+{% endblock %}

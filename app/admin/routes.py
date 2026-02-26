@@ -1932,6 +1932,85 @@ def purge_failed_jobs():
     return redirect(url_for("admin.issues"))
 
 
+# ── Failed Searches (diagnostic URLs) ────────────────────────────
+
+
+@admin_bp.route("/failed-searches")
+@login_required
+def failed_searches():
+    """Page d'inspection des recherches LBC echouees (0 annonces)."""
+    from app.models.failed_search import FailedSearch
+
+    resolved_filter = request.args.get("resolved", "")
+    make_filter = request.args.get("make", "").strip()
+    page = request.args.get("page", 1, type=int)
+
+    # Stats
+    total = FailedSearch.query.count()
+    unresolved = FailedSearch.query.filter_by(resolved=False).count()
+    resolved = FailedSearch.query.filter_by(resolved=True).count()
+
+    # Token source breakdown
+    from sqlalchemy import func as sqla_func
+
+    source_stats = dict(
+        db.session.query(FailedSearch.token_source, sqla_func.count())
+        .group_by(FailedSearch.token_source)
+        .all()
+    )
+
+    # Query
+    query = FailedSearch.query.order_by(FailedSearch.created_at.desc())
+    if resolved_filter == "0":
+        query = query.filter(FailedSearch.resolved.is_(False))
+    elif resolved_filter == "1":
+        query = query.filter(FailedSearch.resolved.is_(True))
+    if make_filter:
+        query = query.filter(FailedSearch.make == make_filter)
+
+    per_page = 50
+    total_results = query.count()
+    total_pages = max(1, (total_results + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    records = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    make_list = [
+        r[0]
+        for r in db.session.query(FailedSearch.make).distinct().order_by(FailedSearch.make).all()
+    ]
+
+    return render_template(
+        "admin/failed_searches.html",
+        total=total,
+        unresolved=unresolved,
+        resolved_count=resolved,
+        source_stats=source_stats,
+        records=records,
+        page=page,
+        total_pages=total_pages,
+        total_results=total_results,
+        resolved_filter=resolved_filter,
+        make_filter=make_filter,
+        make_list=make_list,
+    )
+
+
+@admin_bp.route("/failed-searches/<int:fs_id>/resolve", methods=["POST"])
+@login_required
+def resolve_failed_search(fs_id):
+    """Marquer une recherche echouee comme resolue."""
+    from app.models.failed_search import FailedSearch
+
+    fs = db.session.get(FailedSearch, fs_id)
+    if not fs:
+        abort(404)
+    fs.resolved = True
+    fs.resolved_note = request.form.get("note", "")
+    db.session.commit()
+    flash(f"Recherche {fs.make} {fs.model} marquee comme resolue.", "success")
+    return redirect(url_for("admin.failed_searches"))
+
+
 # ── LLM Google Gemini ─────────────────────────────────────────────
 
 

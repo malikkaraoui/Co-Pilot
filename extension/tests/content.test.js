@@ -227,6 +227,8 @@ describe('extractVehicleFromNextData', () => {
       fuel: '',
       gearbox: '',
       horse_power: '',
+      site_brand_token: null,
+      site_model_token: null,
     });
   });
 
@@ -1134,8 +1136,8 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // next-job + 6 recherches × 2 (API + HTML), pas de POST
-      expect(fetchMock).toHaveBeenCalledTimes(13);
+      // next-job + 6 recherches × 2 (API + HTML) + 1 POST failed-search
+      expect(fetchMock).toHaveBeenCalledTimes(14);
     });
 
     it('utilise u_car_brand et u_car_model dans URL de recherche LBC', async () => {
@@ -1470,8 +1472,8 @@ describe('maybeCollectMarketPrices', () => {
       // makeNextData() n'a PAS de lat/lng → pas de strategie geo
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // 13 appels : next-job + 6×(API+HTML) (pas de POST)
-      expect(fetchMock).toHaveBeenCalledTimes(13);
+      // 14 appels : next-job + 6×(API+HTML) + 1 POST failed-search
+      expect(fetchMock).toHaveBeenCalledTimes(14);
     });
   });
 });
