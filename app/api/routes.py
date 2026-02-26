@@ -16,6 +16,7 @@ from app.models.filter_result import FilterResultDB
 from app.models.scan import ScanLog
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from app.schemas.filter_result import FilterResultSchema
+from app.services import email_service
 from app.services.extraction import extract_ad_data
 from app.services.scoring import calculate_score
 
@@ -184,6 +185,7 @@ def _do_analyze():
         logger.info("Persisted ScanLog id=%d score=%d", scan.id, score)
     except (OSError, ValueError, TypeError) as exc:
         db.session.rollback()
+        scan = None
         logger.warning("Failed to persist scan: %s", exc)
 
     # Construction de la reponse
@@ -210,6 +212,7 @@ def _do_analyze():
             logger.debug("Featured video lookup failed: %s", exc)
 
     response = AnalyzeResponse(
+        scan_id=scan.id if scan else None,
         score=score,
         is_partial=is_partial,
         filters=filters_out,
@@ -268,3 +271,35 @@ def _extract_url_category(url: str) -> str | None:
     """Extrait la categorie LeBonCoin depuis l'URL (ex. 'voitures', 'equipement_auto')."""
     m = _URL_CATEGORY_RE.search(url)
     return m.group(1) if m else None
+
+
+@api_bp.route("/email-draft", methods=["POST"])
+def email_draft():
+    """Genere un brouillon d'email vendeur via Gemini."""
+    data = request.get_json(silent=True) or {}
+    scan_id = data.get("scan_id")
+
+    if not scan_id:
+        return jsonify({"success": False, "error": "scan_id requis"}), 400
+
+    try:
+        draft = email_service.generate_email_draft(scan_id)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except ConnectionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 503
+
+    return jsonify(
+        {
+            "success": True,
+            "error": None,
+            "data": {
+                "draft_id": draft.id,
+                "generated_text": draft.generated_text,
+                "status": draft.status,
+                "vehicle_make": draft.vehicle_make,
+                "vehicle_model": draft.vehicle_model,
+                "tokens_used": draft.tokens_used,
+            },
+        }
+    )

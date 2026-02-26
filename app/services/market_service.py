@@ -70,16 +70,29 @@ def get_min_sample_count(make: str, model: str) -> int:
     return MIN_SAMPLE_COUNT  # 20
 
 
+def _strip_accents(text: str) -> str:
+    """Supprime les accents et diacritiques (Île → Ile, Côte → Cote).
+
+    Indispensable pour que les comparaisons SQLite lower() (ASCII-only)
+    et Python lower() (Unicode-aware) produisent le meme resultat.
+    Sans cela, lower('Î') reste 'Î' en SQLite mais devient 'î' en Python.
+    """
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
 def normalize_market_text(text: str) -> str:
     """Normalise un texte pour le stockage MarketPrice.
 
     - strip + collapse espaces multiples
+    - supprime les accents (Île → Ile) pour compatibilite SQLite lower()
     - normalise apostrophes (curly → straight)
     - normalise tirets (collapse doubles)
     - conserve la casse originale (pas de title case -- les noms francais
-      comme "Provence-Alpes-Côte d'Azur" ont des minuscules apres apostrophe)
+      comme "Provence-Alpes-Cote d'Azur" ont des minuscules apres apostrophe)
     """
     text = unicodedata.normalize("NFKC", text)
+    text = _strip_accents(text)
     text = text.strip()
     text = re.sub(r"\s+", " ", text)
     # Apostrophes curly → straight
@@ -95,17 +108,24 @@ def market_text_key(text: str) -> str:
 
 
 def market_text_key_expr(column):
-    """Expression SQLAlchemy de normalisation textuelle (SQLite compatible)."""
-    # Note: on reproduit seulement les transformations faisables en SQL.
+    """Expression SQLAlchemy de normalisation textuelle (SQLite compatible).
+
+    Utilise la fonction custom strip_accents() enregistree dans extensions.py
+    pour supprimer les diacritiques AVANT lower(). Indispensable car SQLite
+    lower() ne gere que ASCII : sans strip_accents, lower('Î') reste 'Î'
+    au lieu de produire 'i', ce qui casse Île-de-France.
+    """
     return func.lower(
-        func.replace(
+        func.strip_accents(
             func.replace(
-                func.trim(column),
-                "\u2019",
+                func.replace(
+                    func.trim(column),
+                    "\u2019",
+                    "'",
+                ),
+                "\u2018",
                 "'",
-            ),
-            "\u2018",
-            "'",
+            )
         )
     )
 
@@ -471,9 +491,10 @@ def get_market_stats(
         market_text_key_expr(MarketPrice.region) == region_key,
     ]
 
-    # --- Helper: try a query with exact hp_range first, then fallback to hp_range=NULL ---
+    # --- Helper: try a query with exact hp_range first, then fallback to hp_range=NULL,
+    #     then fallback to ANY hp_range ---
     def _try_with_hp_fallback(extra_filters: list) -> MarketPrice | None:
-        """Try query with exact hp_range, then fallback to generic (hp_range=NULL)."""
+        """Try query with exact hp_range, then generic (hp_range=NULL), then any."""
         if hp_range_key:
             result = MarketPrice.query.filter(
                 *extra_filters, *_hp_range_filters(hp_range_key, exact=True)
@@ -481,12 +502,16 @@ def get_market_stats(
             if result:
                 return result
         # Fallback to hp_range=NULL (generic)
-        return MarketPrice.query.filter(
+        result = MarketPrice.query.filter(
             *extra_filters, *_hp_range_filters(hp_range_key, exact=False)
         ).first()
+        if result:
+            return result
+        # Dernier fallback : n'importe quel hp_range (mieux que rien)
+        return MarketPrice.query.filter(*extra_filters).first()
 
     def _try_approx_with_hp_fallback(extra_filters: list) -> MarketPrice | None:
-        """Try approx year query with exact hp_range, then fallback to generic."""
+        """Try approx year query with exact hp_range, then generic, then any."""
         if hp_range_key:
             candidates = MarketPrice.query.filter(
                 *extra_filters, *_hp_range_filters(hp_range_key, exact=True)
@@ -497,6 +522,10 @@ def get_market_stats(
         candidates = MarketPrice.query.filter(
             *extra_filters, *_hp_range_filters(hp_range_key, exact=False)
         ).all()
+        if candidates:
+            return min(candidates, key=lambda mp: abs(mp.year - year))
+        # Dernier fallback : n'importe quel hp_range
+        candidates = MarketPrice.query.filter(*extra_filters).all()
         if candidates:
             return min(candidates, key=lambda mp: abs(mp.year - year))
         return None

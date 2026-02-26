@@ -20,6 +20,7 @@ class AnalyzeRequest(BaseModel):
 class AnalyzeResponse(BaseModel):
     """Donnees de reponse pour une analyse reussie."""
 
+    scan_id: int | None = None
     score: int = Field(..., ge=0, le=100)
     is_partial: bool = False
     filters: list[FilterResultSchema] = []

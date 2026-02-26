@@ -164,6 +164,40 @@ with app.app_context():
         if deleted_v:
             print(f'  ~ {deleted_v} doublon(s) vehicule(s) supprime(s)')
 
+    # Migration normalisation accents : strip accents des MarketPrice (Île → Ile)
+    # SQLite lower() ne gere que ASCII, donc les regions accentuees cassaient les lookups.
+    from app.services.market_service import normalize_market_text
+    from app.models.market_price import MarketPrice
+    updated_mp = 0
+    for mp in MarketPrice.query.all():
+        new_make = normalize_market_text(mp.make)
+        new_model = normalize_market_text(mp.model)
+        new_region = normalize_market_text(mp.region)
+        if mp.make != new_make or mp.model != new_model or mp.region != new_region:
+            mp.make = new_make
+            mp.model = new_model
+            mp.region = new_region
+            updated_mp += 1
+    if updated_mp:
+        db.session.commit()
+        print(f'  ~ {updated_mp} MarketPrice(s) normalise(s) (accents)')
+
+    # Dedup MarketPrice : apres strip accents, des doublons peuvent exister
+    from sqlalchemy import func as sqla_func
+    dupes_deleted = 0
+    seen = set()
+    for mp in MarketPrice.query.order_by(MarketPrice.collected_at.desc()).all():
+        key = (mp.make.lower(), mp.model.lower(), mp.year, mp.region.lower(),
+               (mp.fuel or '').lower(), (mp.hp_range or '').lower())
+        if key in seen:
+            db.session.delete(mp)
+            dupes_deleted += 1
+        else:
+            seen.add(key)
+    if dupes_deleted:
+        db.session.commit()
+        print(f'  ~ {dupes_deleted} doublon(s) MarketPrice supprime(s)')
+
     # Migration normalisation : aligner ScanLog.vehicle_make/model
     from app.models.scan import ScanLog
     updated_s = 0
@@ -186,6 +220,8 @@ if [ "$NEED_SEED" = true ] || [ "$FORCE_SEED" = true ]; then
   ok "Référentiel véhicules (70 modèles)"
   python data/seeds/seed_argus.py
   ok "Cotations Argus (seeds)"
+  python data/seeds/seed_gemini_prompt.py
+  ok "Prompt Gemini email (seed)"
   # YouTube seeds are long-running (~17 min) -- run manually with:
   #   python data/seeds/seed_youtube.py
 else

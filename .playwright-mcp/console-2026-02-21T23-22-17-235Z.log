@@ -1,0 +1,64 @@
+[     676ms] [WARNING] LbcConnect singleton already initialized. Configuration changes will be ignored. Current config: null Attempted config: undefined @ https://www.leboncoin.fr/_next/static/chunks/pages/_app-416f41eb5d7347f3.js:27
+[    1010ms] [WARNING] LbcConnect singleton already initialized. Configuration changes will be ignored. Current config: null Attempted config: undefined @ https://www.leboncoin.fr/_next/static/chunks/pages/_app-416f41eb5d7347f3.js:27
+[    1043ms] [WARNING] LbcConnect singleton already initialized. Configuration changes will be ignored. Current config: null Attempted config: undefined @ https://www.leboncoin.fr/_next/static/chunks/pages/_app-416f41eb5d7347f3.js:27
+[    1093ms] Error: Minified React error #418; visit https://react.dev/errors/418?args[]=text&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at rR (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:46014)
+    at rD (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:47047)
+    at https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:130539
+    at uC (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:135411)
+    at uS (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:127199)
+    at https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:126983
+    at uw (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:126991)
+    at uc (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:122366)
+    at uZ (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:145504)
+    at MessagePort.N (https://www.leboncoin.fr/_next/static/chunks/framework-c617b5e8de95dab0.js:1:9159)
+[    1675ms] Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at rX (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:36657)
+    at o6 (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:78395)
+    at is (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:88104)
+    at sp (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:128029)
+    at https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:122919
+    at sn (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:123020)
+    at sQ (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:149408)
+    at MessagePort.T (https://www.leboncoin.fr/_next/static/chunks/7730-96ef6f80c0783cc6.js:1:15471)
+[    1767ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://api.leboncoin.fr/api/presence/me/status:0
+[    1767ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://api.leboncoin.fr/api/follower-targeting-api/v1/entitlement-data?api_key=ba0c2dad52b3ec:0
+[    2132ms] Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at rX (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:36657)
+    at o6 (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:78395)
+    at is (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:88104)
+    at sp (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:128029)
+    at https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:122919
+    at sn (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:123020)
+    at sQ (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:149408)
+    at MessagePort.T (https://www.leboncoin.fr/_next/static/chunks/7730-96ef6f80c0783cc6.js:1:15471)
+[    4567ms] Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at rX (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:36657)
+    at o6 (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:78395)
+    at is (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:88104)
+    at sp (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:128029)
+    at https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:122919
+    at sn (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:123020)
+    at sQ (https://www.leboncoin.fr/_next/static/chunks/87c73c54-f550214e74703706.js:1:149408)
+    at MessagePort.T (https://www.leboncoin.fr/_next/static/chunks/7730-96ef6f80c0783cc6.js:1:15471)
+[    4981ms] [ERROR] Attestation check for Protected Audience on https://grid-bidder.criteo.com failed. @ https://www.leboncoin.fr/ad/voitures/3144954489:0
+[    5846ms] [WARNING] [GPT] Using deprecated googletag.encryptedSignalProviders. Please use googletag.secureSignalProviders instead.
+https://goo.gle/gpt-message#155 @ https://www.leboncoin.fr/_next/static/chunks/pages/_app-416f41eb5d7347f3.js:27
+[    5850ms] [WARNING] [GPT] Using deprecated googletag.encryptedSignalProviders. Please use googletag.secureSignalProviders instead.
+https://goo.gle/gpt-message#155 @ https://www.leboncoin.fr/_next/static/chunks/pages/_app-416f41eb5d7347f3.js:27
+[    5936ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://match.prod.bidr.io/cookie-sync/rp?bee_sync_partners=rp&gdpr_consent=CQf-ZcAQf-ZcAAHABBENCSFsAP_gAELgAAAALztB7CfdQSFiUbJlAOtAYQxP4BAiogAABgABgwwBCBLAIIwEhGEIIADAAAACGBAAICBAAQBlCADAAAAAIAAAACAEAAAAARAAJiAAAEAAAmBICABICYAAEQAQgkiEAAEAgAIAAAogSEgAAAAAHAAAAAAAAAAAAAAAAAEgAAAAAAAAAgAAAAAACAAAAAAEAFAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgoRAyAAWAA8ACoAHAAPAAgABIACoAGUANAA1AB4AEMAJkAXABdADEAHwAPwAhABHQDKAMsAaIA5wB3AD9gIOAhABFgCMQEcAR0AkQBogDXgG0AR6AmkBNoCj4FNAU2ArIBbAC8wGSAMnAZYAz6Bq4GsAPFAgCBC8COwFCAAxQAGAAIL_jAAMAAQX_IAAYAAgv-.ILztB7CfdQSNiUfJlAOtQYQ1f4BAioiAABgABgwwBCBLAMIwElGEIIAHAAAACGBAEICBAAQBlCAnAAAAAYAAAACEEAAAAARAAJiAAAEAAAmBICABICYAAEQAQgkiEAAEAgAIAAAogSEgAEAAAHAAAAAAAAAAAAAAAAAEgAAAAAAAAAgAAAAAACAAAAAAEAFAAEAAAAAAAAAAAAAAMAAAAAAEABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAg.f_wACFwAAAAA&gdpr=1:0
+[    5936ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://match.prod.bidr.io/cookie-sync/rp?bee_sync_partners=rp&gdpr_consent=CQf-ZcAQf-ZcAAHABBENCSFsAP_gAELgAAAALztB7CfdQSFiUbJlAOtAYQxP4BAiogAABgABgwwBCBLAIIwEhGEIIADAAAACGBAAICBAAQBlCADAAAAAIAAAACAEAAAAARAAJiAAAEAAAmBICABICYAAEQAQgkiEAAEAgAIAAAogSEgAAAAAHAAAAAAAAAAAAAAAAAEgAAAAAAAAAgAAAAAACAAAAAAEAFAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgoRAyAAWAA8ACoAHAAPAAgABIACoAGUANAA1AB4AEMAJkAXABdADEAHwAPwAhABHQDKAMsAaIA5wB3AD9gIOAhABFgCMQEcAR0AkQBogDXgG0AR6AmkBNoCj4FNAU2ArIBbAC8wGSAMnAZYAz6Bq4GsAPFAgCBC8COwFCAAxQAGAAIL_jAAMAAQX_IAAYAAgv-.ILztB7CfdQSNiUfJlAOtQYQ1f4BAioiAABgABgwwBCBLAMIwElGEIIAHAAAACGBAEICBAAQBlCAnAAAAAYAAAACEEAAAAARAAJiAAAEAAAmBICABICYAAEQAQgkiEAAEAgAIAAAogSEgAEAAAHAAAAAAAAAAAAAAAAAEgAAAAAAAAAgAAAAAACAAAAAAEAFAAEAAAAAAAAAAAAAAMAAAAAAEABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAg.f_wACFwAAAAA&gdpr=1:0
+[    8088ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8093ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8095ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8096ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8098ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8099ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8332ms] Failed to read a named property 'href' from 'Location': Blocked a frame with origin "https://197e3f29d7cda63de487b7c96dbe584f.safeframe.googlesyndication.com" from accessing a frame with origin "https://www.leboncoin.fr". Protocols, domains, and ports must match.
+[    8088ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8093ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8095ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8096ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8098ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8099ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0
+[    8466ms] [ERROR] Attestation check for Shared Storage on https://www.googleadservices.com failed. @ https://www.googleadservices.com/pagead/managed/js/activeview/current/reach_worklet.html:0

@@ -1,0 +1,181 @@
+{% extends "admin/base.html" %}
+{% block title %}Email - {{ draft.vehicle_make }} {{ draft.vehicle_model }} - Co-Pilot Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .badge-draft { background: #f59e0b; color: #fff; }
+  .badge-approved { background: #22c55e; color: #fff; }
+  .badge-sent { background: #3b82f6; color: #fff; }
+  .badge-archived { background: #64748b; color: #fff; }
+  .badge-pass { background: #22c55e; color: #fff; }
+  .badge-warning { background: #f59e0b; color: #fff; }
+  .badge-fail { background: #ef4444; color: #fff; }
+  .badge-skip { background: #9ca3af; color: #fff; }
+  .detail-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="mb-0">Email - {{ draft.vehicle_make }} {{ draft.vehicle_model }}</h2>
+  <a href="{{ url_for('admin.email_list') }}" class="btn btn-outline-secondary btn-sm">Retour liste</a>
+</div>
+
+<div class="row g-4">
+  <!-- Info card -->
+  <div class="col-md-4">
+    <div class="detail-card">
+      <h5 class="mb-3">Informations</h5>
+      <table class="table table-sm table-borderless mb-0">
+        <tr>
+          <td class="text-muted" style="width:40%">Vehicule</td>
+          <td><strong>{{ draft.vehicle_make or '-' }}</strong> {{ draft.vehicle_model or '' }}</td>
+        </tr>
+        {% if scan %}
+        <tr>
+          <td class="text-muted">Prix</td>
+          <td>{{ scan.price or '-' }} EUR</td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td class="text-muted">URL</td>
+          <td>
+            {% if draft.listing_url %}
+              <a href="{{ draft.listing_url }}" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all">
+                {{ draft.listing_url[:60] }}{% if draft.listing_url|length > 60 %}...{% endif %}
+              </a>
+            {% else %}
+              -
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="text-muted">Vendeur</td>
+          <td>{{ draft.seller_name or '-' }}</td>
+        </tr>
+        <tr>
+          <td class="text-muted">Type</td>
+          <td>
+            {% if draft.seller_type == 'pro' %}
+              <span class="badge" style="background:#8b5cf6;color:#fff">Pro</span>
+            {% elif draft.seller_type == 'private' %}
+              <span class="badge" style="background:#06b6d4;color:#fff">Particulier</span>
+            {% else %}
+              -
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="text-muted">Modele LLM</td>
+          <td style="font-size:12px">{{ draft.llm_model }}</td>
+        </tr>
+        <tr>
+          <td class="text-muted">Tokens</td>
+          <td>{{ draft.tokens_used or 0 }}</td>
+        </tr>
+        <tr>
+          <td class="text-muted">Date</td>
+          <td style="font-size:12px">
+            {% if draft.created_at %}
+              {{ draft.created_at.strftime('%d/%m/%Y %H:%M') }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="text-muted">Statut</td>
+          <td><span class="badge badge-{{ draft.status }}">{{ draft.status }}</span></td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Filters summary -->
+    {% if filters %}
+    <div class="detail-card">
+      <h5 class="mb-3">Resultats filtres</h5>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>Filtre</th>
+              <th class="text-center">Statut</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in filters %}
+            <tr>
+              <td style="font-size:13px">{{ f.filter_id }}</td>
+              <td class="text-center">
+                <span class="badge badge-{{ f.status }}">{{ f.status }}</span>
+              </td>
+              <td style="font-size:12px">{{ f.message or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Email card -->
+  <div class="col-md-8">
+    <div class="detail-card">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Email genere</h5>
+        <span class="badge badge-{{ draft.status }}">{{ draft.status }}</span>
+      </div>
+
+      <form id="emailForm" method="post" action="{{ url_for('admin.email_approve', draft_id=draft.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <textarea id="emailText" name="edited_text" class="form-control mb-3" rows="16"
+                  style="font-size:14px; line-height:1.6;">{{ draft.edited_text or draft.generated_text }}</textarea>
+
+        <div class="d-flex gap-2 flex-wrap">
+          <!-- Regenerer -->
+          <form method="post" action="{{ url_for('admin.email_regenerate', draft_id=draft.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-warning btn-sm">Regenerer</button>
+          </form>
+
+          <!-- Approuver -->
+          <button type="submit" class="btn btn-success btn-sm">Approuver</button>
+
+          <!-- Copier -->
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyEmail()">Copier</button>
+
+          <!-- Archiver -->
+          <form method="post" action="{{ url_for('admin.email_archive', draft_id=draft.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger btn-sm">Archiver</button>
+          </form>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copyEmail() {
+  var textarea = document.getElementById('emailText');
+  textarea.select();
+  textarea.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(textarea.value).then(function() {
+    var btn = event.target;
+    var original = btn.textContent;
+    btn.textContent = 'Copie !';
+    btn.classList.add('btn-success');
+    btn.classList.remove('btn-outline-secondary');
+    setTimeout(function() {
+      btn.textContent = original;
+      btn.classList.remove('btn-success');
+      btn.classList.add('btn-outline-secondary');
+    }, 1500);
+  });
+}
+</script>
+{% endblock %}

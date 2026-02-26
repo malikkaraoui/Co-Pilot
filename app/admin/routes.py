@@ -15,7 +15,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.admin import admin_bp
 from app.extensions import db, limiter
+from app.models.email_draft import EmailDraft
 from app.models.filter_result import FilterResultDB
+from app.models.gemini_config import GeminiConfig, GeminiPromptConfig
+from app.models.llm_usage import LLMUsage
 from app.models.log import AppLog
 from app.models.market_price import MarketPrice
 from app.models.pipeline_run import PipelineRun
@@ -1531,6 +1534,7 @@ def youtube_fine_search_run():
             "fuel": request.form.get("fuel", "").strip(),
             "hp": request.form.get("hp", "").strip(),
             "keywords": request.form.get("keywords", "").strip(),
+            "focus_channel": request.form.get("focus_channel", "").strip(),
             "max_results": request.form.get("max_results", 5, type=int),
             "llm_model": request.form.get("llm_model", "").strip(),
             "prompt": request.form.get("prompt", "").strip() or _DEFAULT_SYNTHESIS_PROMPT,
@@ -1617,10 +1621,27 @@ def _run_synthesis_pipeline(app, job: dict) -> None:
             job["progress_label"] = "Recherche YouTube en cours..."
             t0 = time.monotonic()
             try:
+                # Convertir year en int si fourni
+                year_int = None
+                if fd.get("year"):
+                    try:
+                        year_int = int(fd["year"])
+                    except ValueError:
+                        pass
+
+                # Parser les chaines a privilegier (comma-separated)
+                focus_channels = []
+                if fd.get("focus_channel"):
+                    focus_channels = [
+                        ch.strip() for ch in fd["focus_channel"].split(",") if ch.strip()
+                    ]
+
                 stats = search_and_extract_custom(
                     query,
                     vehicle_id=vehicle_id,
                     max_results=fd["max_results"],
+                    vehicle_year=year_int,
+                    focus_channels=focus_channels,
                 )
             except Exception as exc:
                 logger.exception("YouTube fine search failed: %s", exc)
@@ -1909,6 +1930,261 @@ def purge_failed_jobs():
     db.session.commit()
     flash(f"{count} jobs echoues remis en attente.", "success")
     return redirect(url_for("admin.issues"))
+
+
+# ── LLM Google Gemini ─────────────────────────────────────────────
+
+
+@admin_bp.route("/llm")
+@login_required
+def llm_config():
+    """Page de configuration et monitoring du LLM Google Gemini."""
+    from sqlalchemy import func
+
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Stats du jour
+    today_usage = (
+        db.session.query(
+            func.count(LLMUsage.id),
+            func.coalesce(func.sum(LLMUsage.total_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.estimated_cost_eur), 0.0),
+        )
+        .filter(LLMUsage.created_at >= today)
+        .first()
+    )
+
+    requests_today = today_usage[0]
+    tokens_today = today_usage[1]
+    cost_today = today_usage[2]
+
+    # Config Gemini
+    gemini_cfg = GeminiConfig.query.first()
+
+    # Prompts
+    prompts = GeminiPromptConfig.query.order_by(GeminiPromptConfig.created_at.desc()).all()
+
+    # Health check
+    api_ok = False
+    if gemini_cfg and gemini_cfg.is_active:
+        from app.services import gemini_service
+
+        api_ok = gemini_service.check_health()
+
+    # Historique 7 jours
+    week_ago = today - timedelta(days=7)
+    daily_usage = (
+        db.session.query(
+            func.date(LLMUsage.created_at),
+            func.sum(LLMUsage.total_tokens),
+            func.sum(LLMUsage.estimated_cost_eur),
+            func.count(LLMUsage.id),
+        )
+        .filter(
+            LLMUsage.created_at >= week_ago,
+        )
+        .group_by(func.date(LLMUsage.created_at))
+        .all()
+    )
+
+    return render_template(
+        "admin/llm.html",
+        requests_today=requests_today,
+        tokens_today=tokens_today,
+        cost_today=round(cost_today, 4),
+        api_ok=api_ok,
+        gemini_config=gemini_cfg,
+        prompts=prompts,
+        daily_usage=daily_usage,
+        max_daily_requests=gemini_cfg.max_daily_requests if gemini_cfg else 500,
+        max_daily_cost=gemini_cfg.max_daily_cost_eur if gemini_cfg else 1.0,
+    )
+
+
+@admin_bp.route("/llm/config", methods=["POST"])
+@login_required
+def llm_config_save():
+    """Sauvegarde la configuration Gemini."""
+    gemini_cfg = GeminiConfig.query.first()
+    if not gemini_cfg:
+        gemini_cfg = GeminiConfig(
+            api_key_encrypted="",
+            model_name="gemini-2.5-flash",
+        )
+        db.session.add(gemini_cfg)
+
+    api_key = request.form.get("api_key", "").strip()
+    if api_key:
+        gemini_cfg.api_key_encrypted = api_key
+
+    gemini_cfg.model_name = request.form.get("model_name", "gemini-2.5-flash")
+    gemini_cfg.max_daily_requests = int(request.form.get("max_daily_requests", 500))
+    gemini_cfg.max_daily_cost_eur = float(request.form.get("max_daily_cost_eur", 1.0))
+    gemini_cfg.is_active = request.form.get("is_active") == "on"
+
+    db.session.commit()
+    flash("Configuration Gemini sauvegardee.", "success")
+    return redirect(url_for("admin.llm_config"))
+
+
+@admin_bp.route("/llm/prompt/new", methods=["POST"])
+@login_required
+def llm_prompt_new():
+    """Cree un nouveau prompt Gemini."""
+    prompt = GeminiPromptConfig(
+        name=request.form.get("name", "nouveau_prompt"),
+        system_prompt=request.form.get("system_prompt", ""),
+        task_prompt_template=request.form.get("task_prompt_template", ""),
+        max_output_tokens=int(request.form.get("max_output_tokens", 500)),
+        temperature=float(request.form.get("temperature", 0.3)),
+        top_p=float(request.form.get("top_p", 0.9)),
+        hallucination_guard=request.form.get("hallucination_guard", ""),
+        max_sentences=int(request.form.get("max_sentences", 0)) or None,
+        is_active=False,
+        version=1,
+    )
+    db.session.add(prompt)
+    db.session.commit()
+    flash("Prompt cree.", "success")
+    return redirect(url_for("admin.llm_config"))
+
+
+@admin_bp.route("/llm/prompt/<int:prompt_id>/activate", methods=["POST"])
+@login_required
+def llm_prompt_activate(prompt_id):
+    """Active un prompt et desactive les autres."""
+    GeminiPromptConfig.query.update({"is_active": False})
+    prompt = db.session.get(GeminiPromptConfig, prompt_id)
+    if prompt:
+        prompt.is_active = True
+    db.session.commit()
+    flash("Prompt active.", "success")
+    return redirect(url_for("admin.llm_config"))
+
+
+@admin_bp.route("/llm/test", methods=["POST"])
+@login_required
+def llm_test():
+    """Teste l'API Gemini avec un prompt de test."""
+    from app.services import gemini_service
+
+    test_prompt = request.form.get("test_prompt", "Dis bonjour en une phrase.")
+    try:
+        text, tokens = gemini_service.generate_text(
+            prompt=test_prompt,
+            feature="admin_test",
+            temperature=0.3,
+            max_output_tokens=100,
+        )
+        return jsonify({"success": True, "response": text, "tokens": tokens})
+    except (ValueError, ConnectionError) as exc:
+        return jsonify({"success": False, "error": str(exc)})
+
+
+# ── Emails Vendeur ────────────────────────────────────────────────
+
+
+@admin_bp.route("/email")
+@login_required
+def email_list():
+    """Liste des brouillons d'emails vendeur."""
+    from sqlalchemy import func
+
+    status_filter = request.args.get("status", "")
+    seller_filter = request.args.get("seller_type", "")
+
+    query = EmailDraft.query
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+    if seller_filter:
+        query = query.filter_by(seller_type=seller_filter)
+
+    drafts = query.order_by(EmailDraft.created_at.desc()).limit(100).all()
+
+    total_drafts = EmailDraft.query.filter_by(status="draft").count()
+    total_approved = EmailDraft.query.filter_by(status="approved").count()
+    total_sent = EmailDraft.query.filter_by(status="sent").count()
+    avg_tokens = db.session.query(func.avg(EmailDraft.tokens_used)).scalar() or 0
+
+    return render_template(
+        "admin/email_list.html",
+        drafts=drafts,
+        total_drafts=total_drafts,
+        total_approved=total_approved,
+        total_sent=total_sent,
+        avg_tokens=round(avg_tokens),
+        status_filter=status_filter,
+        seller_filter=seller_filter,
+    )
+
+
+@admin_bp.route("/email/<int:draft_id>")
+@login_required
+def email_detail(draft_id):
+    """Detail d'un brouillon d'email."""
+    draft = db.session.get(EmailDraft, draft_id)
+    if not draft:
+        flash("Brouillon introuvable.", "error")
+        return redirect(url_for("admin.email_list"))
+    scan = db.session.get(ScanLog, draft.scan_id)
+    filters = FilterResultDB.query.filter_by(scan_id=draft.scan_id).all() if scan else []
+
+    return render_template(
+        "admin/email_detail.html",
+        draft=draft,
+        scan=scan,
+        filters=filters,
+    )
+
+
+@admin_bp.route("/email/<int:draft_id>/regenerate", methods=["POST"])
+@login_required
+def email_regenerate(draft_id):
+    """Regenere un email avec Gemini."""
+    draft = db.session.get(EmailDraft, draft_id)
+    if not draft:
+        flash("Brouillon introuvable.", "error")
+        return redirect(url_for("admin.email_list"))
+    from app.services import email_service
+
+    try:
+        new_draft = email_service.generate_email_draft(draft.scan_id)
+        flash("Email regenere.", "success")
+        return redirect(url_for("admin.email_detail", draft_id=new_draft.id))
+    except (ValueError, ConnectionError) as exc:
+        flash(f"Erreur: {exc}", "error")
+        return redirect(url_for("admin.email_detail", draft_id=draft_id))
+
+
+@admin_bp.route("/email/<int:draft_id>/approve", methods=["POST"])
+@login_required
+def email_approve(draft_id):
+    """Approuve un brouillon."""
+    draft = db.session.get(EmailDraft, draft_id)
+    if not draft:
+        flash("Brouillon introuvable.", "error")
+        return redirect(url_for("admin.email_list"))
+    edited = request.form.get("edited_text", "").strip()
+    if edited:
+        draft.edited_text = edited
+    draft.status = "approved"
+    db.session.commit()
+    flash("Email approuve.", "success")
+    return redirect(url_for("admin.email_detail", draft_id=draft_id))
+
+
+@admin_bp.route("/email/<int:draft_id>/archive", methods=["POST"])
+@login_required
+def email_archive(draft_id):
+    """Archive un brouillon."""
+    draft = db.session.get(EmailDraft, draft_id)
+    if not draft:
+        flash("Brouillon introuvable.", "error")
+        return redirect(url_for("admin.email_list"))
+    draft.status = "archived"
+    db.session.commit()
+    flash("Email archive.", "success")
+    return redirect(url_for("admin.email_list"))
 
 
 # ── Initialisation admin ─────────────────────────────────────────

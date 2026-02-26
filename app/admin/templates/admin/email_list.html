@@ -1,0 +1,137 @@
+{% extends "admin/base.html" %}
+{% block title %}Emails Vendeur - Co-Pilot Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .badge-draft { background: #f59e0b; color: #fff; }
+  .badge-approved { background: #22c55e; color: #fff; }
+  .badge-sent { background: #3b82f6; color: #fff; }
+  .badge-archived { background: #64748b; color: #fff; }
+  .badge-pro { background: #8b5cf6; color: #fff; }
+  .badge-particulier { background: #06b6d4; color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Emails Vendeur</h2>
+
+<!-- Stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #f59e0b;">{{ total_drafts }}</div>
+      <div class="stat-label">Brouillons en attente</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #22c55e;">{{ total_approved }}</div>
+      <div class="stat-label">Approuves</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #3b82f6;">{{ total_sent }}</div>
+      <div class="stat-label">Envoyes</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ avg_tokens }}</div>
+      <div class="stat-label">Tokens moyen / email</div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="stat-card mb-4">
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label mb-1" style="font-size:13px">Statut</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="">Tous</option>
+        <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Brouillon</option>
+        <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Approuve</option>
+        <option value="sent" {% if status_filter == 'sent' %}selected{% endif %}>Envoye</option>
+        <option value="archived" {% if status_filter == 'archived' %}selected{% endif %}>Archive</option>
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label mb-1" style="font-size:13px">Type vendeur</label>
+      <select name="seller_type" class="form-select form-select-sm">
+        <option value="">Tous</option>
+        <option value="pro" {% if seller_filter == 'pro' %}selected{% endif %}>Professionnel</option>
+        <option value="private" {% if seller_filter == 'private' %}selected{% endif %}>Particulier</option>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+      {% if status_filter or seller_filter %}
+      <a href="{{ url_for('admin.email_list') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      {% endif %}
+    </div>
+    <div class="col-md-4 text-end text-muted" style="font-size:13px">
+      {{ drafts|length }} resultat{{ 's' if drafts|length != 1 else '' }}
+    </div>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="stat-card">
+  {% if drafts %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Vehicule</th>
+          <th class="text-center">Vendeur</th>
+          <th class="text-center">Score</th>
+          <th class="text-center">Statut</th>
+          <th>Date</th>
+          <th class="text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in drafts %}
+        <tr>
+          <td>
+            <strong>{{ d.vehicle_make or '-' }}</strong> {{ d.vehicle_model or '' }}
+          </td>
+          <td class="text-center">
+            {% if d.seller_type == 'pro' %}
+              <span class="badge badge-pro">Pro</span>
+            {% elif d.seller_type == 'private' %}
+              <span class="badge badge-particulier">Particulier</span>
+            {% else %}
+              <span class="text-muted">-</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {{ d.tokens_used or '-' }}
+          </td>
+          <td class="text-center">
+            <span class="badge badge-{{ d.status }}">{{ d.status }}</span>
+          </td>
+          <td style="font-size:12px">
+            {% if d.created_at %}
+              {{ d.created_at.strftime('%d/%m/%Y %H:%M') }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td class="text-center">
+            <a href="{{ url_for('admin.email_detail', draft_id=d.id) }}"
+               class="btn btn-outline-secondary btn-sm">Voir</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted text-center py-5">
+    Aucun email genere pour le moment.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -79,6 +79,10 @@
              href="{{ url_for('admin.youtube') }}">YouTube Tests</a>
           <a class="nav-link {% if request.endpoint and 'fine_search' in request.endpoint %}active{% endif %}"
              href="{{ url_for('admin.youtube_fine_search') }}">YouTube Recherche</a>
+          <a class="nav-link {% if request.endpoint and 'llm' in request.endpoint %}active{% endif %}"
+             href="{{ url_for('admin.llm_config') }}">LLM Google</a>
+          <a class="nav-link {% if request.endpoint and 'email' in request.endpoint %}active{% endif %}"
+             href="{{ url_for('admin.email_list') }}">Emails Vendeur</a>
           <hr class="border-secondary mx-3">
           <a class="nav-link text-danger" href="{{ url_for('admin.logout') }}">Deconnexion</a>
         </nav>

@@ -1,0 +1,290 @@
+{% extends "admin/base.html" %}
+{% block title %}LLM Google Gemini - Co-Pilot Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .badge-on { background: #22c55e; color: #fff; }
+  .badge-off { background: #ef4444; color: #fff; }
+  .badge-active { background: #22c55e; color: #fff; }
+  .badge-inactive { background: #9ca3af; color: #fff; }
+  .config-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">LLM Google Gemini</h2>
+
+<!-- Stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">{{ requests_today }} <small style="font-size:14px;color:#94a3b8">/ {{ max_daily_requests }}</small></div>
+      <div class="stat-label">Requetes aujourd'hui</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #8b5cf6;">{{ "{:,}".format(tokens_today).replace(",", " ") }}</div>
+      <div class="stat-label">Tokens aujourd'hui</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value" style="color: #f59e0b;">{{ cost_today }} EUR <small style="font-size:14px;color:#94a3b8">/ {{ max_daily_cost }}</small></div>
+      <div class="stat-label">Cout aujourd'hui</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card">
+      <div class="stat-value">
+        {% if api_ok %}
+          <span class="badge badge-on" style="font-size:16px">Connecte</span>
+        {% else %}
+          <span class="badge badge-off" style="font-size:16px">Deconnecte</span>
+        {% endif %}
+      </div>
+      <div class="stat-label">Statut API</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Config card -->
+  <div class="col-md-6">
+    <div class="config-card">
+      <h5 class="mb-3">Configuration Gemini</h5>
+      <form method="post" action="{{ url_for('admin.llm_config_save') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">Cle API</label>
+          <input type="password" name="api_key" class="form-control form-control-sm"
+                 placeholder="{% if gemini_config and gemini_config.api_key_encrypted %}********** (deja configuree){% else %}Entrer la cle API Gemini{% endif %}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Modele</label>
+          <input type="text" name="model_name" class="form-control form-control-sm"
+                 value="{{ gemini_config.model_name if gemini_config else 'gemini-2.5-flash' }}">
+        </div>
+        <div class="row mb-3">
+          <div class="col-6">
+            <label class="form-label">Max requetes / jour</label>
+            <input type="number" name="max_daily_requests" class="form-control form-control-sm"
+                   value="{{ gemini_config.max_daily_requests if gemini_config else 500 }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Max cout EUR / jour</label>
+            <input type="number" name="max_daily_cost_eur" class="form-control form-control-sm"
+                   step="0.01" value="{{ gemini_config.max_daily_cost_eur if gemini_config else 1.0 }}">
+          </div>
+        </div>
+        <div class="mb-3 form-check">
+          <input type="checkbox" name="is_active" class="form-check-input" id="isActive"
+                 {% if gemini_config and gemini_config.is_active %}checked{% endif %}>
+          <label class="form-check-label" for="isActive">API active</label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Sauvegarder</button>
+      </form>
+    </div>
+
+    <!-- Test card -->
+    <div class="config-card">
+      <h5 class="mb-3">Test API</h5>
+      <div class="mb-3">
+        <textarea id="testPrompt" class="form-control form-control-sm" rows="3" placeholder="Dis bonjour en une phrase.">Dis bonjour en une phrase.</textarea>
+      </div>
+      <button id="testBtn" class="btn btn-outline-primary btn-sm" onclick="testApi()">Tester</button>
+      <div id="testResult" class="mt-3" style="display:none">
+        <div class="alert alert-secondary" style="font-size:13px; white-space:pre-wrap;" id="testOutput"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prompts card -->
+  <div class="col-md-6">
+    <div class="config-card">
+      <h5 class="mb-3">Prompts configures</h5>
+      {% if prompts %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th class="text-center">Temp.</th>
+              <th class="text-center">Max tokens</th>
+              <th class="text-center">Version</th>
+              <th class="text-center">Statut</th>
+              <th class="text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in prompts %}
+            <tr>
+              <td>{{ p.name }}</td>
+              <td class="text-center">{{ p.temperature }}</td>
+              <td class="text-center">{{ p.max_output_tokens }}</td>
+              <td class="text-center">v{{ p.version }}</td>
+              <td class="text-center">
+                {% if p.is_active %}
+                  <span class="badge badge-active">Actif</span>
+                {% else %}
+                  <span class="badge badge-inactive">Inactif</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if not p.is_active %}
+                <form method="post" action="{{ url_for('admin.llm_prompt_activate', prompt_id=p.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-success btn-sm">Activer</button>
+                </form>
+                {% else %}
+                  <span class="text-muted" style="font-size:12px">En cours</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">Aucun prompt configure.</p>
+      {% endif %}
+
+      <hr>
+      <p>
+        <a class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" href="#newPromptForm">
+          + Nouveau prompt
+        </a>
+      </p>
+      <div class="collapse" id="newPromptForm">
+        <form method="post" action="{{ url_for('admin.llm_prompt_new') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <label class="form-label" style="font-size:13px">Nom</label>
+            <input type="text" name="name" class="form-control form-control-sm" required placeholder="email_vendeur_v1">
+          </div>
+          <div class="mb-2">
+            <label class="form-label" style="font-size:13px">System prompt</label>
+            <textarea name="system_prompt" class="form-control form-control-sm" rows="3" required></textarea>
+          </div>
+          <div class="mb-2">
+            <label class="form-label" style="font-size:13px">Task prompt template</label>
+            <textarea name="task_prompt_template" class="form-control form-control-sm" rows="4" required></textarea>
+          </div>
+          <div class="row mb-2">
+            <div class="col-4">
+              <label class="form-label" style="font-size:13px">Temperature</label>
+              <input type="number" name="temperature" class="form-control form-control-sm" step="0.1" value="0.3">
+            </div>
+            <div class="col-4">
+              <label class="form-label" style="font-size:13px">Max tokens</label>
+              <input type="number" name="max_output_tokens" class="form-control form-control-sm" value="500">
+            </div>
+            <div class="col-4">
+              <label class="form-label" style="font-size:13px">Top P</label>
+              <input type="number" name="top_p" class="form-control form-control-sm" step="0.1" value="0.9">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label" style="font-size:13px">Hallucination guard</label>
+            <textarea name="hallucination_guard" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" style="font-size:13px">Max phrases (0 = illimite)</label>
+            <input type="number" name="max_sentences" class="form-control form-control-sm" value="0">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Creer</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cost history chart -->
+<div class="config-card mt-4">
+  <h5 class="mb-3">Historique 7 jours</h5>
+  <div id="usageChart" style="height: 300px;"></div>
+  <p id="usageChartEmpty" class="text-muted text-center py-5" style="display:none">
+    Aucune donnee d'utilisation pour les 7 derniers jours.
+  </p>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function testApi() {
+  var btn = document.getElementById('testBtn');
+  var resultDiv = document.getElementById('testResult');
+  var outputDiv = document.getElementById('testOutput');
+  var prompt = document.getElementById('testPrompt').value;
+
+  btn.disabled = true;
+  btn.textContent = 'En cours...';
+  resultDiv.style.display = 'none';
+
+  fetch('{{ url_for("admin.llm_test") }}', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'test_prompt=' + encodeURIComponent(prompt) + '&csrf_token={{ csrf_token() }}'
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    resultDiv.style.display = 'block';
+    if (data.success) {
+      outputDiv.className = 'alert alert-success';
+      outputDiv.textContent = data.response;
+    } else {
+      outputDiv.className = 'alert alert-danger';
+      outputDiv.textContent = 'Erreur: ' + data.error;
+    }
+  })
+  .catch(function(err) {
+    resultDiv.style.display = 'block';
+    outputDiv.className = 'alert alert-danger';
+    outputDiv.textContent = 'Erreur reseau: ' + err.message;
+  })
+  .finally(function() {
+    btn.disabled = false;
+    btn.textContent = 'Tester';
+  });
+}
+
+// Plotly chart
+var dailyData = {{ daily_usage | tojson }};
+var dates = dailyData.map(function(d) { return d[0]; });
+var tokens = dailyData.map(function(d) { return d[1] || 0; });
+var requests = dailyData.map(function(d) { return d[3] || 0; });
+
+if (dates.length > 0) {
+  Plotly.newPlot('usageChart', [
+    {
+      x: dates,
+      y: tokens,
+      type: 'bar',
+      name: 'Tokens',
+      marker: { color: '#8b5cf6' }
+    },
+    {
+      x: dates,
+      y: requests,
+      type: 'scatter',
+      mode: 'lines+markers',
+      name: 'Requetes',
+      yaxis: 'y2',
+      marker: { color: '#3b82f6' }
+    }
+  ], {
+    margin: { t: 20, b: 40, l: 60, r: 60 },
+    xaxis: { title: '' },
+    yaxis: { title: 'Tokens', side: 'left' },
+    yaxis2: { title: 'Requetes', side: 'right', overlaying: 'y' },
+    legend: { orientation: 'h', y: 1.12 },
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    paper_bgcolor: 'rgba(0,0,0,0)'
+  }, { responsive: true });
+} else {
+  document.getElementById('usageChart').style.display = 'none';
+  document.getElementById('usageChartEmpty').style.display = 'block';
+}
+</script>
+{% endblock %}

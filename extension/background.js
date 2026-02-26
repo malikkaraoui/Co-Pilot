@@ -1,11 +1,32 @@
 /**
  * Co-Pilot Background Service Worker
  *
- * Gere l'injection on-demand du content script
- * et les appels API LBC en contexte MAIN world.
+ * Gere l'injection on-demand du content script,
+ * les appels API LBC en contexte MAIN world,
+ * et le proxy des appels backend (HTTP localhost depuis HTTPS).
  */
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // ── Proxy backend API (content script → background → localhost) ─
+  // Chrome MV3 : un content script sur une page HTTPS ne peut pas
+  // fetch vers HTTP localhost (mixed-content). Le service worker
+  // n'a pas cette restriction.
+  if (message.action === "backend_fetch") {
+    const opts = { method: message.method || "GET" };
+    if (message.headers) opts.headers = message.headers;
+    if (message.body) opts.body = message.body;
+
+    fetch(message.url, opts)
+      .then(async (resp) => {
+        const body = await resp.text();
+        sendResponse({ ok: resp.ok, status: resp.status, body });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, status: 0, body: null, error: err.message });
+      });
+    return true;
+  }
+
   // ── Recherche API LBC (content script → MAIN world) ──────────
   // Le content script ne peut pas appeler l'API LBC directement
   // (CORS + session cookies). On injecte le fetch dans le contexte
