@@ -1289,10 +1289,10 @@
       const url = new URL(link.href, location.origin);
       // Le pathname est du type /c/voitures/u_car_brand:BMW+u_car_model:BMW_Série%203
       const path = decodeURIComponent(url.pathname + url.search + url.hash);
-      const brandMatch = path.match(/u_car_brand:([^+&\s]+)/);
-      const modelMatch = path.match(/u_car_model:([^+&\s]+)/);
-      if (brandMatch) result.brandToken = brandMatch[1];
-      if (modelMatch) result.modelToken = modelMatch[1];
+      const brandMatch = path.match(/u_car_brand:([^+&]+)/);
+      const modelMatch = path.match(/u_car_model:([^+&]+)/);
+      if (brandMatch) result.brandToken = brandMatch[1].trim();
+      if (modelMatch) result.modelToken = modelMatch[1].trim();
     } catch (e) {
       console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
     }

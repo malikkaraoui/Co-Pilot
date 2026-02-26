@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.extensions import db
 from app.models.market_price import MarketPrice
+from app.services.extraction import normalize_region
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +283,7 @@ def store_market_prices(
     """
     make = normalize_market_text(make)
     model = normalize_market_text(model)
-    region = normalize_market_text(region)
+    region = normalize_region(region) or normalize_market_text(region)
     fuel = normalize_market_text(fuel).lower() if fuel else None
 
     # Filtrage IQR des outliers + calcul IQR Mean
@@ -481,7 +482,7 @@ def get_market_stats(
     """
     make_key = market_text_key(make)
     model_key = market_text_key(model)
-    region_key = market_text_key(region)
+    region_key = market_text_key(normalize_region(region) or region)
     fuel_key = normalize_market_text(fuel).lower() if fuel else None
     hp_range_key = hp_range.strip().lower() if hp_range else None
 

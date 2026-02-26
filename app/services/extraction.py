@@ -255,7 +255,7 @@ def _extract_price(ad: dict) -> int | None:
     return None
 
 
-def _normalize_region(region: str | None) -> str | None:
+def normalize_region(region: str | None) -> str | None:
     """Normalise les noms de regions LBC vers les noms post-reforme 2016.
 
     LBC envoie parfois les anciens noms (ex. 'Aquitaine' au lieu de
@@ -297,7 +297,7 @@ def _extract_location(ad: dict) -> dict[str, Any]:
         "city": location.get("city"),
         "zipcode": location.get("zipcode"),
         "department": location.get("department_name"),
-        "region": _normalize_region(raw_region),
+        "region": normalize_region(raw_region),
         "lat": location.get("lat"),
         "lng": location.get("lng"),
     }

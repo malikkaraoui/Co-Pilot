@@ -229,6 +229,6 @@ class TestExtractAdData:
     )
     def test_region_old_names_all_mapped(self, old_region, expected):
         """Toutes les anciennes regions sont mappees vers les nouvelles."""
-        from app.services.extraction import _normalize_region
+        from app.services.extraction import normalize_region
 
-        assert _normalize_region(old_region) == expected
+        assert normalize_region(old_region) == expected
