@@ -84,6 +84,9 @@ def generate_text(
     config_dict = {
         "temperature": temperature,
         "max_output_tokens": max_output_tokens,
+        # Desactiver le "thinking" de Gemini 2.5 Flash pour maximiser
+        # les tokens de sortie utiles (sinon ~90% partent en reflexion interne).
+        "thinking_config": {"thinking_budget": 0},
     }
     if top_p is not None:
         config_dict["top_p"] = top_p
