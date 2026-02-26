@@ -65,8 +65,8 @@ def generate_text(
     temperature: float = 0.3,
     max_output_tokens: int = 500,
     top_p: float | None = None,
-) -> str:
-    """Envoie un prompt a Gemini et retourne le texte genere.
+) -> tuple[str, int]:
+    """Envoie un prompt a Gemini et retourne (texte, total_tokens).
 
     Enregistre automatiquement un LLMUsage pour le suivi des couts.
 
@@ -130,4 +130,4 @@ def generate_text(
         request_id,
     )
 
-    return response.text or ""
+    return response.text or "", total_tokens

@@ -436,6 +436,66 @@ class TestGetMarketStats:
             assert result.fuel == "hybride"
 
 
+class TestUnicodeRegionLookup:
+    """Tests que les regions avec accents (ex. Île-de-France) fonctionnent.
+
+    Bug : SQLite lower() ne gere que ASCII. lower('Î') reste 'Î' alors que
+    Python lower() produit 'î'. Les comparaisons market_text_key_expr (SQL)
+    vs market_text_key (Python) echouaient pour Île-de-France.
+    """
+
+    def test_store_and_retrieve_ile_de_france_accent(self, app):
+        """Stocker avec accent Î et retrouver avec le meme accent."""
+        with app.app_context():
+            store_market_prices(
+                make="Citroen",
+                model="C4 Picasso",
+                year=2014,
+                region="Île-de-France",
+                prices=[6000, 7000, 8000, 9000, 10000],
+                fuel="diesel",
+            )
+            result = get_market_stats("Citroen", "C4 Picasso", 2014, "Île-de-France", fuel="diesel")
+            assert result is not None, (
+                "get_market_stats doit trouver les données stockées avec accent Î"
+            )
+            assert result.sample_count == 5
+
+    def test_upsert_ile_de_france_accent_no_duplicate(self, app):
+        """Deux appels avec Île-de-France ne creent pas de doublon."""
+        with app.app_context():
+            mp1 = store_market_prices(
+                make="Peugeot",
+                model="308",
+                year=2020,
+                region="Île-de-France",
+                prices=[14000, 15000, 16000, 17000, 18000],
+            )
+            mp2 = store_market_prices(
+                make="Peugeot",
+                model="308",
+                year=2020,
+                region="Île-de-France",
+                prices=[15000, 16000, 17000, 18000, 19000],
+            )
+            assert mp1.id == mp2.id, (
+                "Deux store_market_prices pour Île-de-France ne doivent pas creer de doublon"
+            )
+
+    def test_cross_accent_lookup(self, app):
+        """Stocker avec Île (accent) et retrouver avec Ile (sans accent)."""
+        with app.app_context():
+            store_market_prices(
+                make="Renault",
+                model="Clio",
+                year=2022,
+                region="Île-de-France",
+                prices=[12000, 13000, 14000, 15000, 16000],
+            )
+            result = get_market_stats("Renault", "Clio", 2022, "Ile-de-France")
+            assert result is not None, "get_market_stats doit trouver même si l'accent diffère"
+
+
 class TestFilterOutliersIQR:
     """Tests du filtrage IQR des outliers."""
 

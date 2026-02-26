@@ -2019,13 +2019,13 @@ def llm_test():
 
     test_prompt = request.form.get("test_prompt", "Dis bonjour en une phrase.")
     try:
-        result = gemini_service.generate_text(
+        text, tokens = gemini_service.generate_text(
             prompt=test_prompt,
             feature="admin_test",
             temperature=0.3,
             max_output_tokens=100,
         )
-        return jsonify({"success": True, "response": result})
+        return jsonify({"success": True, "response": text, "tokens": tokens})
     except (ValueError, ConnectionError) as exc:
         return jsonify({"success": False, "error": str(exc)})
 

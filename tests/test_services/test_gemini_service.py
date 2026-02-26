@@ -62,14 +62,15 @@ class TestGenerateText:
                 patch("app.services.gemini_service._get_api_key", return_value="fake-key"),
                 patch("app.services.gemini_service._get_client", return_value=mock_client),
             ):
-                result = generate_text(
+                text, tokens = generate_text(
                     prompt="Redige un email",
                     feature="email_draft",
                     temperature=0.3,
                     max_output_tokens=500,
                 )
 
-            assert "interesse" in result
+            assert "interesse" in text
+            assert tokens == 150
             usage = LLMUsage.query.order_by(LLMUsage.id.desc()).first()
             assert usage is not None
             assert usage.provider == "gemini"
