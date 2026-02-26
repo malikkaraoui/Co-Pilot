@@ -75,6 +75,8 @@
              href="{{ url_for('admin.argus') }}">Argus maison</a>
           <a class="nav-link {% if request.endpoint == 'admin.issues' %}active{% endif %}"
              href="{{ url_for('admin.issues') }}">Issues collecte</a>
+          <a class="nav-link {% if request.endpoint == 'admin.failed_searches' %}active{% endif %}"
+             href="{{ url_for('admin.failed_searches') }}">URLs echouees</a>
           <a class="nav-link {% if request.endpoint == 'admin.youtube' or request.endpoint == 'admin.youtube_detail' %}active{% endif %}"
              href="{{ url_for('admin.youtube') }}">YouTube Tests</a>
           <a class="nav-link {% if request.endpoint and 'fine_search' in request.endpoint %}active{% endif %}"

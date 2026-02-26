@@ -38,7 +38,7 @@ VEHICLES = [
     ("Toyota", "C-HR", "I/II", 2016, 2025),
     ("Fiat", "500", "II", 2007, 2025),
     ("Ford", "Fiesta", "VII", 2017, 2023),
-    ("BMW", "Serie 3", "G20", 2018, 2025),
+    ("BMW", "Serie 3", "E90/F30/G20", 2005, 2025),
     # --- 30 nouveaux modeles (Top 50 ventes 2025) ---
     ("Renault", "5 E-Tech", "I", 2024, 2025),
     ("Renault", "Symbioz", "I", 2024, 2025),

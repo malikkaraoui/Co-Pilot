@@ -459,6 +459,135 @@ class TestNextMarketJob:
             assert data["data"]["vehicle"]["model"] == "Huayra"
 
 
+class TestSiteTokenAutoLearning:
+    """Tests pour l'auto-apprentissage des tokens LBC (site_brand_token, site_model_token)."""
+
+    def test_submit_with_tokens_persists_to_vehicle(self, app, client):
+        """POST avec site_brand_token/site_model_token les persiste sur le Vehicle."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="TokenTest", model="Modele1").first()
+            if not v:
+                v = Vehicle(brand="TokenTest", model="Modele1", year_start=2019, year_end=2025)
+                db.session.add(v)
+                db.session.commit()
+            # Reset tokens
+            v.site_brand_token = None
+            v.site_model_token = None
+            db.session.commit()
+
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "TokenTest",
+                    "model": "Modele1",
+                    "year": 2021,
+                    "region": "Ile-de-France",
+                    "prices": prices_20,
+                    "site_brand_token": "TokenTest",
+                    "site_model_token": "TokenTest_Modèle1",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="TokenTest", model="Modele1").first()
+            assert v.site_brand_token == "TokenTest"
+            assert v.site_model_token == "TokenTest_Modèle1"
+
+    def test_submit_without_tokens_backward_compat(self, app, client):
+        """POST sans tokens (ancienne extension) fonctionne sans erreur."""
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Renault",
+                    "model": "Megane",
+                    "year": 2020,
+                    "region": "Bretagne",
+                    "prices": prices_20,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+    def test_tokens_not_persisted_for_unknown_vehicle(self, app, client):
+        """Les tokens ne sont pas persistes si le vehicule n'existe pas dans le referentiel."""
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "Lamborghini",
+                    "model": "Urus",
+                    "year": 2022,
+                    "region": "PACA",
+                    "prices": prices_20,
+                    "site_brand_token": "Lamborghini",
+                    "site_model_token": "Lamborghini_Urus",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200  # POST reussit quand meme
+
+    def test_next_job_returns_tokens(self, app, client):
+        """GET next-job inclut les tokens LBC si le vehicule en a."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="BMW", model="Serie 3").first()
+            if not v:
+                v = Vehicle(
+                    brand="BMW",
+                    model="Serie 3",
+                    year_start=2005,
+                    year_end=2025,
+                )
+                db.session.add(v)
+            v.site_brand_token = "BMW"
+            v.site_model_token = "BMW_Série 3"
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=BMW&model=Serie%203&year=2021&region=Bretagne"
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["data"]["collect"] is True
+        assert data["data"]["vehicle"]["site_brand_token"] == "BMW"
+        assert data["data"]["vehicle"]["site_model_token"] == "BMW_Série 3"
+
+    def test_next_job_without_tokens(self, app, client):
+        """GET next-job sans tokens stockes ne retourne pas les cles."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="Dacia", model="Sandero").first()
+            if not v:
+                v = Vehicle(
+                    brand="Dacia",
+                    model="Sandero",
+                    year_start=2020,
+                    year_end=2025,
+                )
+                db.session.add(v)
+            v.site_brand_token = None
+            v.site_model_token = None
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=Dacia&model=Sandero&year=2022&region=Bretagne"
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+        vehicle = data["data"]["vehicle"]
+        # Keys should not be present when tokens are None
+        assert "site_brand_token" not in vehicle
+        assert "site_model_token" not in vehicle
+
+
 class TestSearchLogTransparency:
     """Tests de la transparence cascade (search_log)."""
 

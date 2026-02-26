@@ -22,6 +22,11 @@ class Vehicle(db.Model):
     )
     # Override admin : seuil minimum d'annonces pour l'argus (NULL = dynamique auto)
     argus_min_samples = db.Column(db.Integer, nullable=True)
+    # Tokens LBC pour les URLs de recherche (auto-appris depuis le DOM des annonces).
+    # Necessaire car __NEXT_DATA__ peut renvoyer "Serie 3" sans accent alors que
+    # LBC exige "Série 3" dans u_car_model. Stockes une fois, reutilises partout.
+    site_brand_token = db.Column(db.String(120), nullable=True)
+    site_model_token = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     specs = db.relationship("VehicleSpec", backref="vehicle", lazy="select")

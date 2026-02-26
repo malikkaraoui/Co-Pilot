@@ -281,6 +281,110 @@
     `;
   }
 
+  // ── Radar chart SVG (vue en araignee) ─────────────────────────
+
+  /** Labels courts pour le radar (sans prefixe L1, L2...) */
+  const RADAR_SHORT_LABELS = {
+    L1: "Donn\u00E9es", L2: "Mod\u00E8le", L3: "Km", L4: "Prix",
+    L5: "Stats", L6: "T\u00E9l\u00E9phone", L7: "SIRET", L8: "Import",
+    L9: "\u00C9val", L10: "Anciennet\u00E9",
+  };
+
+  /**
+   * Genere le SVG du radar chart (vue en araignee).
+   * @param {Array} filters - Liste des filtres {filter_id, score, status}.
+   * @param {number} overallScore - Score global 0-100.
+   * @returns {string} Le markup SVG.
+   */
+  function buildRadarSVG(filters, overallScore) {
+    if (!filters || !filters.length) return "";
+
+    const cx = 160, cy = 145, R = 100;
+    const n = filters.length;
+    const angleStep = (2 * Math.PI) / n;
+    const startAngle = -Math.PI / 2;
+
+    const mainColor = overallScore >= 70 ? "#22c55e"
+      : overallScore >= 45 ? "#f59e0b" : "#ef4444";
+
+    function pt(i, r) {
+      const angle = startAngle + i * angleStep;
+      return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+    }
+
+    // Grid rings
+    let gridSVG = "";
+    for (const pct of [0.2, 0.4, 0.6, 0.8, 1.0]) {
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const p = pt(i, R * pct);
+        pts.push(`${p.x},${p.y}`);
+      }
+      const cls = pct === 1.0 ? "copilot-radar-grid-outer" : "copilot-radar-grid";
+      gridSVG += `<polygon points="${pts.join(" ")}" class="${cls}"/>`;
+    }
+
+    // Axis lines
+    let axesSVG = "";
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, R);
+      axesSVG += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" class="copilot-radar-axis-line"/>`;
+    }
+
+    // Data polygon
+    const dataPts = [];
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, R * filters[i].score);
+      dataPts.push(`${p.x},${p.y}`);
+    }
+    const dataStr = dataPts.join(" ");
+
+    // Dots + labels
+    let dotsSVG = "";
+    let labelsSVG = "";
+    const labelPad = 18;
+    for (let i = 0; i < n; i++) {
+      const f = filters[i];
+      const score = f.score;
+      const dp = pt(i, R * score);
+
+      let dotColor = "#22c55e";
+      if (f.status === "fail") dotColor = "#ef4444";
+      else if (f.status === "warning") dotColor = "#f59e0b";
+      else if (f.status === "skip") dotColor = "#9ca3af";
+      dotsSVG += `<circle cx="${dp.x}" cy="${dp.y}" r="4" fill="${dotColor}" class="copilot-radar-dot"/>`;
+
+      // Label
+      const lp = pt(i, R + labelPad);
+      let anchor = "middle";
+      if (lp.x < cx - 10) anchor = "end";
+      else if (lp.x > cx + 10) anchor = "start";
+
+      const statusCls = f.status === "fail" ? "fail"
+        : f.status === "warning" ? "warning" : "pass";
+      const shortLabel = escapeHTML(RADAR_SHORT_LABELS[f.filter_id] || f.filter_id);
+      const pctLabel = Math.round(score * 100) + "%";
+
+      labelsSVG += `<text x="${lp.x}" y="${lp.y}" text-anchor="${anchor}" dominant-baseline="central" class="copilot-radar-axis-label ${statusCls}">`;
+      labelsSVG += `<tspan>${shortLabel}</tspan>`;
+      labelsSVG += `<tspan x="${lp.x}" dy="12" font-size="9" font-weight="700">${pctLabel}</tspan>`;
+      labelsSVG += `</text>`;
+    }
+
+    return `
+      <svg class="copilot-radar-svg" width="320" height="310" viewBox="0 0 320 310">
+        ${gridSVG}
+        ${axesSVG}
+        <polygon points="${dataStr}" fill="${mainColor}" opacity="0.15"/>
+        <polygon points="${dataStr}" fill="none" stroke="${mainColor}" stroke-width="2" stroke-linejoin="round"/>
+        ${dotsSVG}
+        ${labelsSVG}
+        <text x="${cx}" y="${cy - 6}" text-anchor="middle" class="copilot-radar-score" fill="${mainColor}">${overallScore}</text>
+        <text x="${cx}" y="${cy + 14}" text-anchor="middle" class="copilot-radar-score-label">/100</text>
+      </svg>
+    `;
+  }
+
   // ── Construction de la popup ───────────────────────────────────
 
   /** Filtres dont les donnees sont simulees (seed data, pas de source reelle). */
@@ -295,13 +399,16 @@
         const color = statusColor(f.status);
         const icon = statusIcon(f.status);
         const label = filterLabel(f.filter_id);
-        const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
-        const isLbcEstimation = f.filter_id === "L4" && f.details?.source === "estimation_lbc";
-        const simulatedBadge = isLbcEstimation
-          ? `<span class="copilot-badge-lbc-estimation" title="Fourchette LBC : ${f.details.lbc_estimation_low || "?"}€ - ${f.details.lbc_estimation_high || "?"}€">Estimation LBC</span>`
-          : SIMULATED_FILTERS.includes(f.filter_id)
-            ? '<span class="copilot-badge-simulated">Données simulées</span>'
-            : "";
+
+        // L4 : barre de prix Argus (remplace les details techniques)
+        const isL4 = f.filter_id === "L4";
+        const priceBarHTML = isL4 && f.details ? buildPriceBarHTML(f.details) : "";
+        const detailsHTML = isL4 ? "" : (f.details ? buildDetailsHTML(f.details) : "");
+
+        // Badges simulees (L4 n'en a plus — le verdict parle de lui-meme)
+        const simulatedBadge = !isL4 && SIMULATED_FILTERS.includes(f.filter_id)
+          ? '<span class="copilot-badge-simulated">Données simulées</span>'
+          : "";
 
         return `
           <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
@@ -310,7 +417,7 @@
               <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
               <span class="copilot-filter-score" style="color:${color}">${Math.round(f.score * 100)}%</span>
             </div>
-            <p class="copilot-filter-message">${escapeHTML(f.message)}</p>
+            ${priceBarHTML || `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`}
             ${detailsHTML}
           </div>
         `;
@@ -402,6 +509,114 @@
         .join(", ");
     }
     return escapeHTML(value);
+  }
+
+  /** Construit la barre de prix Argus pour le filtre L4. */
+  function buildPriceBarHTML(details) {
+    const priceAnnonce = details.price_annonce;
+    const priceRef = details.price_reference;
+    if (!priceAnnonce || !priceRef) return "";
+
+    const deltaEur = details.delta_eur || (priceAnnonce - priceRef);
+    const deltaPct = details.delta_pct != null
+      ? details.delta_pct
+      : Math.round(((priceAnnonce - priceRef) / priceRef) * 100);
+    const absDelta = Math.abs(deltaEur);
+    const absPct = Math.abs(Math.round(deltaPct));
+
+    // Determine verdict class + text
+    let verdictClass, verdictEmoji, line1, line2;
+    if (absPct <= 10) {
+      verdictClass = deltaPct < 0 ? "verdict-below" : "verdict-fair";
+      verdictEmoji = deltaPct < 0 ? "\uD83D\uDFE2" : "\u2705";
+      line1 = deltaPct < 0
+        ? `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\u00E9`
+        : "Prix juste";
+      line2 = deltaPct < 0
+        ? `Bon prix \u2014 ${absPct}% moins cher que le march\u00E9`
+        : `Dans la fourchette du march\u00E9 (${deltaPct > 0 ? "+" : ""}${Math.round(deltaPct)}%)`;
+    } else if (absPct <= 25) {
+      if (deltaPct < 0) {
+        verdictClass = "verdict-below";
+        verdictEmoji = "\uD83D\uDFE2";
+        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\u00E9`;
+        line2 = `Bon prix \u2014 ${absPct}% moins cher que le march\u00E9`;
+      } else {
+        verdictClass = "verdict-above-warning";
+        verdictEmoji = "\uD83D\uDFE0";
+        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC au-dessus du march\u00E9`;
+        line2 = `Prix \u00E9lev\u00E9 \u2014 ${absPct}% plus cher que le march\u00E9`;
+      }
+    } else {
+      if (deltaPct < 0) {
+        verdictClass = "verdict-below";
+        verdictEmoji = "\uD83D\uDFE2";
+        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\u00E9`;
+        line2 = `Tr\u00E8s bon prix \u2014 ${absPct}% moins cher que le march\u00E9`;
+      } else {
+        verdictClass = "verdict-above-fail";
+        verdictEmoji = "\uD83D\uDD34";
+        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC au-dessus du march\u00E9`;
+        line2 = `Trop cher \u2014 ${absPct}% plus cher que le march\u00E9`;
+      }
+    }
+
+    // Scale for bar positioning
+    const statusColors = {
+      "verdict-below": "#16a34a",
+      "verdict-fair": "#16a34a",
+      "verdict-above-warning": "#ea580c",
+      "verdict-above-fail": "#dc2626",
+    };
+    const fillOpacities = {
+      "verdict-below": "rgba(22,163,74,0.15)",
+      "verdict-fair": "rgba(22,163,74,0.15)",
+      "verdict-above-warning": "rgba(234,88,12,0.2)",
+      "verdict-above-fail": "rgba(220,38,38,0.2)",
+    };
+    const color = statusColors[verdictClass] || "#16a34a";
+    const fillBg = fillOpacities[verdictClass] || "rgba(22,163,74,0.15)";
+
+    const minP = Math.min(priceAnnonce, priceRef);
+    const maxP = Math.max(priceAnnonce, priceRef);
+    const gap = (maxP - minP) || maxP * 0.1;
+    const scaleMin = Math.max(0, minP - gap * 0.8);
+    const scaleMax = maxP + gap * 0.8;
+    const range = scaleMax - scaleMin;
+    const pct = (p) => ((p - scaleMin) / range) * 100;
+
+    const annoncePct = pct(priceAnnonce);
+    const argusPct = pct(priceRef);
+    const fillLeft = Math.min(annoncePct, argusPct);
+    const fillWidth = Math.abs(annoncePct - argusPct);
+
+    const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " \u20AC";
+
+    return `
+      <div class="copilot-price-bar-container">
+        <div class="copilot-price-verdict ${escapeHTML(verdictClass)}">
+          <span class="copilot-price-verdict-emoji">${verdictEmoji}</span>
+          <div>
+            <div class="copilot-price-verdict-text">${escapeHTML(line1)}</div>
+            <div class="copilot-price-verdict-pct">${escapeHTML(line2)}</div>
+          </div>
+        </div>
+        <div class="copilot-price-bar-track">
+          <div class="copilot-price-bar-fill" style="left:${fillLeft}%;width:${fillWidth}%;background:${fillBg}"></div>
+          <div class="copilot-price-arrow-zone" style="left:${fillLeft}%;width:${fillWidth}%;border-color:${color}"></div>
+          <div class="copilot-price-market-ref" style="left:${argusPct}%">
+            <div class="copilot-price-market-line"></div>
+            <div class="copilot-price-market-label">March\u00E9</div>
+            <div class="copilot-price-market-price">${fmtP(priceRef)}</div>
+          </div>
+          <div class="copilot-price-car" style="left:${annoncePct}%">
+            <span class="copilot-price-car-emoji">\uD83D\uDE97</span>
+            <div class="copilot-price-car-price" style="color:${color}">${fmtP(priceAnnonce)}</div>
+          </div>
+        </div>
+        <div class="copilot-price-bar-spacer"></div>
+      </div>
+    `;
   }
 
   /** Construit le HTML des details d'un filtre (depliable). */
@@ -574,8 +789,8 @@
           ${partialBadge}
         </div>
 
-        <div class="copilot-popup-gauge">
-          ${buildGaugeSVG(score)}
+        <div class="copilot-radar-section">
+          ${buildRadarSVG(filters, score)}
           <p class="copilot-verdict" style="color:${color}">
             ${score >= 70 ? "Annonce fiable" : score >= 40 ? "Points d'attention" : "Vigilance requise"}
           </p>
@@ -1058,6 +1273,32 @@
    * Extrait les infos vehicule (make, model, year) depuis __NEXT_DATA__
    * pour pouvoir lancer la collecte AVANT l'analyse.
    */
+  /**
+   * Extrait les tokens u_car_brand / u_car_model depuis le DOM de la page LBC.
+   *
+   * Chaque annonce a un lien "Voir d'autres annonces <modele>" dont le href
+   * contient les tokens exacts : /c/voitures/u_car_brand:BMW+u_car_model:BMW_Série%203
+   * Ces tokens sont la source de verite pour les recherches LBC (accents inclus).
+   * __NEXT_DATA__ peut renvoyer "Serie 3" (sans accent) alors que LBC attend "Série 3".
+   */
+  function extractLbcTokensFromDom() {
+    const result = { brandToken: null, modelToken: null };
+    try {
+      const link = document.querySelector('a[href*="u_car_model"]');
+      if (!link) return result;
+      const url = new URL(link.href, location.origin);
+      // Le pathname est du type /c/voitures/u_car_brand:BMW+u_car_model:BMW_Série%203
+      const path = decodeURIComponent(url.pathname + url.search + url.hash);
+      const brandMatch = path.match(/u_car_brand:([^+&\s]+)/);
+      const modelMatch = path.match(/u_car_model:([^+&\s]+)/);
+      if (brandMatch) result.brandToken = brandMatch[1];
+      if (modelMatch) result.modelToken = modelMatch[1];
+    } catch (e) {
+      console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
+    }
+    return result;
+  }
+
   function extractVehicleFromNextData(nextData) {
     const ad = nextData?.props?.pageProps?.ad;
     if (!ad) return {};
@@ -1082,6 +1323,10 @@
       if (extracted) model = extracted;
     }
 
+    // Extraire les tokens LBC depuis le DOM (source de verite pour les URLs de recherche).
+    // __NEXT_DATA__ peut avoir "Serie 3" sans accent mais LBC attend "Série 3" dans l'URL.
+    const domTokens = extractLbcTokensFromDom();
+
     return {
       make,
       model,
@@ -1089,6 +1334,9 @@
       fuel: attrs["fuel"] || attrs["Énergie"] || attrs["energie"] || "",
       gearbox: attrs["gearbox"] || attrs["Boîte de vitesse"] || attrs["Boite de vitesse"] || attrs["Transmission"] || "",
       horse_power: attrs["horse_power_din"] || attrs["Puissance DIN"] || "",
+      // Tokens LBC pour les URLs de recherche (avec accents corrects)
+      site_brand_token: domTokens.brandToken,
+      site_model_token: domTokens.modelToken,
     };
   }
 
@@ -1827,15 +2075,17 @@
         await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
 
         // Build LBC URL from job data
+        // Preferer les tokens serveur (auto-appris depuis le DOM) pour les accents corrects
         const brandUpper = toLbcBrandToken(job.make);
         const modelIsGeneric = GENERIC_MODELS.includes((job.model || "").toLowerCase());
         let jobCoreUrl = "https://www.leboncoin.fr/recherche?category=2";
         if (modelIsGeneric) {
           jobCoreUrl += `&text=${encodeURIComponent(job.make)}`;
         } else {
-          const modelParam = `${brandUpper}_${job.model}`;
-          jobCoreUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
-          jobCoreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
+          const jobBrand = job.site_brand_token || brandUpper;
+          const jobModel = job.site_model_token || `${brandUpper}_${job.model}`;
+          jobCoreUrl += `&u_car_brand=${encodeURIComponent(jobBrand)}`;
+          jobCoreUrl += `&u_car_model=${encodeURIComponent(jobModel)}`;
         }
 
         // Add filters from job data
@@ -2075,19 +2325,30 @@
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
 
     // URL core : marque/modele uniquement (les filtres sont separes pour l'escalade)
+    // Preferer les tokens DOM (extraits du lien "Voir d'autres annonces") car ils
+    // contiennent les accents corrects (ex: "BMW_Série 3" vs "BMW_Serie 3").
+    // __NEXT_DATA__ renvoie parfois le modele sans accent, mais LBC exige le token exact.
     const brandUpper = toLbcBrandToken(target.make);
+    // Priorite : tokens DOM (vehicule courant) > tokens serveur (auto-appris) > fallback manuel
+    const hasDomTokens = isCurrentVehicle && vehicle.site_brand_token && vehicle.site_model_token;
+    const hasServerTokens = target.site_brand_token && target.site_model_token;
+    const effectiveBrand = hasDomTokens ? vehicle.site_brand_token
+      : hasServerTokens ? target.site_brand_token
+      : brandUpper;
+    const effectiveModel = hasDomTokens ? vehicle.site_model_token
+      : hasServerTokens ? target.site_model_token
+      : `${brandUpper}_${target.model}`;
+    const tokenSource = hasDomTokens ? "DOM" : hasServerTokens ? "serveur" : "fallback";
     if (progress) {
-      progress.addSubStep("collect", "Diagnostic LBC", "done", `Token marque: ${target.make} → ${brandUpper}`);
+      progress.addSubStep("collect", "Diagnostic LBC", "done",
+        `Token marque: ${target.make} → ${effectiveBrand} (${tokenSource})`);
     }
     let coreUrl = "https://www.leboncoin.fr/recherche?category=2";
     if (modelIsGeneric) {
       coreUrl += `&text=${encodeURIComponent(target.make)}`;
     } else {
-      // LBC convention : BRAND_Model (marque majuscule, modele casse originale)
-      // Ex: FORD_Puma, RENAULT_Clio, AUDI_A3 -- PAS FORD_PUMA
-      const modelParam = `${brandUpper}_${target.model}`;
-      coreUrl += `&u_car_brand=${encodeURIComponent(brandUpper)}`;
-      coreUrl += `&u_car_model=${encodeURIComponent(modelParam)}`;
+      coreUrl += `&u_car_brand=${encodeURIComponent(effectiveBrand)}`;
+      coreUrl += `&u_car_model=${encodeURIComponent(effectiveModel)}`;
     }
 
     // GARDE-FOU : quand le serveur redirige vers un AUTRE vehicule du referentiel,
@@ -2249,6 +2510,10 @@
           hp_range: hpRange || null,
           precision: collectedPrecision,
           search_log: searchLog,
+          // Auto-apprentissage : envoyer les tokens DOM pour que le serveur
+          // les persiste sur le Vehicle (accents corrects pour futures recherches)
+          site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
+          site_model_token: isCurrentVehicle ? vehicle.site_model_token : null,
         };
         console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
         const marketResp = await backendFetch(marketUrl, {
@@ -2278,6 +2543,31 @@
           progress.update("collect", "warning", prices.length + " annonces trouvées (minimum " + MIN_PRICES_FOR_ARGUS + ")");
           progress.update("submit", "skip", "Pas assez de données");
           progress.update("bonus", "skip");
+        }
+
+        // Reporter la recherche echouee au serveur pour diagnostic
+        // (URLs mal construites, tokens manquants, etc.)
+        try {
+          const failedUrl = API_URL.replace("/analyze", "/market-prices/failed-search");
+          await backendFetch(failedUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              make: target.make,
+              model: target.model,
+              year: parseInt(target.year, 10),
+              region: targetRegion,
+              fuel: targetFuel || null,
+              hp_range: hpRange || null,
+              brand_token_used: effectiveBrand,
+              model_token_used: effectiveModel,
+              token_source: tokenSource,
+              search_log: searchLog,
+            }),
+          });
+          console.log("[CoPilot] failed search reported to server");
+        } catch (e) {
+          console.warn("[CoPilot] failed-search report error:", e);
         }
       }
     } catch (err) {

@@ -33,11 +33,26 @@ _EXCLUDED_CATEGORIES = frozenset({"motos", "equipement_moto", "caravaning", "nau
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
 
+def _lookup_site_tokens(make: str, model: str) -> dict:
+    """Retourne les tokens LBC stockes pour un vehicule (ou dict vide)."""
+    from app.services.vehicle_lookup import find_vehicle
+
+    vehicle = find_vehicle(make, model)
+    result = {}
+    if vehicle:
+        if vehicle.site_brand_token:
+            result["site_brand_token"] = vehicle.site_brand_token
+        if vehicle.site_model_token:
+            result["site_model_token"] = vehicle.site_model_token
+    return result
+
+
 def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
     """Pick pending jobs from the queue and serialize them for the API response."""
     picked = pick_bonus_jobs(max_jobs=max_jobs)
-    return [
-        {
+    result = []
+    for j in picked:
+        entry = {
             "make": j.make,
             "model": j.model,
             "year": j.year,
@@ -47,8 +62,10 @@ def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
             "hp_range": j.hp_range,
             "job_id": j.id,
         }
-        for j in picked
-    ]
+        tokens = _lookup_site_tokens(j.make, j.model)
+        entry.update(tokens)
+        result.append(entry)
+    return result
 
 
 class PriceDetail(BaseModel):
@@ -91,6 +108,9 @@ class MarketPricesRequest(BaseModel):
     fiscal_hp: int | None = Field(default=None, ge=1, le=100)
     lbc_estimate_low: int | None = Field(default=None, ge=0)
     lbc_estimate_high: int | None = Field(default=None, ge=0)
+    # Tokens LBC auto-appris depuis le DOM (accents corrects pour les URLs de recherche)
+    site_brand_token: str | None = Field(default=None, max_length=120)
+    site_model_token: str | None = Field(default=None, max_length=200)
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -202,6 +222,12 @@ def submit_market_prices():
             }
         ), 500
 
+    # Auto-apprendre les tokens LBC depuis le DOM de l'extension.
+    # Ces tokens contiennent les accents corrects (ex: "BMW_Série 3")
+    # et sont necessaires pour construire les URLs de recherche LBC.
+    if req.site_brand_token or req.site_model_token:
+        _persist_site_tokens(req.make, req.model, req.site_brand_token, req.site_model_token)
+
     return jsonify(
         {
             "success": True,
@@ -213,6 +239,42 @@ def submit_market_prices():
             },
         }
     )
+
+
+def _persist_site_tokens(
+    make: str, model: str, brand_token: str | None, model_token: str | None
+) -> None:
+    """Persiste les tokens LBC sur le Vehicle correspondant.
+
+    Les tokens proviennent du DOM de l'annonce LBC (lien "Voir d'autres annonces").
+    Ils contiennent les accents corrects (ex: "BMW_Série 3") indispensables
+    pour construire des URLs de recherche fonctionnelles.
+
+    Ne met a jour que si le vehicule existe dans le referentiel.
+    """
+    from app.services.vehicle_lookup import find_vehicle
+
+    vehicle = find_vehicle(make, model)
+    if not vehicle:
+        return
+
+    updated = False
+    if brand_token and vehicle.site_brand_token != brand_token:
+        vehicle.site_brand_token = brand_token
+        updated = True
+    if model_token and vehicle.site_model_token != model_token:
+        vehicle.site_model_token = model_token
+        updated = True
+
+    if updated:
+        db.session.commit()
+        logger.info(
+            "Auto-learned LBC tokens for %s %s: brand=%s model=%s",
+            make,
+            model,
+            brand_token,
+            model_token,
+        )
 
 
 @api_bp.route("/market-prices/job-done", methods=["POST"])
@@ -339,6 +401,7 @@ def next_market_job():
 
     if not current or current.collected_at < cutoff:
         bonus = _pick_and_serialize_bonus()
+        tokens = _lookup_site_tokens(make, model)
         logger.info(
             "next-job: vehicule courant %s %s %s a collecter (+%d bonus)",
             make,
@@ -351,7 +414,12 @@ def next_market_job():
                 "success": True,
                 "data": {
                     "collect": True,
-                    "vehicle": {"make": make, "model": model, "year": year},
+                    "vehicle": {
+                        "make": make,
+                        "model": model,
+                        "year": year,
+                        **tokens,
+                    },
                     "region": region,
                     "bonus_jobs": bonus,
                 },
@@ -416,6 +484,7 @@ def next_market_job():
 
     if best_candidate:
         bonus = _pick_and_serialize_bonus()
+        tokens = _lookup_site_tokens(best_candidate[0], best_candidate[1])
         logger.info(
             "next-job: redirection vers %s %s pour region %s (+%d bonus)",
             best_candidate[0],
@@ -433,6 +502,7 @@ def next_market_job():
                         "make": best_candidate[0],
                         "model": best_candidate[1],
                         "year": best_candidate[2],
+                        **tokens,
                     },
                     "region": region,
                     "bonus_jobs": bonus,
@@ -444,3 +514,78 @@ def next_market_job():
     bonus = _pick_and_serialize_bonus()
     logger.info("next-job: tout est a jour pour la region %s (+%d bonus)", region, len(bonus))
     return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": bonus}})
+
+
+@api_bp.route("/market-prices/failed-search", methods=["POST"])
+@limiter.limit("30/minute")
+def report_failed_search():
+    """Recoit un rapport de recherche echouee (0 annonces sur toutes les strategies).
+
+    Permet d'identifier les URLs mal construites (tokens manquants, accents, etc.)
+    et d'apprendre rapidement des erreurs.
+
+    Body JSON :
+        { make, model, year, region, search_log: [...], brand_token_used, model_token_used, token_source }
+    """
+    import json as json_mod
+
+    from app.models.failed_search import FailedSearch
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(
+            {"success": False, "error": "VALIDATION_ERROR", "message": "JSON requis.", "data": None}
+        ), 400
+
+    make = data.get("make", "")
+    model_name = data.get("model", "")
+    year = data.get("year")
+    region = data.get("region", "")
+
+    if not make or not model_name or not region:
+        return jsonify(
+            {
+                "success": False,
+                "error": "MISSING_FIELDS",
+                "message": "make, model, region requis.",
+                "data": None,
+            }
+        ), 400
+
+    search_log = data.get("search_log")
+    total_ads = sum(s.get("ads_found", 0) for s in search_log) if search_log else 0
+
+    entry = FailedSearch(
+        make=make,
+        model=model_name,
+        year=int(year) if year else 0,
+        region=region,
+        fuel=data.get("fuel"),
+        hp_range=data.get("hp_range"),
+        brand_token_used=data.get("brand_token_used"),
+        model_token_used=data.get("model_token_used"),
+        token_source=data.get("token_source"),
+        search_log=json_mod.dumps(search_log) if search_log else None,
+        total_ads_found=total_ads,
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    logger.warning(
+        "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d)",
+        make,
+        model_name,
+        entry.year,
+        region,
+        entry.token_source,
+        total_ads,
+    )
+
+    return jsonify(
+        {
+            "success": True,
+            "error": None,
+            "message": None,
+            "data": {"id": entry.id, "total_ads_found": total_ads},
+        }
+    )

@@ -184,3 +184,51 @@ class TestExtractAdData:
         assert result["raw_attributes"]["variant"] == "A6 Allroad"
         # Mais le key_label "Modele" doit garder la premiere valeur (first-wins)
         assert result["raw_attributes"]["Modèle"] == "A6"
+
+    def test_region_old_name_normalized_to_post_2016(self):
+        """LBC envoie parfois les anciens noms de regions (pre-reforme 2016)."""
+        data = {
+            "props": {
+                "pageProps": {
+                    "ad": {
+                        "list_id": 777,
+                        "subject": "BMW Serie 3",
+                        "price": 15990,
+                        "location": {"region_name": "Aquitaine", "city": "Pau"},
+                        "attributes": [
+                            {"key": "brand", "value_label": "Bmw"},
+                            {"key": "model", "value_label": "Serie 3"},
+                        ],
+                    }
+                }
+            }
+        }
+        result = extract_ad_data(data)
+        assert result["location"]["region"] == "Nouvelle-Aquitaine"
+
+    def test_region_post_2016_unchanged(self):
+        """Les noms post-2016 ne sont pas modifies."""
+        result = extract_ad_data(VALID_AD_NEXT_DATA)
+        assert result["location"]["region"] == "Auvergne-Rhone-Alpes"
+
+    @pytest.mark.parametrize(
+        "old_region,expected",
+        [
+            ("Alsace", "Grand Est"),
+            ("Lorraine", "Grand Est"),
+            ("Nord-Pas-de-Calais", "Hauts-de-France"),
+            ("Picardie", "Hauts-de-France"),
+            ("Languedoc-Roussillon", "Occitanie"),
+            ("Midi-Pyrenees", "Occitanie"),
+            ("Haute-Normandie", "Normandie"),
+            ("Basse-Normandie", "Normandie"),
+            ("Bourgogne", "Bourgogne-Franche-Comte"),
+            ("Limousin", "Nouvelle-Aquitaine"),
+            ("Auvergne", "Auvergne-Rhone-Alpes"),
+        ],
+    )
+    def test_region_old_names_all_mapped(self, old_region, expected):
+        """Toutes les anciennes regions sont mappees vers les nouvelles."""
+        from app.services.extraction import _normalize_region
+
+        assert _normalize_region(old_region) == expected
