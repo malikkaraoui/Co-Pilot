@@ -186,6 +186,8 @@ if [ "$NEED_SEED" = true ] || [ "$FORCE_SEED" = true ]; then
   ok "Référentiel véhicules (70 modèles)"
   python data/seeds/seed_argus.py
   ok "Cotations Argus (seeds)"
+  python data/seeds/seed_gemini_prompt.py
+  ok "Prompt Gemini email (seed)"
   # YouTube seeds are long-running (~17 min) -- run manually with:
   #   python data/seeds/seed_youtube.py
 else
