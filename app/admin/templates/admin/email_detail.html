@@ -110,7 +110,24 @@
               <td class="text-center">
                 <span class="badge badge-{{ f.status }}">{{ f.status }}</span>
               </td>
-              <td style="font-size:12px">{{ f.message or '-' }}</td>
+              <td style="font-size:12px">
+                {{ f.message or '-' }}
+                {% if f.filter_id == 'L4' and f.details %}
+                  <div style="margin-top:4px">
+                    {% if f.details.source == 'marche_leboncoin' %}
+                      <span class="badge" style="background:#dbeafe;color:#1e40af">Source : March&eacute; LBC ({{ f.details.sample_count or '?' }} annonces)</span>
+                    {% elif f.details.source == 'argus_seed' %}
+                      <span class="badge" style="background:#fef3c7;color:#92400e">Source : Argus seed</span>
+                    {% elif f.details.source == 'estimation_lbc' %}
+                      <span class="badge" style="background:#fee2e2;color:#991b1b">Source : Estimation LBC</span>
+                    {% endif %}
+                    {% if f.details.price_reference %}
+                      <strong style="margin-left:6px">{{ f.details.price_reference|int }} &euro;</strong>
+                      <span style="color:#6b7280;font-size:11px">(r&eacute;f&eacute;rence retenue)</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>

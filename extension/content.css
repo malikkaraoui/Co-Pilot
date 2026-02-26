@@ -172,7 +172,7 @@
   white-space: nowrap;
 }
 
-/* ── Jauge circulaire ─────────────────────────────────────── */
+/* ── Jauge circulaire (legacy, conserve pour compatibilite) ── */
 .copilot-popup-gauge {
   padding: 24px;
   text-align: center;
@@ -198,6 +198,73 @@
   font-size: 16px;
   font-weight: 600;
   margin: 8px 0 0;
+}
+
+/* ── Radar chart (vue en araignee) ───────────────────────── */
+.copilot-radar-section {
+  text-align: center;
+  padding: 12px 0 8px;
+}
+
+.copilot-radar-svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.copilot-radar-grid {
+  fill: none;
+  stroke: var(--copilot-border);
+  stroke-width: 0.8;
+}
+
+.copilot-radar-grid-outer {
+  fill: none;
+  stroke: #d1d5db;
+  stroke-width: 1;
+}
+
+.copilot-radar-axis-line {
+  stroke: var(--copilot-border);
+  stroke-width: 0.5;
+}
+
+.copilot-radar-dot {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.copilot-radar-axis-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  font-family: var(--copilot-font);
+  fill: var(--copilot-text-secondary);
+}
+
+.copilot-radar-axis-label.fail {
+  fill: var(--copilot-red);
+  font-weight: 700;
+}
+
+.copilot-radar-axis-label.warning {
+  fill: #b45309;
+  font-weight: 700;
+}
+
+.copilot-radar-axis-label.pass {
+  fill: var(--copilot-text-secondary);
+}
+
+.copilot-radar-score {
+  font-size: 28px;
+  font-weight: 800;
+  font-family: var(--copilot-font);
+}
+
+.copilot-radar-score-label {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--copilot-text-secondary);
+  font-family: var(--copilot-font);
 }
 
 /* ── Liste des filtres ────────────────────────────────────── */
@@ -1031,4 +1098,152 @@
 @keyframes copilot-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Barre de prix Argus (L4) — verdict ultra lisible
+   ══════════════════════════════════════════════════════════════ */
+
+.copilot-price-bar-container {
+  margin: 8px 0 0 0;
+}
+
+/* Big verdict banner */
+.copilot-price-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.copilot-price-verdict-emoji {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.copilot-price-verdict-text {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.copilot-price-verdict-pct {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.copilot-price-verdict.verdict-below {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.copilot-price-verdict.verdict-above-warning {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.copilot-price-verdict.verdict-above-fail {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.copilot-price-verdict.verdict-fair {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+/* Bar track */
+.copilot-price-bar-track {
+  position: relative;
+  height: 6px;
+  background: var(--copilot-border);
+  border-radius: 3px;
+  margin: 0 12px;
+}
+
+/* Colored fill zone between markers */
+.copilot-price-bar-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* Dashed line between markers */
+.copilot-price-arrow-zone {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 0;
+  border-top: 2px dashed;
+  opacity: 0.4;
+  z-index: 1;
+}
+
+/* Market reference: vertical line + label */
+.copilot-price-market-ref {
+  position: absolute;
+  top: -8px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 3;
+}
+
+.copilot-price-market-line {
+  width: 2px;
+  height: 22px;
+  background: var(--copilot-text);
+  border-radius: 1px;
+}
+
+.copilot-price-market-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--copilot-text);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.copilot-price-market-price {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--copilot-text-secondary);
+  white-space: nowrap;
+}
+
+/* Car emoji marker for annonce price */
+.copilot-price-car {
+  position: absolute;
+  top: -10px;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.copilot-price-car-emoji {
+  font-size: 20px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
+}
+
+.copilot-price-car-price {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+/* Spacer for labels below bar */
+.copilot-price-bar-spacer {
+  height: 42px;
 }

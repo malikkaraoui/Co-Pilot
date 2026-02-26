@@ -1973,7 +1973,7 @@ def llm_config():
 
     # Historique 7 jours
     week_ago = today - timedelta(days=7)
-    daily_usage = (
+    daily_usage_rows = (
         db.session.query(
             func.date(LLMUsage.created_at),
             func.sum(LLMUsage.total_tokens),
@@ -1986,6 +1986,9 @@ def llm_config():
         .group_by(func.date(LLMUsage.created_at))
         .all()
     )
+    daily_usage = [
+        [str(row[0]), int(row[1] or 0), float(row[2] or 0), int(row[3])] for row in daily_usage_rows
+    ]
 
     return render_template(
         "admin/llm.html",
