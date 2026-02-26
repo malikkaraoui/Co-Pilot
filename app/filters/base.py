@@ -49,12 +49,16 @@ class BaseFilter(ABC):
             Un FilterResult contenant le verdict du filtre.
         """
 
-    def skip(self, message: str = "Filtre non applicable") -> FilterResult:
+    def skip(
+        self,
+        message: str = "Filtre non applicable",
+        details: dict[str, Any] | None = None,
+    ) -> FilterResult:
         """Retourne un resultat skip pour ce filtre."""
         return FilterResult(
             filter_id=self.filter_id,
             status="skip",
             score=0.0,
             message=message,
-            details=None,
+            details=details,
         )

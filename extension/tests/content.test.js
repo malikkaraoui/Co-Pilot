@@ -37,6 +37,7 @@ const {
   SIMULATED_FILTERS,
   API_URL,
   getAdDetails,
+  reportJobDone,
 } = require('../content.js');
 
 
@@ -1227,6 +1228,37 @@ describe('maybeCollectMarketPrices', () => {
       expect(searchUrl).toContain('locations=Vienne_38200__45.52172_4.87245_5000_30000');
       expect(searchUrl).not.toContain('rn_');
     });
+
+    it('utilise alias marque LBC pour Mercedes (MERCEDES-BENZ)', async () => {
+      const mercedesVehicle = {
+        make: 'Mercedes',
+        model: 'Classe C',
+        year: '2007',
+        fuel: 'diesel',
+        gearbox: 'Manuelle',
+        horse_power: '136',
+      };
+
+      const fetchMock = mockFetchSequence({
+        jobResponse: makeJobResponse(mercedesVehicle, true, 'Franche-Comté'),
+        searchHTML: makeSearchHTML(makePrices(20, 5000, 300)),
+        submitOk: true,
+      });
+
+      await maybeCollectMarketPrices(mercedesVehicle, makeNextData({
+        region: 'Franche-Comté',
+        attributes: [
+          { key: 'brand', value: 'Mercedes' },
+          { key: 'model', value: 'Classe C' },
+          { key: 'regdate', value: '2007' },
+          { key: 'mileage', value: '199000' },
+        ],
+      }));
+
+      const searchUrl = fetchMock.mock.calls[2][0];
+      expect(searchUrl).toContain('u_car_brand=MERCEDES-BENZ');
+      expect(searchUrl).toContain('u_car_model=MERCEDES-BENZ_Classe%20C');
+    });
   });
 
 
@@ -1855,6 +1887,42 @@ describe('fetchSearchPricesViaApi', () => {
 
     // MAIN world retourne 0 ads → null (pas fallback direct fetch car ok=true)
     expect(result).toBeNull();
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 11b. reportJobDone : bruit runtime MV3 (extension reloaded/unloaded)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('reportJobDone', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    delete global.chrome;
+  });
+
+  afterEach(() => {
+    delete global.fetch;
+    delete global.chrome;
+  });
+
+  it('nemet pas de warning quand le runtime extension est indisponible (localhost)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+    await reportJobDone('http://localhost:5001/api/market-prices/job-done', 42, false);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalled();
+  });
+
+  it('garde un warning pour les erreurs non-benignes', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error('network down'));
+
+    await reportJobDone('https://example.test/job-done', 42, true);
+
+    expect(warnSpy).toHaveBeenCalled();
   });
 });
 

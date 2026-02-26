@@ -21,6 +21,32 @@
     "Vidange en cours ! Le serveur revient dans un instant.",
   ];
 
+  /** Retourne true si le runtime extension Chrome est disponible. */
+  function isChromeRuntimeAvailable() {
+    try {
+      return (
+        typeof chrome !== "undefined"
+        && !!chrome.runtime
+        && typeof chrome.runtime.sendMessage === "function"
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /** Indique si l'URL cible est le backend local (mixed-content si fetch direct). */
+  function isLocalBackendUrl(url) {
+    return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(String(url || ""));
+  }
+
+  /** Classe les erreurs de teardown MV3 comme "benignes" (extension reloaded/unloaded). */
+  function isBenignRuntimeTeardownError(err) {
+    const msg = String(err?.message || err || "").toLowerCase();
+    return msg.includes("extension context invalidated")
+      || msg.includes("runtime_unavailable_for_local_backend")
+      || msg.includes("receiving end does not exist");
+  }
+
   // ── Proxy backend (mixed-content fix) ─────────────────────────
 
   /** Fetch vers le backend Co-Pilot via le background service worker.
@@ -28,38 +54,71 @@
    *  Fallback sur fetch() direct si le runtime n'est pas disponible.
    *  Retourne un objet Response-like (ok, status, json(), text()). */
   async function backendFetch(url, options = {}) {
+    const isLocalBackend = isLocalBackendUrl(url);
+
     // Fallback : pas de runtime Chrome (tests, Safari, …)
-    if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
-      return fetch(url, options);
+    if (!isChromeRuntimeAvailable()) {
+      try {
+        return await fetch(url, options);
+      } catch (err) {
+        if (isLocalBackend) {
+          throw new Error("runtime_unavailable_for_local_backend");
+        }
+        throw err;
+      }
     }
+
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        {
-          action: "backend_fetch",
-          url,
-          method: options.method || "GET",
-          headers: options.headers || null,
-          body: options.body || null,
-        },
-        (resp) => {
-          if (chrome.runtime.lastError || !resp || resp.error) {
-            // Proxy indisponible -- fallback direct
-            fetch(url, options).then(resolve).catch(reject);
-            return;
-          }
-          let parsed;
-          try { parsed = JSON.parse(resp.body); } catch { parsed = null; }
-          resolve({
-            ok: resp.ok,
-            status: resp.status,
-            json: async () => {
-              if (parsed !== null) return parsed;
-              throw new SyntaxError("Invalid JSON");
-            },
-            text: async () => resp.body,
-          });
-        },
-      );
+      try {
+        chrome.runtime.sendMessage(
+          {
+            action: "backend_fetch",
+            url,
+            method: options.method || "GET",
+            headers: options.headers || null,
+            body: options.body || null,
+          },
+          (resp) => {
+            let runtimeErrorMsg = null;
+            try {
+              runtimeErrorMsg = chrome.runtime?.lastError?.message || null;
+            } catch (e) {
+              runtimeErrorMsg = e?.message || "extension context invalidated";
+            }
+
+            if (runtimeErrorMsg || !resp || resp.error) {
+              // Proxy indisponible : fallback fetch direct seulement hors localhost HTTP.
+              fetch(url, options)
+                .then(resolve)
+                .catch((fallbackErr) => {
+                  if (isLocalBackend) {
+                    reject(new Error(runtimeErrorMsg || resp?.error || fallbackErr?.message || "runtime_unavailable_for_local_backend"));
+                    return;
+                  }
+                  reject(fallbackErr);
+                });
+              return;
+            }
+            let parsed;
+            try { parsed = JSON.parse(resp.body); } catch { parsed = null; }
+            resolve({
+              ok: resp.ok,
+              status: resp.status,
+              json: async () => {
+                if (parsed !== null) return parsed;
+                throw new SyntaxError("Invalid JSON");
+              },
+              text: async () => resp.body,
+            });
+          },
+        );
+      } catch (err) {
+        if (isLocalBackend) {
+          reject(err);
+          return;
+        }
+        fetch(url, options).then(resolve).catch(reject);
+      }
     });
   }
 
@@ -300,6 +359,13 @@
     price_argus_low: "Argus (bas)",
     price_argus_high: "Argus (haut)",
     precision: "Précision",
+    lookup_make: "Lookup marque",
+    lookup_model: "Lookup modèle",
+    lookup_year: "Lookup année",
+    lookup_region_key: "Lookup région (clé)",
+    lookup_fuel_input: "Lookup énergie (brute)",
+    lookup_fuel_key: "Lookup énergie (clé)",
+    lookup_min_samples: "Seuil min annonces",
   };
 
   /** Labels de precision (echelle 1-5). */
@@ -1062,6 +1128,17 @@
   /** Categories LBC exclues de la collecte de prix (pas des voitures). */
   const EXCLUDED_CATEGORIES = ["motos", "equipement_moto", "caravaning", "nautisme"];
 
+  /** Alias marque internes -> token marque attendu par LBC dans u_car_brand. */
+  const LBC_BRAND_ALIASES = {
+    MERCEDES: "MERCEDES-BENZ",
+  };
+
+  /** Normalise la marque pour l'URL LBC (u_car_brand). */
+  function toLbcBrandToken(make) {
+    const upper = String(make || "").trim().toUpperCase();
+    return LBC_BRAND_ALIASES[upper] || upper;
+  }
+
   /**
    * Extrait l'annee depuis les attributs d'une annonce de recherche LBC.
    * Les ads de recherche ont un format d'attributs different.
@@ -1597,7 +1674,7 @@
     });
 
     // 1. Via background → MAIN world (production : cookies LBC natifs)
-    if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+    if (isChromeRuntimeAvailable()) {
       try {
         const result = await chrome.runtime.sendMessage({
           action: "lbc_api_search",
@@ -1725,6 +1802,10 @@
         body: JSON.stringify({ job_id: jobId, success }),
       });
     } catch (e) {
+      if (isBenignRuntimeTeardownError(e)) {
+        console.debug("[CoPilot] job-done report skipped (extension reloaded/unloaded)");
+        return;
+      }
       console.warn("[CoPilot] job-done report failed:", e);
     }
   }
@@ -1746,7 +1827,7 @@
         await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
 
         // Build LBC URL from job data
-        const brandUpper = job.make.toUpperCase();
+        const brandUpper = toLbcBrandToken(job.make);
         const modelIsGeneric = GENERIC_MODELS.includes((job.model || "").toLowerCase());
         let jobCoreUrl = "https://www.leboncoin.fr/recherche?category=2";
         if (modelIsGeneric) {
@@ -1834,6 +1915,13 @@
           await reportJobDone(jobDoneUrl, job.job_id, false);
         }
       } catch (err) {
+        if (isBenignRuntimeTeardownError(err)) {
+          console.info("[CoPilot] bonus jobs interrompus: extension rechargée/déchargée");
+          if (progress) {
+            progress.update("bonus", "warning", "Extension rechargée, jobs bonus interrompus");
+          }
+          break;
+        }
         console.warn("[CoPilot] bonus job %s failed:", job.region, err);
         await reportJobDone(jobDoneUrl, job.job_id, false);
       }
@@ -1987,7 +2075,10 @@
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
 
     // URL core : marque/modele uniquement (les filtres sont separes pour l'escalade)
-    const brandUpper = target.make.toUpperCase();
+    const brandUpper = toLbcBrandToken(target.make);
+    if (progress) {
+      progress.addSubStep("collect", "Diagnostic LBC", "done", `Token marque: ${target.make} → ${brandUpper}`);
+    }
     let coreUrl = "https://www.leboncoin.fr/recherche?category=2";
     if (modelIsGeneric) {
       coreUrl += `&text=${encodeURIComponent(target.make)}`;
@@ -2267,6 +2358,8 @@
       COLLECT_COOLDOWN_MS,
       SIMULATED_FILTERS,
       API_URL,
+      toLbcBrandToken,
+      LBC_BRAND_ALIASES,
       formatPrecisionStars,
       PRECISION_LABELS,
       getAdDetails,

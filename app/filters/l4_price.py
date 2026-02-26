@@ -38,7 +38,7 @@ class L4PriceFilter(BaseFilter):
 
         # Import local pour eviter les imports circulaires
         from app.services.argus import get_argus_price
-        from app.services.market_service import get_market_stats
+        from app.services.market_service import get_market_stats, normalize_market_text
         from app.services.vehicle_lookup import find_vehicle
 
         make = data.get("make")
@@ -61,7 +61,16 @@ class L4PriceFilter(BaseFilter):
         fuel = (data.get("fuel") or "").strip() or None
         ref_price = None
         source = None
-        details: dict[str, Any] = {"price_annonce": price, "region": region}
+        details: dict[str, Any] = {
+            "price_annonce": price,
+            "region": region,
+            "lookup_make": make,
+            "lookup_model": model,
+            "lookup_year": year,
+            "lookup_region_key": normalize_market_text(region).lower(),
+            "lookup_fuel_input": fuel,
+            "lookup_fuel_key": normalize_market_text(fuel).lower() if fuel else None,
+        }
 
         # Transparence cascade : quels tiers ont ete essayes et avec quel resultat
         cascade_tried: list[str] = []
@@ -77,6 +86,7 @@ class L4PriceFilter(BaseFilter):
             fuel,
         )
         min_samples = self._get_min_samples(data)
+        details["lookup_min_samples"] = min_samples
         market = get_market_stats(make, model, year, region, fuel=fuel)
         cascade_tried.append("market_price")
         if market and market.sample_count >= min_samples:
@@ -164,7 +174,8 @@ class L4PriceFilter(BaseFilter):
                     min_samples,
                 )
                 return self.skip(
-                    f"Données insuffisantes ({market.sample_count} annonces, minimum {min_samples})"
+                    f"Données insuffisantes ({market.sample_count} annonces, minimum {min_samples})",
+                    details=details,
                 )
             logger.info(
                 "L4 no ref: market=%s, tried make=%r model=%r year=%d region=%r",
@@ -174,7 +185,10 @@ class L4PriceFilter(BaseFilter):
                 year,
                 region,
             )
-            return self.skip("Pas de données de référence pour ce modèle dans cette région")
+            return self.skip(
+                "Pas de données de référence pour ce modèle dans cette région",
+                details=details,
+            )
 
         # Comparaison
         delta = price - ref_price

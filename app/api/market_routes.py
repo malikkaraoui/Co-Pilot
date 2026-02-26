@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from flask import jsonify, request
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy import func
 
 from app.api import api_bp
 from app.extensions import db, limiter
@@ -17,6 +18,7 @@ from app.services.market_service import (
     get_min_sample_count,
     market_text_key,
     market_text_key_expr,
+    normalize_market_text,
     store_market_prices,
 )
 
@@ -318,12 +320,22 @@ def next_market_job():
     cutoff = now - timedelta(days=FRESHNESS_DAYS)
 
     # 1. Le vehicule courant a-t-il besoin d'un refresh ?
-    current = MarketPrice.query.filter(
+    # Priorite absolue au vehicule scanne : si l'extension fournit fuel/hp_range,
+    # on exige cette variante exacte (sinon un record generique frais pourrait
+    # masquer l'absence de donnees reellement utiles pour L4).
+    current_filters = [
         market_text_key_expr(MarketPrice.make) == market_text_key(make),
         market_text_key_expr(MarketPrice.model) == market_text_key(model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
-    ).first()
+    ]
+    if fuel:
+        fuel_key = normalize_market_text(fuel).lower()
+        current_filters.append(func.lower(MarketPrice.fuel) == fuel_key)
+    if hp_range:
+        current_filters.append(func.lower(MarketPrice.hp_range) == hp_range.lower())
+
+    current = MarketPrice.query.filter(*current_filters).first()
 
     if not current or current.collected_at < cutoff:
         bonus = _pick_and_serialize_bonus()
@@ -348,7 +360,7 @@ def next_market_job():
 
     # 2. Trouver un autre vehicule qui a besoin de mise a jour dans cette region
     # Sous-requete : dernier collected_at par (make, model) dans cette region
-    from sqlalchemy import case, func
+    from sqlalchemy import case
 
     latest_mp = (
         db.session.query(

@@ -435,6 +435,27 @@ class TestGetMarketStats:
             assert result.year == 2022
             assert result.fuel == "hybride"
 
+    def test_fuel_lookup_is_accent_insensitive(self, app):
+        """Stockage sans accent et lookup accentue doivent matcher."""
+        with app.app_context():
+            store_market_prices(
+                make="Hyundai",
+                model="Kona",
+                year=2022,
+                region="Languedoc-Roussillon",
+                prices=[13000, 14000, 15000, 16000, 17000],
+                fuel="electrique",
+            )
+            result = get_market_stats(
+                "Hyundai",
+                "Kona",
+                2022,
+                "Languedoc-Roussillon",
+                fuel="Électrique",
+            )
+            assert result is not None
+            assert result.fuel == "electrique"
+
 
 class TestUnicodeRegionLookup:
     """Tests que les regions avec accents (ex. Île-de-France) fonctionnent.

@@ -482,7 +482,7 @@ def get_market_stats(
     make_key = market_text_key(make)
     model_key = market_text_key(model)
     region_key = market_text_key(region)
-    fuel_key = fuel.strip().lower() if fuel else None
+    fuel_key = normalize_market_text(fuel).lower() if fuel else None
     hp_range_key = hp_range.strip().lower() if hp_range else None
 
     base_filters = [

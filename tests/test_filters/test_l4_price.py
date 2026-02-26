@@ -5,6 +5,7 @@ from unittest.mock import patch
 from app.filters.l4_price import L4PriceFilter
 from app.models.argus import ArgusPrice
 from app.models.vehicle import Vehicle
+from app.services.market_service import store_market_prices
 
 
 class TestL4PriceFilter:
@@ -80,6 +81,18 @@ class TestL4PriceFilter:
         ):
             result = self.filt.run(self._base_data())
         assert result.status == "skip"
+
+    def test_skip_contains_lookup_diagnostics(self):
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=None),
+            patch("app.services.market_service.get_market_stats", return_value=None),
+        ):
+            result = self.filt.run(self._base_data())
+        assert result.status == "skip"
+        assert result.details is not None
+        assert result.details.get("lookup_make") == "Peugeot"
+        assert result.details.get("lookup_model") == "3008"
+        assert result.details.get("lookup_region_key") is not None
 
     def test_stale_below_market_warns(self):
         """Prix en dessous de la ref + >30 jours = signal anguille sous roche."""
@@ -214,3 +227,36 @@ class TestL4MarketPriceFallback:
         assert result.status == "pass"
         assert result.details["source"] == "marche_leboncoin"
         assert result.details["sample_count"] == 33
+
+
+class TestL4FuelAccentIntegration:
+    """Tests d'integration L4 pour les carburants accentues (Électrique, etc.)."""
+
+    def test_l4_uses_market_price_with_accented_fuel(self, app):
+        """Un fuel accentue dans l'annonce doit retrouver le MarketPrice stocke sans accent."""
+        with app.app_context():
+            store_market_prices(
+                make="Hyundai",
+                model="Kona",
+                year=2022,
+                region="Languedoc-Roussillon",
+                prices=[13299, 13990, 14480, 14990, 17900],
+                fuel="electrique",
+                precision=4,
+            )
+
+            filt = L4PriceFilter()
+            result = filt.run(
+                {
+                    "price_eur": 14480,
+                    "make": "Hyundai",
+                    "model": "Kona",
+                    "year_model": "2022",
+                    "fuel": "Électrique",
+                    "location": {"region": "Languedoc-Roussillon"},
+                }
+            )
+
+        assert result.status in {"pass", "warning"}
+        assert result.details["source"] == "marche_leboncoin"
+        assert result.details["sample_count"] >= 3

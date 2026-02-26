@@ -325,6 +325,47 @@ class TestNextMarketJob:
         assert data["success"] is True
         assert data["data"]["collect"] is False
 
+    def test_current_variant_priority_when_generic_is_fresh(self, app, client):
+        """Le vehicule scanne doit etre prioritaire si la variante fuel/hp manque.
+
+        Cas reel : un MarketPrice generique frais (fuel NULL) existe,
+        mais l'annonce demande diesel + hp_range specifique. L'API doit
+        retourner collect=true pour la variante courante, pas rediriger.
+        """
+        with app.app_context():
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            mp_generic = MarketPrice(
+                make="Mercedes",
+                model="Classe C",
+                year=2007,
+                region="Franche-Comté",
+                fuel=None,
+                hp_range=None,
+                price_min=4000,
+                price_median=6500,
+                price_mean=6500,
+                price_max=9000,
+                price_std=1200.0,
+                sample_count=20,
+                collected_at=now,
+                refresh_after=now + timedelta(hours=24),
+            )
+            db.session.add(mp_generic)
+            db.session.commit()
+
+            resp = client.get(
+                "/api/market-prices/next-job"
+                "?make=Mercedes&model=Classe%20C&year=2007&region=Franche-Comté"
+                "&fuel=diesel&hp_range=100-150"
+            )
+            data = resp.get_json()
+
+            assert data["success"] is True
+            assert data["data"]["collect"] is True
+            assert data["data"]["vehicle"]["make"] == "Mercedes"
+            assert data["data"]["vehicle"]["model"] == "Classe C"
+            assert data["data"].get("redirect") is not True
+
     def test_redirects_to_partial_vehicle_first(self, app, client):
         """Vehicles with enrichment_status=partial should be prioritized for redirect."""
         with app.app_context():
