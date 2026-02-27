@@ -87,19 +87,37 @@ def _do_analyze():
             }
         ), 400
 
-    # Extraction des donnees de l'annonce
-    try:
-        ad_data = extract_ad_data(req.next_data)
-    except ExtractionError as exc:
-        logger.warning("Extraction failed: %s", exc)
+    # Validation: au moins un des deux payloads requis
+    if req.next_data is None and req.ad_data is None:
         return jsonify(
             {
                 "success": False,
-                "error": "EXTRACTION_ERROR",
-                "message": "Impossible d'extraire les donnees de cette annonce.",
+                "error": "VALIDATION_ERROR",
+                "message": "next_data ou ad_data requis.",
                 "data": None,
             }
-        ), 422
+        ), 400
+
+    # Extraction des donnees de l'annonce
+    if req.ad_data is not None:
+        # Pre-normalized path (AutoScout24, La Centrale, etc.)
+        ad_data = req.ad_data
+        if req.source:
+            ad_data["source"] = req.source
+    else:
+        # Legacy LBC path
+        try:
+            ad_data = extract_ad_data(req.next_data)
+        except ExtractionError as exc:
+            logger.warning("Extraction failed: %s", exc)
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "EXTRACTION_ERROR",
+                    "message": "Impossible d'extraire les donnees de cette annonce.",
+                    "data": None,
+                }
+            ), 422
 
     # Detection non-voiture : categorie URL + presence marque/modele
     url = req.url or ""
@@ -157,7 +175,7 @@ def _do_analyze():
     try:
         scan = ScanLog(
             url=req.url,
-            raw_data=json_data.get("next_data"),
+            raw_data=json_data.get("next_data") or json_data.get("ad_data"),
             score=score,
             is_partial=is_partial,
             vehicle_make=ad_data.get("make"),
