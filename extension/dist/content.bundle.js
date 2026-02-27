@@ -50,6 +50,21 @@
       return false;
     }
     /**
+     * Indique si l'annonce a un telephone revelable.
+     * @returns {boolean}
+     */
+    hasPhone() {
+      return false;
+    }
+    /**
+     * Collecte les prix du marche pour le vehicule courant.
+     * @param {object} progress - Progress tracker pour l'UI
+     * @returns {Promise<{submitted: boolean}>}
+     */
+    async collectMarketPrices(progress) {
+      return { submitted: false };
+    }
+    /**
      * Retourne les signaux bonus specifiques au site.
      * Affiches dans une section popup dediee, pas envoyes au backend.
      *
@@ -70,9 +85,11 @@
   // extension/extractors/leboncoin.js
   var _backendFetch;
   var _sleep;
+  var _apiUrl;
   function initLbcDeps(deps) {
     _backendFetch = deps.backendFetch;
     _sleep = deps.sleep;
+    _apiUrl = deps.apiUrl;
   }
   function isChromeRuntimeAvailable() {
     try {
@@ -589,9 +606,8 @@
   }
   async function executeBonusJobs(bonusJobs, progress) {
     const MIN_BONUS_PRICES = 5;
-    const API_URL2 = "http://localhost:5001/api/analyze";
-    const marketUrl = API_URL2.replace("/analyze", "/market-prices");
-    const jobDoneUrl = API_URL2.replace("/analyze", "/market-prices/job-done");
+    const marketUrl = _apiUrl.replace("/analyze", "/market-prices");
+    const jobDoneUrl = _apiUrl.replace("/analyze", "/market-prices/job-done");
     if (progress) progress.update("bonus", "running", "Ex\xE9cution de " + bonusJobs.length + " jobs");
     for (const job of bonusJobs) {
       try {
@@ -694,7 +710,6 @@
     if (progress) progress.update("bonus", "done");
   }
   async function maybeCollectMarketPrices(vehicle, nextData, progress) {
-    const API_URL2 = "http://localhost:5001/api/analyze";
     const { make, model, year, fuel, gearbox, horse_power } = vehicle;
     if (!make || !model || !year) return { submitted: false };
     const hp = parseInt(horse_power, 10) || 0;
@@ -728,7 +743,7 @@
     if (progress) progress.update("job", "running");
     const fuelForJob = (fuel || "").toLowerCase();
     const gearboxForJob = (gearbox || "").toLowerCase();
-    const jobUrl = API_URL2.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
+    const jobUrl = _apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
     let jobResp;
     try {
       console.log("[CoPilot] next-job \u2192", jobUrl);
@@ -934,7 +949,7 @@
             return { submitted: false, isCurrentVehicle };
           }
         }
-        const marketUrl = API_URL2.replace("/analyze", "/market-prices");
+        const marketUrl = _apiUrl.replace("/analyze", "/market-prices");
         const payload = {
           make: target.make,
           model: target.model,
@@ -978,7 +993,7 @@
           progress.update("bonus", "skip");
         }
         try {
-          const failedUrl = API_URL2.replace("/analyze", "/market-prices/failed-search");
+          const failedUrl = _apiUrl.replace("/analyze", "/market-prices/failed-search");
           await _backendFetch(failedUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1083,12 +1098,13 @@
     "mhev-gasoline": "Essence",
     "phev-diesel": "Hybride Rechargeable",
     "phev-gasoline": "Hybride Rechargeable",
-    cng: "GPL",
+    cng: "GNV",
     lpg: "GPL",
     hydrogen: "Hydrogene"
   };
   function mapFuelType(fuelType) {
-    return FUEL_MAP[fuelType] || fuelType;
+    const key = (fuelType || "").toLowerCase();
+    return FUEL_MAP[key] || fuelType;
   }
   var TRANSMISSION_MAP = {
     automatic: "Automatique",
@@ -1096,7 +1112,48 @@
     "semi-automatic": "Automatique"
   };
   function mapTransmission(transmission) {
-    return TRANSMISSION_MAP[transmission] || transmission;
+    const key = (transmission || "").toLowerCase();
+    return TRANSMISSION_MAP[key] || transmission;
+  }
+  function* extractJsonObjects(text) {
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] !== "{") {
+        i++;
+        continue;
+      }
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      const start = i;
+      for (let j = i; j < text.length; j++) {
+        const ch = text[j];
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === "\\" && inString) {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (ch === "{") depth++;
+        else if (ch === "}") {
+          depth--;
+          if (depth === 0) {
+            yield text.slice(start, j + 1);
+            i = j + 1;
+            break;
+          }
+        }
+        if (j === text.length - 1) i = j + 1;
+      }
+      if (depth !== 0) break;
+    }
   }
   function parseRSCPayload(doc) {
     const scripts = doc.querySelectorAll("script");
@@ -1105,9 +1162,10 @@
       if (!text.includes('"vehicleCategory"') && !text.includes('"firstRegistrationDate"')) {
         continue;
       }
-      const matches = text.match(/\{[^{}]*"vehicleCategory"[^]*?\}/g);
-      if (!matches) continue;
-      for (const candidate of matches) {
+      for (const candidate of extractJsonObjects(text)) {
+        if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
+          continue;
+        }
         try {
           const parsed = JSON.parse(candidate);
           if (parsed.make && parsed.model) return parsed;
@@ -1143,13 +1201,27 @@
       if (seller["@type"] === "AutoDealer") return "pro";
       return "private";
     }
+    function resolveMake() {
+      if (rsc) {
+        const m = typeof rsc.make === "string" ? rsc.make : rsc.make?.name;
+        if (m) return m;
+      }
+      return ld.brand?.name || (typeof ld.brand === "string" ? ld.brand : null) || null;
+    }
+    function resolveModel() {
+      if (rsc) {
+        const m = typeof rsc.model === "string" ? rsc.model : rsc.model?.name;
+        if (m) return m;
+      }
+      return ld.model || null;
+    }
     if (rsc) {
       return {
         title: rsc.versionFullName || ld.name || null,
         price_eur: rsc.price ?? offers.price ?? null,
         currency: offers.priceCurrency || null,
-        make: rsc.make?.name || ld.brand?.name || null,
-        model: rsc.model?.name || ld.model || null,
+        make: resolveMake(),
+        model: resolveModel(),
         year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || null,
         mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
         fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : engine.fuelType || null,
@@ -2177,7 +2249,7 @@
     if (vehicleLabel && summary?.make) {
       vehicleLabel.textContent = [summary.make, summary.model, summary.year].filter(Boolean).join(" ");
     }
-    if (extractor.hasPhone && extractor.hasPhone()) {
+    if (extractor.hasPhone()) {
       if (extractor.isLoggedIn()) {
         progress.update("phone", "running");
         const phone = await extractor.revealPhone();
@@ -2193,17 +2265,20 @@
       progress.update("phone", "skip", "Pas de t\xE9l\xE9phone");
     }
     let collectInfo = { submitted: false };
-    if (typeof extractor.collectMarketPrices === "function") {
-      collectInfo = await extractor.collectMarketPrices(progress).catch((err) => {
-        console.error("[CoPilot] collectMarketPrices erreur:", err);
-        progress.update("job", "error", "Erreur collecte");
-        return { submitted: false };
-      });
-    } else {
-      progress.update("job", "skip", "Collecte non disponible");
-      progress.update("collect", "skip");
-      progress.update("submit", "skip");
-      progress.update("bonus", "skip");
+    try {
+      collectInfo = await extractor.collectMarketPrices(progress);
+    } catch (err) {
+      console.error("[CoPilot] collectMarketPrices erreur:", err);
+      progress.update("job", "error", "Erreur collecte");
+    }
+    if (!collectInfo.submitted) {
+      const jobEl = document.getElementById("copilot-step-job");
+      if (jobEl && jobEl.getAttribute("data-status") === "pending") {
+        progress.update("job", "skip", "Collecte non disponible");
+        progress.update("collect", "skip");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
     }
     progress.update("analyze", "running");
     const apiBody = payload.type === "raw" ? { url: window.location.href, next_data: payload.next_data } : { url: window.location.href, ad_data: payload.ad_data, source: payload.source };
@@ -2277,7 +2352,7 @@
     removePopup();
     if (window.__copilotRunning) return;
     window.__copilotRunning = true;
-    initLbcDeps({ backendFetch, sleep });
+    initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
     runAnalysis().finally(() => {
       window.__copilotRunning = false;
     });

@@ -868,7 +868,7 @@ async function runAnalysis() {
   }
 
   // Phone
-  if (extractor.hasPhone && extractor.hasPhone()) {
+  if (extractor.hasPhone()) {
     if (extractor.isLoggedIn()) {
       progress.update("phone", "running");
       const phone = await extractor.revealPhone();
@@ -879,17 +879,21 @@ async function runAnalysis() {
 
   // Phase 2: Market prices
   let collectInfo = { submitted: false };
-  if (typeof extractor.collectMarketPrices === 'function') {
-    collectInfo = await extractor.collectMarketPrices(progress).catch((err) => {
-      console.error("[CoPilot] collectMarketPrices erreur:", err);
-      progress.update("job", "error", "Erreur collecte");
-      return { submitted: false };
-    });
-  } else {
-    progress.update("job", "skip", "Collecte non disponible");
-    progress.update("collect", "skip");
-    progress.update("submit", "skip");
-    progress.update("bonus", "skip");
+  try {
+    collectInfo = await extractor.collectMarketPrices(progress);
+  } catch (err) {
+    console.error("[CoPilot] collectMarketPrices erreur:", err);
+    progress.update("job", "error", "Erreur collecte");
+  }
+  if (!collectInfo.submitted) {
+    // Si la collecte n'a rien soumis (site sans collecte ou erreur), skip les etapes UI
+    const jobEl = document.getElementById("copilot-step-job");
+    if (jobEl && jobEl.getAttribute("data-status") === "pending") {
+      progress.update("job", "skip", "Collecte non disponible");
+      progress.update("collect", "skip");
+      progress.update("submit", "skip");
+      progress.update("bonus", "skip");
+    }
   }
 
   // Phase 3: Backend analysis
@@ -960,7 +964,7 @@ function init() {
   removePopup();
   if (window.__copilotRunning) return;
   window.__copilotRunning = true;
-  initLbcDeps({ backendFetch, sleep });
+  initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
   runAnalysis().finally(() => { window.__copilotRunning = false; });
 }
 

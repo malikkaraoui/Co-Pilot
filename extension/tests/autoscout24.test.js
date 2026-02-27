@@ -12,8 +12,12 @@ import {
   mapTransmission,
   normalizeToAdData,
   buildBonusSignals,
+  parseRSCPayload,
+  parseJsonLd,
   AS24_URL_PATTERNS,
 } from '../extractors/autoscout24.js';
+import { getExtractor } from '../extractors/index.js';
+import { JSDOM } from 'jsdom';
 
 
 // ── Fixtures ────────────────────────────────────────────────────────
@@ -231,5 +235,174 @@ describe('buildBonusSignals', () => {
   it('returns empty array for empty RSC', () => {
     const signals = buildBonusSignals({}, {});
     expect(signals).toEqual([]);
+  });
+});
+
+
+// ── 6. getExtractor registry (T1) ────────────────────────────────
+
+describe('getExtractor', () => {
+  it('returns extractor for AutoScout24 URL', () => {
+    const ext = getExtractor('https://www.autoscout24.ch/fr/d/audi-q5-20201676');
+    expect(ext).not.toBeNull();
+    expect(ext.constructor.SITE_ID).toBe('autoscout24');
+  });
+
+  it('returns extractor for LeBonCoin URL', () => {
+    const ext = getExtractor('https://www.leboncoin.fr/ad/voitures/12345');
+    expect(ext).not.toBeNull();
+    expect(ext.constructor.SITE_ID).toBe('leboncoin');
+  });
+
+  it('returns null for unknown URL', () => {
+    expect(getExtractor('https://www.lacentrale.fr/auto-occasion-123.html')).toBeNull();
+    expect(getExtractor('https://www.google.com')).toBeNull();
+    expect(getExtractor('')).toBeNull();
+  });
+});
+
+
+// ── 7. parseRSCPayload with realistic DOM (T2) ─────────────────
+
+describe('parseRSCPayload', () => {
+  it('extracts vehicle from script tag containing nested JSON', () => {
+    const vehicleJson = JSON.stringify({
+      vehicleCategory: 'car',
+      make: { name: 'AUDI' },
+      model: { name: 'Q5' },
+      price: 43900,
+      mileage: 29299,
+      warranty: { duration: 12, mileage: 20000 },
+    });
+    const html = `<html><head>
+      <script>self.__next_f.push([1,"${vehicleJson.replace(/"/g, '\\"')}"])</script>
+    </head><body></body></html>`;
+    // parseRSCPayload looks for the raw JSON in script content, not the escaped string
+    // So we need the JSON directly in the script text
+    const html2 = `<html><head>
+      <script>var data = ${vehicleJson};</script>
+    </head><body></body></html>`;
+    const dom = new JSDOM(html2);
+    const result = parseRSCPayload(dom.window.document);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('AUDI');
+    expect(result.model.name).toBe('Q5');
+    expect(result.warranty.duration).toBe(12);
+  });
+
+  it('returns null when no vehicle data in scripts', () => {
+    const html = '<html><head><script>var x = 1;</script></head><body></body></html>';
+    const dom = new JSDOM(html);
+    expect(parseRSCPayload(dom.window.document)).toBeNull();
+  });
+
+  it('handles deeply nested JSON with balanced braces', () => {
+    const vehicleJson = JSON.stringify({
+      vehicleCategory: 'car',
+      make: { id: 5, name: 'BMW' },
+      model: { id: 23, name: '320' },
+      price: 35000,
+      warranty: { duration: 6, mileage: 10000, type: 'from-delivery' },
+      images: [{ key: '1.jpg' }, { key: '2.jpg' }],
+    });
+    const html = `<html><head><script>window.__data = ${vehicleJson};</script></head><body></body></html>`;
+    const dom = new JSDOM(html);
+    const result = parseRSCPayload(dom.window.document);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('BMW');
+    expect(result.warranty.duration).toBe(6);
+    expect(result.images).toHaveLength(2);
+  });
+});
+
+
+// ── 8. normalizeToAdData with make as string (T3) ──────────────
+
+describe('normalizeToAdData edge cases', () => {
+  it('handles RSC make/model as strings instead of objects', () => {
+    const rsc = {
+      make: 'AUDI',
+      model: 'A3',
+      price: 25000,
+      mileage: 50000,
+    };
+    const ad = normalizeToAdData(rsc, null);
+    expect(ad.make).toBe('AUDI');
+    expect(ad.model).toBe('A3');
+    expect(ad.price_eur).toBe(25000);
+  });
+
+  it('handles mixed: make as object, model as string', () => {
+    const rsc = {
+      make: { name: 'BMW' },
+      model: '320',
+      price: 30000,
+    };
+    const ad = normalizeToAdData(rsc, null);
+    expect(ad.make).toBe('BMW');
+    expect(ad.model).toBe('320');
+  });
+
+  it('falls back to JSON-LD brand when RSC make is null', () => {
+    const rsc = { make: null, model: { name: 'Golf' }, price: 20000 };
+    const jsonLd = { brand: { name: 'Volkswagen' }, model: 'Golf' };
+    const ad = normalizeToAdData(rsc, jsonLd);
+    expect(ad.make).toBe('Volkswagen');
+    expect(ad.model).toBe('Golf');
+  });
+});
+
+
+// ── 9. parseJsonLd edge cases (T7) ─────────────────────────────
+
+describe('parseJsonLd edge cases', () => {
+  it('ignores JSON-LD with @type Product (not Car)', () => {
+    const html = `<html><head>
+      <script type="application/ld+json">${JSON.stringify({
+        "@type": "Product",
+        "name": "Some product",
+      })}</script>
+    </head><body></body></html>`;
+    const dom = new JSDOM(html);
+    expect(parseJsonLd(dom.window.document)).toBeNull();
+  });
+
+  it('ignores JSON-LD with @type Vehicle (not Car)', () => {
+    const html = `<html><head>
+      <script type="application/ld+json">${JSON.stringify({
+        "@type": "Vehicle",
+        "name": "Some vehicle",
+      })}</script>
+    </head><body></body></html>`;
+    const dom = new JSDOM(html);
+    expect(parseJsonLd(dom.window.document)).toBeNull();
+  });
+
+  it('handles malformed JSON-LD gracefully', () => {
+    const html = '<html><head><script type="application/ld+json">{invalid json</script></head><body></body></html>';
+    const dom = new JSDOM(html);
+    expect(parseJsonLd(dom.window.document)).toBeNull();
+  });
+});
+
+
+// ── 10. Case-insensitive mapping (NIT-5) ────────────────────────
+
+describe('case-insensitive mapping', () => {
+  it('mapFuelType handles uppercase', () => {
+    expect(mapFuelType('GASOLINE')).toBe('Essence');
+    expect(mapFuelType('Diesel')).toBe('Diesel');
+    expect(mapFuelType('ELECTRIC')).toBe('Electrique');
+  });
+
+  it('mapTransmission handles uppercase', () => {
+    expect(mapTransmission('AUTOMATIC')).toBe('Automatique');
+    expect(mapTransmission('Manual')).toBe('Manuelle');
+  });
+
+  it('mapFuelType maps cng to GNV (not GPL)', () => {
+    expect(mapFuelType('cng')).toBe('GNV');
+    expect(mapFuelType('CNG')).toBe('GNV');
+    expect(mapFuelType('lpg')).toBe('GPL');
   });
 });

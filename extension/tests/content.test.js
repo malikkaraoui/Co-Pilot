@@ -48,6 +48,7 @@ beforeAll(() => {
   initLbcDeps({
     backendFetch: (url, opts) => fetch(url, opts),
     sleep: () => Promise.resolve(),
+    apiUrl: "http://localhost:5001/api/analyze",
   });
 });
 
@@ -1926,6 +1927,7 @@ describe('reportJobDone', () => {
     initLbcDeps({
       backendFetch: () => { throw new Error('runtime_unavailable_for_local_backend'); },
       sleep: () => Promise.resolve(),
+      apiUrl: "http://localhost:5001/api/analyze",
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
@@ -1939,6 +1941,7 @@ describe('reportJobDone', () => {
     initLbcDeps({
       backendFetch: (url, opts) => fetch(url, opts),
       sleep: () => Promise.resolve(),
+      apiUrl: "http://localhost:5001/api/analyze",
     });
   });
 

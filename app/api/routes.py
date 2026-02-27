@@ -120,11 +120,15 @@ def _do_analyze():
             ), 422
 
     # Detection non-voiture : categorie URL + presence marque/modele
+    # Note : _extract_url_category ne fonctionne que pour les URLs LBC (/ad/<cat>/).
+    # Pour les sources non-LBC (AutoScout24, etc.), on skip la detection par URL
+    # car leur format d'URL ne contient pas de categorie exploitable.
     url = req.url or ""
-    url_category = _extract_url_category(url)
+    is_lbc_source = req.source is None or req.source == "leboncoin"
+    url_category = _extract_url_category(url) if is_lbc_source else None
     has_vehicle_attrs = bool(ad_data.get("make")) and bool(ad_data.get("model"))
 
-    # Motos : categorie reconnue mais pas encore supportee
+    # Motos : categorie reconnue mais pas encore supportee (LBC uniquement)
     if url_category == "motos":
         logger.info("NOT_SUPPORTED: category=motos, url=%s", url)
         return jsonify(
@@ -136,8 +140,8 @@ def _do_analyze():
             }
         ), 422
 
-    # Autres categories non-voiture sans attributs vehicule
-    if url_category != "voitures" and not has_vehicle_attrs:
+    # Autres categories non-voiture sans attributs vehicule (LBC uniquement)
+    if is_lbc_source and url_category != "voitures" and not has_vehicle_attrs:
         logger.info(
             "NOT_A_VEHICLE: category=%s, make=%r, model=%r",
             url_category,

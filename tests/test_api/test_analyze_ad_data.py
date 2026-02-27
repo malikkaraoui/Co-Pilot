@@ -107,3 +107,44 @@ class TestAnalyzeAdData:
     def test_neither_next_data_nor_ad_data_returns_400(self, client):
         resp = client.post("/api/analyze", json={"url": "https://example.com"})
         assert resp.status_code == 400
+
+    def test_as24_url_with_missing_make_model_does_not_trigger_not_a_vehicle(self, client):
+        """T4: AS24 URL + null make/model must NOT return NOT_A_VEHICLE.
+
+        _extract_url_category only works for LBC URLs. For non-LBC sources,
+        the NOT_A_VEHICLE check should be skipped.
+        """
+        ad_data = _autoscout_ad_data()
+        ad_data["make"] = None
+        ad_data["model"] = None
+        resp = client.post(
+            "/api/analyze",
+            json={
+                "url": "https://www.autoscout24.ch/fr/d/unknown-20201676",
+                "ad_data": ad_data,
+                "source": "autoscout24",
+            },
+        )
+        data = resp.get_json()
+        # Should NOT be NOT_A_VEHICLE (that detection is LBC-specific)
+        assert data.get("error") != "NOT_A_VEHICLE"
+
+    def test_as24_ad_data_with_partial_fields_returns_score(self, client):
+        """T5: AS24 ad_data with minimal fields still returns a score."""
+        resp = client.post(
+            "/api/analyze",
+            json={
+                "url": "https://www.autoscout24.de/angebote/bmw-320-12345",
+                "ad_data": {
+                    "make": "BMW",
+                    "model": "320",
+                    "price_eur": 25000,
+                    "year_model": "2021",
+                },
+                "source": "autoscout24",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert 0 <= data["data"]["score"] <= 100

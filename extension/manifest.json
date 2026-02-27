@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Co-Pilot - Analyse Leboncoin",
+  "name": "Co-Pilot - Analyse Annonces Auto",
   "version": "1.2.0",
-  "description": "Analyse les annonces auto Leboncoin et donne un score de confiance de 0 a 100.",
+  "description": "Analyse les annonces auto (LeBonCoin, AutoScout24) et donne un score de confiance de 0 a 100.",
   "permissions": [
     "activeTab",
     "scripting"
@@ -38,7 +38,7 @@
   "web_accessible_resources": [
     {
       "resources": ["carvertical_logo.png"],
-      "matches": ["https://*.leboncoin.fr/*"]
+      "matches": ["https://*.leboncoin.fr/*", "https://*.autoscout24.*/*"]
     }
   ]
 }

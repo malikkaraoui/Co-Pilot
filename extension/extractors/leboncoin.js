@@ -9,16 +9,17 @@
 import { SiteExtractor } from './base.js';
 
 // ── Dependencies injected by content.js ───────────────────────────
-let _backendFetch, _sleep;
+let _backendFetch, _sleep, _apiUrl;
 
 /**
  * Initialise les dependances injectees par content.js.
- * backendFetch et sleep ne sont pas disponibles dans ce module
+ * backendFetch, sleep et apiUrl ne sont pas disponibles dans ce module
  * (ils vivent dans content.js) -- on les injecte au demarrage.
  */
 export function initLbcDeps(deps) {
   _backendFetch = deps.backendFetch;
   _sleep = deps.sleep;
+  _apiUrl = deps.apiUrl;
 }
 
 // ── Small utilities duplicated from content.js ────────────────────
@@ -724,9 +725,8 @@ export async function reportJobDone(jobDoneUrl, jobId, success) {
  */
 export async function executeBonusJobs(bonusJobs, progress) {
   const MIN_BONUS_PRICES = 5;
-  const API_URL = "http://localhost:5001/api/analyze";
-  const marketUrl = API_URL.replace("/analyze", "/market-prices");
-  const jobDoneUrl = API_URL.replace("/analyze", "/market-prices/job-done");
+  const marketUrl = _apiUrl.replace("/analyze", "/market-prices");
+  const jobDoneUrl = _apiUrl.replace("/analyze", "/market-prices/job-done");
 
   if (progress) progress.update("bonus", "running", "Exécution de " + bonusJobs.length + " jobs");
 
@@ -843,7 +843,6 @@ export async function executeBonusJobs(bonusJobs, progress) {
  * mise a jour, puis collecte les prix sur LeBonCoin.
  */
 export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
-  const API_URL = "http://localhost:5001/api/analyze";
   const { make, model, year, fuel, gearbox, horse_power } = vehicle;
   if (!make || !model || !year) return { submitted: false };
 
@@ -883,7 +882,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   if (progress) progress.update("job", "running");
   const fuelForJob = (fuel || "").toLowerCase();
   const gearboxForJob = (gearbox || "").toLowerCase();
-  const jobUrl = API_URL.replace("/analyze", "/market-prices/next-job")
+  const jobUrl = _apiUrl.replace("/analyze", "/market-prices/next-job")
     + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}`
     + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
     + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "")
@@ -1114,7 +1113,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
            return { submitted: false, isCurrentVehicle };
         }
       }
-      const marketUrl = API_URL.replace("/analyze", "/market-prices");
+      const marketUrl = _apiUrl.replace("/analyze", "/market-prices");
       const payload = {
         make: target.make,
         model: target.model,
@@ -1161,7 +1160,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
 
       // Reporter la recherche echouee au serveur pour diagnostic
       try {
-        const failedUrl = API_URL.replace("/analyze", "/market-prices/failed-search");
+        const failedUrl = _apiUrl.replace("/analyze", "/market-prices/failed-search");
         await _backendFetch(failedUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

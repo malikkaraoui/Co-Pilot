@@ -61,6 +61,23 @@ export class SiteExtractor {
   }
 
   /**
+   * Indique si l'annonce a un telephone revelable.
+   * @returns {boolean}
+   */
+  hasPhone() {
+    return false;
+  }
+
+  /**
+   * Collecte les prix du marche pour le vehicule courant.
+   * @param {object} progress - Progress tracker pour l'UI
+   * @returns {Promise<{submitted: boolean}>}
+   */
+  async collectMarketPrices(progress) {
+    return { submitted: false };
+  }
+
+  /**
    * Retourne les signaux bonus specifiques au site.
    * Affiches dans une section popup dediee, pas envoyes au backend.
    *

@@ -33,7 +33,7 @@ const FUEL_MAP = {
   'mhev-gasoline': 'Essence',
   'phev-diesel': 'Hybride Rechargeable',
   'phev-gasoline': 'Hybride Rechargeable',
-  cng: 'GPL',
+  cng: 'GNV',
   lpg: 'GPL',
   hydrogen: 'Hydrogene',
 };
@@ -45,7 +45,8 @@ const FUEL_MAP = {
  * @returns {string}
  */
 export function mapFuelType(fuelType) {
-  return FUEL_MAP[fuelType] || fuelType;
+  const key = (fuelType || '').toLowerCase();
+  return FUEL_MAP[key] || fuelType;
 }
 
 // ── Transmission mapping ────────────────────────────────────────────
@@ -63,14 +64,51 @@ const TRANSMISSION_MAP = {
  * @returns {string}
  */
 export function mapTransmission(transmission) {
-  return TRANSMISSION_MAP[transmission] || transmission;
+  const key = (transmission || '').toLowerCase();
+  return TRANSMISSION_MAP[key] || transmission;
 }
 
 // ── RSC payload parsing (DOM-dependent) ─────────────────────────────
 
 /**
+ * Extracts balanced JSON objects from a string starting at each '{'.
+ * Uses a brace counter to handle nested objects correctly.
+ * @param {string} text
+ * @returns {Generator<string>}
+ */
+function* extractJsonObjects(text) {
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '{') { i++; continue; }
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    const start = i;
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\' && inString) { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          yield text.slice(start, j + 1);
+          i = j + 1;
+          break;
+        }
+      }
+      if (j === text.length - 1) i = j + 1; // unbalanced, skip
+    }
+    if (depth !== 0) break; // unbalanced remainder, stop
+  }
+}
+
+/**
  * Parses the RSC (React Server Components) payload from the page.
  * Searches all script tags for JSON containing vehicle data.
+ * Uses balanced brace extraction for robust nested JSON handling.
  * @param {Document} doc
  * @returns {object|null}
  */
@@ -81,10 +119,10 @@ export function parseRSCPayload(doc) {
     if (!text.includes('"vehicleCategory"') && !text.includes('"firstRegistrationDate"')) {
       continue;
     }
-    // RSC payloads embed JSON objects within the script; find the vehicle object
-    const matches = text.match(/\{[^{}]*"vehicleCategory"[^]*?\}/g);
-    if (!matches) continue;
-    for (const candidate of matches) {
+    for (const candidate of extractJsonObjects(text)) {
+      if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
+        continue;
+      }
       try {
         const parsed = JSON.parse(candidate);
         if (parsed.make && parsed.model) return parsed;
@@ -145,14 +183,30 @@ export function normalizeToAdData(rsc, jsonLd) {
     return 'private';
   }
 
+  // Resolve make/model: RSC can return string ("AUDI") or object ({name: "AUDI"})
+  function resolveMake() {
+    if (rsc) {
+      const m = typeof rsc.make === 'string' ? rsc.make : rsc.make?.name;
+      if (m) return m;
+    }
+    return ld.brand?.name || (typeof ld.brand === 'string' ? ld.brand : null) || null;
+  }
+  function resolveModel() {
+    if (rsc) {
+      const m = typeof rsc.model === 'string' ? rsc.model : rsc.model?.name;
+      if (m) return m;
+    }
+    return ld.model || null;
+  }
+
   // RSC-first extraction with JSON-LD fallback
   if (rsc) {
     return {
       title: rsc.versionFullName || ld.name || null,
       price_eur: rsc.price ?? offers.price ?? null,
       currency: offers.priceCurrency || null,
-      make: rsc.make?.name || ld.brand?.name || null,
-      model: rsc.model?.name || ld.model || null,
+      make: resolveMake(),
+      model: resolveModel(),
       year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || null,
       mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
       fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : (engine.fuelType || null),
