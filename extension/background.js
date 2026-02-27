@@ -101,7 +101,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .then(() =>
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content.js"],
+        files: ["dist/content.bundle.js"],
       })
     )
     .then(() => {

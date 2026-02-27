@@ -7,7 +7,7 @@
  * Run: npm run test:extension
  */
 
-const {
+import {
   extractVehicleFromNextData,
   extractRegionFromNextData,
   extractLocationFromNextData,
@@ -38,7 +38,18 @@ const {
   API_URL,
   getAdDetails,
   reportJobDone,
-} = require('../content.js');
+} from '../content.js';
+import { initLbcDeps } from '../extractors/leboncoin.js';
+
+// Inject dependencies for leboncoin.js functions used in tests.
+// In the test environment, backendFetch simply delegates to global.fetch
+// (no Chrome runtime available) and sleep is a no-op.
+beforeAll(() => {
+  initLbcDeps({
+    backendFetch: (url, opts) => fetch(url, opts),
+    sleep: () => Promise.resolve(),
+  });
+});
 
 
 // ── Fixtures ────────────────────────────────────────────────────────
@@ -1909,6 +1920,13 @@ describe('reportJobDone', () => {
   });
 
   it('nemet pas de warning quand le runtime extension est indisponible (localhost)', async () => {
+    // Simulate backendFetch behavior when chrome runtime is unavailable for a
+    // localhost URL: it throws "runtime_unavailable_for_local_backend" which is
+    // a benign error that should be caught silently (debug, not warn).
+    initLbcDeps({
+      backendFetch: () => { throw new Error('runtime_unavailable_for_local_backend'); },
+      sleep: () => Promise.resolve(),
+    });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
@@ -1916,6 +1934,12 @@ describe('reportJobDone', () => {
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(debugSpy).toHaveBeenCalled();
+
+    // Restore default test deps
+    initLbcDeps({
+      backendFetch: (url, opts) => fetch(url, opts),
+      sleep: () => Promise.resolve(),
+    });
   });
 
   it('garde un warning pour les erreurs non-benignes', async () => {
