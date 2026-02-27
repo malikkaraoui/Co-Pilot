@@ -9,7 +9,15 @@
   ],
   "host_permissions": [
     "https://*.leboncoin.fr/*",
-    "http://localhost:5001/*"
+    "http://localhost:5001/*",
+    "https://*.autoscout24.ch/*",
+    "https://*.autoscout24.de/*",
+    "https://*.autoscout24.fr/*",
+    "https://*.autoscout24.it/*",
+    "https://*.autoscout24.be/*",
+    "https://*.autoscout24.nl/*",
+    "https://*.autoscout24.at/*",
+    "https://*.autoscout24.es/*"
   ],
   "background": {
     "service_worker": "background.js"
