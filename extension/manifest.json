@@ -10,6 +10,7 @@
   "host_permissions": [
     "https://*.leboncoin.fr/*",
     "http://localhost:5001/*",
+    "https://*.onrender.com/*",
     "https://*.autoscout24.ch/*",
     "https://*.autoscout24.de/*",
     "https://*.autoscout24.fr/*",

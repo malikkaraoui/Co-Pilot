@@ -14,7 +14,11 @@ import {
   buildBonusSignals,
   parseRSCPayload,
   parseJsonLd,
+  extractTld,
+  buildSearchUrl,
+  parseSearchPrices,
   AS24_URL_PATTERNS,
+  AutoScout24Extractor,
 } from '../extractors/autoscout24.js';
 import { getExtractor } from '../extractors/index.js';
 import { JSDOM } from 'jsdom';
@@ -404,5 +408,141 @@ describe('case-insensitive mapping', () => {
     expect(mapFuelType('cng')).toBe('GNV');
     expect(mapFuelType('CNG')).toBe('GNV');
     expect(mapFuelType('lpg')).toBe('GPL');
+  });
+});
+
+
+// ── 11. extractTld ──────────────────────────────────────────────────
+
+describe('extractTld', () => {
+  it('extracts .ch TLD', () => {
+    expect(extractTld('https://www.autoscout24.ch/fr/d/audi-q5-20201676')).toBe('ch');
+  });
+
+  it('extracts .de TLD', () => {
+    expect(extractTld('https://www.autoscout24.de/angebote/bmw-320-12345')).toBe('de');
+  });
+
+  it('extracts .fr TLD', () => {
+    expect(extractTld('https://www.autoscout24.fr/offres/renault-clio-999')).toBe('fr');
+  });
+
+  it('defaults to de for unknown', () => {
+    expect(extractTld('https://www.example.com')).toBe('de');
+  });
+});
+
+
+// ── 12. buildSearchUrl ──────────────────────────────────────────────
+
+describe('buildSearchUrl', () => {
+  it('builds basic search URL', () => {
+    const url = buildSearchUrl('audi', 'q5', 2023, 'ch');
+    expect(url).toContain('autoscout24.ch/lst/audi/q5');
+    expect(url).toContain('fregfrom=2022');
+    expect(url).toContain('fregto=2024');
+  });
+
+  it('includes fuel filter when provided', () => {
+    const url = buildSearchUrl('bmw', '320', 2021, 'de', { fuel: 'diesel' });
+    expect(url).toContain('fuel=diesel');
+  });
+
+  it('applies yearSpread correctly', () => {
+    const url = buildSearchUrl('audi', 'a3', 2020, 'fr', { yearSpread: 2 });
+    expect(url).toContain('fregfrom=2018');
+    expect(url).toContain('fregto=2022');
+  });
+
+  it('uses correct TLD domain', () => {
+    expect(buildSearchUrl('vw', 'golf', 2022, 'it')).toContain('autoscout24.it');
+    expect(buildSearchUrl('vw', 'golf', 2022, 'at')).toContain('autoscout24.at');
+  });
+});
+
+
+// ── 13. parseSearchPrices ───────────────────────────────────────────
+
+describe('parseSearchPrices', () => {
+  it('extracts prices from HTML with price+mileage patterns', () => {
+    const html = `
+      <script>{"price":25000,"mileage":45000,"make":"BMW"}</script>
+      <script>{"price":27500,"mileage":38000,"make":"BMW"}</script>
+      <script>{"price":23000,"mileage":62000,"make":"BMW"}</script>
+    `;
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(3);
+    expect(results[0].price).toBe(25000);
+    expect(results[0].km).toBe(45000);
+    expect(results[1].price).toBe(27500);
+  });
+
+  it('filters out prices below 500', () => {
+    const html = '<script>{"price":100,"mileage":5000}</script><script>{"price":15000,"mileage":30000}</script>';
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(1);
+    expect(results[0].price).toBe(15000);
+  });
+
+  it('filters out prices above 500000', () => {
+    const html = '<script>{"price":999999,"mileage":5000}</script><script>{"price":15000,"mileage":30000}</script>';
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(1);
+  });
+
+  it('deduplicates by price+km', () => {
+    const html = `
+      <script>{"price":25000,"mileage":45000}</script>
+      <script>{"price":25000,"mileage":45000}</script>
+      <script>{"price":26000,"mileage":45000}</script>
+    `;
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(2);
+  });
+
+  it('returns empty array for HTML without listings', () => {
+    const html = '<html><body>No results</body></html>';
+    expect(parseSearchPrices(html)).toEqual([]);
+  });
+});
+
+
+// ── 14. AutoScout24Extractor phone & login ──────────────────────────
+
+describe('AutoScout24Extractor phone & login', () => {
+  it('isLoggedIn always returns true (public data)', () => {
+    const ext = new AutoScout24Extractor();
+    expect(ext.isLoggedIn()).toBe(true);
+  });
+
+  it('hasPhone returns true when phone is in ad_data', () => {
+    const ext = new AutoScout24Extractor();
+    ext._adData = { phone: '+41628929454', make: 'AUDI', model: 'Q5' };
+    expect(ext.hasPhone()).toBe(true);
+  });
+
+  it('hasPhone returns false when no phone', () => {
+    const ext = new AutoScout24Extractor();
+    ext._adData = { make: 'AUDI', model: 'Q5' };
+    expect(ext.hasPhone()).toBe(false);
+  });
+
+  it('hasPhone returns false when adData is null', () => {
+    const ext = new AutoScout24Extractor();
+    expect(ext.hasPhone()).toBe(false);
+  });
+
+  it('revealPhone returns phone from ad_data', async () => {
+    const ext = new AutoScout24Extractor();
+    ext._adData = { phone: '+41628929454' };
+    const phone = await ext.revealPhone();
+    expect(phone).toBe('+41628929454');
+  });
+
+  it('revealPhone returns null when no phone', async () => {
+    const ext = new AutoScout24Extractor();
+    ext._adData = {};
+    const phone = await ext.revealPhone();
+    expect(phone).toBeNull();
   });
 });

@@ -6,7 +6,11 @@ import pytest
 
 from app.models.filter_result import FilterResultDB
 from app.models.scan import ScanLog
-from app.services.email_service import build_email_prompt, generate_email_draft
+from app.services.email_service import (
+    _detect_source,
+    build_email_prompt,
+    generate_email_draft,
+)
 
 
 class TestBuildEmailPrompt:
@@ -102,6 +106,46 @@ class TestBuildEmailPrompt:
         assert "Blanc" in prompt
         assert "Lyon" in prompt
         assert "3" in prompt
+
+    def test_autoscout24_source_uses_site_name(self):
+        """Prompt uses 'AutoScout24' when source is autoscout24."""
+        scan_data = {"make": "AUDI", "model": "Q5", "price_eur": 41266}
+        prompt = build_email_prompt(scan_data, [], source="autoscout24")
+        assert "AutoScout24" in prompt
+        assert "Le Bon Coin" not in prompt
+
+    def test_chf_price_shown_in_original_currency(self):
+        """Prompt shows original CHF price when currency conversion happened."""
+        scan_data = {
+            "make": "AUDI",
+            "model": "Q5",
+            "price_eur": 41266,
+            "price_original": 43900,
+            "currency_original": "CHF",
+        }
+        prompt = build_email_prompt(scan_data, [], source="autoscout24")
+        assert "43900 CHF" in prompt
+        assert "41266" not in prompt
+
+    def test_eur_price_default(self):
+        """Prompt shows EUR price by default (LBC)."""
+        scan_data = {"make": "Peugeot", "model": "208", "price_eur": 15000}
+        prompt = build_email_prompt(scan_data, [])
+        assert "15000 EUR" in prompt
+
+
+class TestDetectSource:
+    def test_lbc_url(self):
+        assert _detect_source("https://www.leboncoin.fr/ad/voitures/123", {}) == "leboncoin"
+
+    def test_as24_url(self):
+        assert _detect_source("https://www.autoscout24.ch/fr/d/audi-q5-123", {}) == "autoscout24"
+
+    def test_as24_from_raw_data(self):
+        assert _detect_source("", {"source": "autoscout24"}) == "autoscout24"
+
+    def test_default_lbc(self):
+        assert _detect_source("", {}) == "leboncoin"
 
 
 class TestGenerateEmailDraft:

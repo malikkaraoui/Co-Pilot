@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build:ext": "node extension/build.js",
+    "build:ext:prod": "node extension/build.js",
     "test:extension": "vitest run --config vitest.config.mjs",
     "verify": "bash scripts/verify.sh",
     "version:patch": "npm version patch --no-git-tag-version && node scripts/update-version.mjs patch",

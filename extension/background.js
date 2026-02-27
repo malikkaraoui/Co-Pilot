@@ -14,7 +14,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "backend_fetch") {
     // Securite : seul le backend local est autorise via le proxy
     const url = String(message.url || "");
-    if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(url)) {
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(url) &&
+        !/^https:\/\/[a-z0-9-]+\.onrender\.com\//i.test(url)) {
       sendResponse({ ok: false, status: 0, body: null, error: "URL not allowed" });
       return true;
     }

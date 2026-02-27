@@ -123,6 +123,21 @@
   margin: 4px 0 0;
 }
 
+.copilot-popup-currency {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.copilot-currency-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 12px;
+}
+
 .copilot-badge-partial {
   display: inline-block;
   margin-top: 8px;

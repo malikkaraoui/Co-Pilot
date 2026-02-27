@@ -25,9 +25,9 @@ _FILTER_NAMES = {
     "L10": "Anciennete annonce",
 }
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_TEMPLATE = """\
 Tu es un acheteur automobile averti qui redige un email au vendeur \
-d'un vehicule d'occasion sur Le Bon Coin.
+d'un vehicule d'occasion sur {site_name}.
 
 REGLES ABSOLUES:
 - Ecris en francais courant, sans fautes, sans emojis, sans markdown
@@ -37,6 +37,21 @@ REGLES ABSOLUES:
 - Si une donnee est manquante (vide ou '?'), ne la mentionne pas
 - Structure: objet, salutation, corps (3-5 paragraphes), proposition RDV, signature
 - Commence par "Objet : " sur la premiere ligne"""
+
+# Mapping source → site display name
+_SOURCE_NAMES = {
+    "leboncoin": "Le Bon Coin",
+    "autoscout24": "AutoScout24",
+}
+
+
+def _detect_source(scan_url: str, raw_data: dict) -> str:
+    """Detecte la source (leboncoin/autoscout24) depuis l'URL ou le raw_data."""
+    if "autoscout24" in (scan_url or ""):
+        return "autoscout24"
+    if raw_data.get("source") == "autoscout24":
+        return "autoscout24"
+    return "leboncoin"
 
 
 def _build_signals_block(filters: list[dict]) -> str:
@@ -118,11 +133,20 @@ def _extract_detail_text(filter_id: str, details: dict) -> str:
     return f" ({', '.join(parts)})" if parts else ""
 
 
-def build_email_prompt(scan_data: dict, filters: list[dict]) -> str:
+def build_email_prompt(scan_data: dict, filters: list[dict], source: str = "leboncoin") -> str:
     """Construit le prompt pour Gemini a partir des donnees d'analyse."""
+    site_name = _SOURCE_NAMES.get(source, source)
     make = scan_data.get("make") or "?"
     model = scan_data.get("model") or "?"
-    price = scan_data.get("price_eur") or scan_data.get("price") or "?"
+
+    # Prix: afficher dans la devise originale si disponible
+    price_original = scan_data.get("price_original")
+    currency_original = scan_data.get("currency_original")
+    if price_original and currency_original:
+        price = f"{price_original} {currency_original}"
+    else:
+        price = str(scan_data.get("price_eur") or scan_data.get("price") or "?") + " EUR"
+
     year = scan_data.get("year_model") or scan_data.get("year") or ""
     mileage = scan_data.get("mileage_km") or ""
     fuel = scan_data.get("fuel") or ""
@@ -158,9 +182,9 @@ def build_email_prompt(scan_data: dict, filters: list[dict]) -> str:
             "les raisons de la vente, et si le vehicule a eu des sinistres."
         )
 
-    example = """\
+    example = f"""\
 --- EXEMPLE DE BON EMAIL ---
-Objet : Demande d'informations - Peugeot 308 2019 - Le Bon Coin
+Objet : Demande d'informations - Peugeot 308 2019 - {site_name}
 
 Bonjour,
 
@@ -197,7 +221,7 @@ VEHICULE:
 - Boite: {gearbox}
 - Couleur: {color}
 - Kilometrage: {mileage} km
-- Prix demande: {price} EUR
+- Prix demande: {price}
 - Localisation: {city}
 - En ligne depuis: {days_online} jours
 - Nombre de photos: {image_count}
@@ -241,13 +265,22 @@ def generate_email_draft(scan_id: int) -> EmailDraft:
     if not scan:
         raise ValueError(f"Scan introuvable: {scan_id}")
 
-    # Reextraire les donnees structurees depuis le raw_data (next_data LBC)
-    raw_next_data = scan.raw_data or {}
-    try:
-        ad_data = extract_ad_data(raw_next_data)
-    except Exception:
-        logger.warning("extract_ad_data failed for scan %d, fallback minimal", scan_id)
-        ad_data = {}
+    # Reextraire les donnees structurees depuis le raw_data.
+    # Pour LBC: raw_data est un next_data qu'on re-extrait.
+    # Pour AS24+: raw_data est deja un ad_data normalise.
+    raw_data = scan.raw_data or {}
+    source = _detect_source(scan.url, raw_data)
+
+    if source != "leboncoin" and raw_data.get("make"):
+        # Pre-normalized ad_data (AutoScout24, etc.)
+        ad_data = raw_data
+    else:
+        # Legacy LBC path
+        try:
+            ad_data = extract_ad_data(raw_data)
+        except Exception:
+            logger.warning("extract_ad_data failed for scan %d, fallback minimal", scan_id)
+            ad_data = {}
 
     # Enrichir avec les champs du ScanLog (plus fiables car normalises)
     scan_data = {**ad_data}
@@ -274,13 +307,15 @@ def generate_email_draft(scan_id: int) -> EmailDraft:
         for fr in filter_results
     ]
 
-    prompt = build_email_prompt(scan_data, filters)
+    prompt = build_email_prompt(scan_data, filters, source=source)
 
-    # Appel Gemini avec system prompt
+    # Appel Gemini avec system prompt adapte a la source
+    site_name = _SOURCE_NAMES.get(source, source)
+    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(site_name=site_name)
     generated_text, total_tokens = gemini_service.generate_text(
         prompt=prompt,
         feature="email_draft",
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         max_output_tokens=1024,
         temperature=0.4,
     )

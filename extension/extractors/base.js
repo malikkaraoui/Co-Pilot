@@ -12,6 +12,21 @@ export class SiteExtractor {
   /** Patterns regex pour detecter le site depuis l'URL. */
   static URL_PATTERNS = [];
 
+  /** @type {Function|null} Backend fetch proxy (injected by content.js) */
+  _fetch = null;
+  /** @type {string|null} API base URL (injected by content.js) */
+  _apiUrl = null;
+
+  /**
+   * Injecte les dependances communes (backendFetch, apiUrl).
+   * Appele par content.js apres construction de l'extracteur.
+   * @param {{fetch: Function, apiUrl: string}} deps
+   */
+  initDeps(deps) {
+    this._fetch = deps.fetch;
+    this._apiUrl = deps.apiUrl;
+  }
+
   /**
    * Detecte si l'URL courante est une page d'annonce.
    * @param {string} url

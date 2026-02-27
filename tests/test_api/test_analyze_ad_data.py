@@ -148,3 +148,81 @@ class TestAnalyzeAdData:
         data = resp.get_json()
         assert data["success"] is True
         assert 0 <= data["data"]["score"] <= 100
+
+    def test_chf_price_converted_to_eur(self, client):
+        """CHF price from AS24.ch should be converted to EUR for filters."""
+        ad_data = _autoscout_ad_data()
+        ad_data["price_eur"] = 43900
+        ad_data["currency"] = "CHF"
+        resp = client.post(
+            "/api/analyze",
+            json={
+                "url": "https://www.autoscout24.ch/fr/d/audi-q5-20201676",
+                "ad_data": ad_data,
+                "source": "autoscout24",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        vehicle = data["data"]["vehicle"]
+        # The vehicle price should be the EUR-converted amount
+        assert vehicle["price"] == round(43900 * 0.94)
+        # Original price and currency should be preserved
+        assert vehicle["price_original"] == 43900
+        assert vehicle["currency"] == "CHF"
+
+    def test_eur_price_not_converted(self, client):
+        """EUR prices should pass through without conversion."""
+        resp = client.post(
+            "/api/analyze",
+            json={
+                "url": "https://www.autoscout24.de/angebote/bmw-320-12345",
+                "ad_data": {
+                    "make": "BMW",
+                    "model": "320",
+                    "price_eur": 25000,
+                    "currency": "EUR",
+                    "year_model": "2021",
+                },
+                "source": "autoscout24",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        vehicle = data["data"]["vehicle"]
+        # No conversion: price stays at 25000, no original/currency fields
+        assert vehicle["price"] == 25000
+        assert "price_original" not in vehicle
+        assert "currency" not in vehicle
+
+    def test_no_currency_field_not_converted(self, client):
+        """LBC ads without currency field should not trigger conversion."""
+        resp = client.post(
+            "/api/analyze",
+            json={
+                "url": "https://www.leboncoin.fr/ad/voitures/12345",
+                "next_data": {
+                    "props": {
+                        "pageProps": {
+                            "ad": {
+                                "list_id": 12345,
+                                "attributes": [
+                                    {"key": "brand", "value": "Peugeot"},
+                                    {"key": "model", "value": "208"},
+                                    {"key": "regdate", "value": "2021"},
+                                ],
+                                "price": [15000],
+                                "images": {"nb_images": 5},
+                                "location": {"region_name": "Ile-de-France"},
+                                "owner": {"type": "private"},
+                            }
+                        }
+                    }
+                },
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        vehicle = data["data"]["vehicle"]
+        assert vehicle["price"] == 15000
+        assert "price_original" not in vehicle

@@ -23,6 +23,29 @@ export const AS24_URL_PATTERNS = [
 
 const AD_PAGE_PATTERN = /autoscout24\.\w+\/.*\/d\/.*-\d+/;
 
+// TLD → country mapping for region field
+const TLD_TO_COUNTRY = {
+  ch: 'Suisse',
+  de: 'Allemagne',
+  fr: 'France',
+  it: 'Italie',
+  at: 'Autriche',
+  be: 'Belgique',
+  nl: 'Pays-Bas',
+  es: 'Espagne',
+};
+
+// TLD → currency
+const TLD_TO_CURRENCY = {
+  ch: 'CHF',
+};
+
+// CHF → EUR rate (same as backend currency_service.py)
+const CHF_TO_EUR = 0.94;
+
+// Minimum prices to submit
+const MIN_PRICES = 5;
+
 // ── Fuel type mapping ───────────────────────────────────────────────
 
 const FUEL_MAP = {
@@ -372,6 +395,74 @@ export function buildBonusSignals(rsc, jsonLd) {
   return signals;
 }
 
+// ── Search helpers for market price collection ──────────────────────
+
+/**
+ * Extracts the TLD from an AutoScout24 URL.
+ * @param {string} url
+ * @returns {string} e.g. 'ch', 'de', 'fr'
+ */
+export function extractTld(url) {
+  const match = url.match(/autoscout24\.(\w+)/);
+  return match ? match[1] : 'de';
+}
+
+/**
+ * Builds an AutoScout24 search URL for similar vehicles.
+ * @param {string} makeKey - Lowercase make key (e.g. 'audi')
+ * @param {string} modelKey - Lowercase model key (e.g. 'q5')
+ * @param {number} year - Target year
+ * @param {string} tld - TLD (e.g. 'ch', 'de')
+ * @param {object} [options]
+ * @param {number} [options.yearSpread=1] - Year range (+/-)
+ * @param {string} [options.fuel] - AS24 fuel key (e.g. 'diesel')
+ * @returns {string}
+ */
+export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
+  const { yearSpread = 1, fuel } = options;
+  const base = `https://www.autoscout24.${tld}/lst/${makeKey}/${modelKey}`;
+  const params = new URLSearchParams({
+    fregfrom: String(year - yearSpread),
+    fregto: String(year + yearSpread),
+    sort: 'standard',
+    desc: '0',
+    atype: 'C',
+    'ustate': 'N,U',
+  });
+  if (fuel) params.set('fuel', fuel);
+  return `${base}?${params}`;
+}
+
+/**
+ * Parses AS24 search result page to extract vehicle prices.
+ * Looks for listing data in script tags (RSC/Next.js chunks).
+ * @param {string} html - Raw HTML of search page
+ * @returns {Array<{price: number, year: number|null, km: number|null, fuel: string|null}>}
+ */
+export function parseSearchPrices(html) {
+  const results = [];
+  // AS24 search results embed listing JSON in script tags.
+  // Each listing has "price" and "mileage" keys.
+  const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
+  let match;
+  while ((match = listingPattern.exec(html)) !== null) {
+    const price = parseInt(match[1], 10);
+    const mileage = parseInt(match[2], 10);
+    if (price > 500 && price < 500000) {
+      results.push({ price, year: null, km: mileage, fuel: null });
+    }
+  }
+
+  // Deduplicate by price+km (same listing can appear in multiple RSC chunks)
+  const seen = new Set();
+  return results.filter((r) => {
+    const key = `${r.price}-${r.km}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // ── AutoScout24Extractor class ──────────────────────────────────────
 
 export class AutoScout24Extractor extends SiteExtractor {
@@ -425,10 +516,28 @@ export class AutoScout24Extractor extends SiteExtractor {
   }
 
   /**
+   * AS24 phone data is public (JSON-LD), no login needed.
    * @returns {boolean}
    */
   isLoggedIn() {
-    return false;
+    return true;
+  }
+
+  /**
+   * Returns the phone number already extracted from JSON-LD.
+   * No DOM interaction needed (unlike LBC where a button click reveals it).
+   * @returns {Promise<string|null>}
+   */
+  async revealPhone() {
+    return this._adData?.phone || null;
+  }
+
+  /**
+   * AS24 ads include the phone in JSON-LD (seller.telephone).
+   * @returns {boolean}
+   */
+  hasPhone() {
+    return Boolean(this._adData?.phone);
   }
 
   /**
@@ -436,5 +545,128 @@ export class AutoScout24Extractor extends SiteExtractor {
    */
   getBonusSignals() {
     return buildBonusSignals(this._rsc, this._jsonLd);
+  }
+
+  /**
+   * Collects market prices from AS24 search results for the current vehicle.
+   * Fetches a search page, parses prices, converts CHF→EUR if needed,
+   * and submits to the backend /api/market-prices endpoint.
+   *
+   * @param {object} progress - Progress tracker for UI updates
+   * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
+   */
+  async collectMarketPrices(progress) {
+    if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    if (!this._fetch || !this._apiUrl) {
+      console.warn('[CoPilot] AS24 collectMarketPrices: deps not injected');
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    const tld = extractTld(window.location.href);
+    const country = TLD_TO_COUNTRY[tld] || 'Europe';
+    const currency = TLD_TO_CURRENCY[tld] || 'EUR';
+    const makeKey = (this._rsc?.make?.key || this._adData.make).toLowerCase();
+    const modelKey = (this._rsc?.model?.key || this._adData.model).toLowerCase();
+    const year = parseInt(this._adData.year_model, 10);
+    const fuelKey = this._rsc?.fuelType || null;
+
+    if (progress) progress.update('job', 'done', `${this._adData.make} ${this._adData.model} ${year} (${country})`);
+
+    // Strategy 1: precise (same TLD, ±1 year, with fuel)
+    // Strategy 2: wider (same TLD, ±2 years, no fuel filter)
+    const strategies = [
+      { yearSpread: 1, fuel: fuelKey, precision: 4, label: 'précise' },
+      { yearSpread: 2, fuel: null, precision: 3, label: 'élargie' },
+    ];
+
+    let prices = [];
+    let usedPrecision = 3;
+
+    for (const strat of strategies) {
+      const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, {
+        yearSpread: strat.yearSpread,
+        fuel: strat.fuel,
+      });
+
+      if (progress) progress.update('collect', 'running', `Recherche ${strat.label}...`);
+
+      try {
+        const resp = await fetch(searchUrl, { credentials: 'same-origin' });
+        if (!resp.ok) {
+          console.warn(`[CoPilot] AS24 search HTTP ${resp.status}: ${searchUrl}`);
+          continue;
+        }
+        const html = await resp.text();
+        prices = parseSearchPrices(html);
+        usedPrecision = strat.precision;
+
+        if (prices.length >= MIN_PRICES) {
+          if (progress) progress.update('collect', 'done', `${prices.length} annonces trouvées`);
+          break;
+        }
+      } catch (err) {
+        console.error('[CoPilot] AS24 search error:', err);
+      }
+    }
+
+    if (prices.length < MIN_PRICES) {
+      if (progress) {
+        progress.update('collect', 'warning', `${prices.length} annonces (min ${MIN_PRICES})`);
+        progress.update('submit', 'skip', 'Pas assez de données');
+        progress.update('bonus', 'skip');
+      }
+      return { submitted: false, isCurrentVehicle: true };
+    }
+
+    // Convert CHF to EUR if needed (market prices must be EUR in backend)
+    let priceInts = prices.map((p) => p.price);
+    let priceDetails = prices;
+    if (currency === 'CHF') {
+      priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+      priceDetails = prices.map((p) => ({
+        ...p,
+        price: Math.round(p.price * CHF_TO_EUR),
+      }));
+    }
+
+    // Submit to backend
+    if (progress) progress.update('submit', 'running');
+    const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
+    const payload = {
+      make: this._adData.make,
+      model: this._adData.model,
+      year,
+      region: country,
+      prices: priceInts,
+      price_details: priceDetails,
+      fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
+      precision: usedPrecision,
+    };
+
+    try {
+      const resp = await this._fetch(marketUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (resp.ok) {
+        if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${country})`);
+        if (progress) progress.update('bonus', 'skip', 'Pas de jobs bonus');
+        return { submitted: true, isCurrentVehicle: true };
+      }
+
+      const errBody = await resp.json().catch(() => null);
+      console.warn('[CoPilot] AS24 market-prices POST failed:', resp.status, errBody);
+      if (progress) progress.update('submit', 'error', `Erreur serveur (${resp.status})`);
+    } catch (err) {
+      console.error('[CoPilot] AS24 market-prices POST error:', err);
+      if (progress) progress.update('submit', 'error', 'Erreur réseau');
+    }
+
+    if (progress) progress.update('bonus', 'skip');
+    return { submitted: false, isCurrentVehicle: true };
   }
 }

@@ -42,5 +42,8 @@ reports/
 # SQLite database (managed via Docker volume in prod)
 data/copilot.db
 
+# Chrome Web Store packaging
+extension.zip
+
 # Ruff
 .ruff_cache/

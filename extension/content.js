@@ -24,7 +24,7 @@ import {
 } from './extractors/leboncoin.js';
 
 // ── Configuration ──────────────────────────────────────────────
-const API_URL = "http://localhost:5001/api/analyze";
+const API_URL = typeof __API_URL__ !== 'undefined' ? __API_URL__ : "http://localhost:5001/api/analyze";
 let lastScanId = null;
 const ERROR_MESSAGES = [
   "Oh mince, on a crevé ! Réessayez dans un instant.",
@@ -540,6 +540,14 @@ function buildResultsPopup(data, options = {}) {
     ? `${vehicle.make || ""} ${vehicle.model || ""} ${vehicle.year || ""}`.trim()
     : "Véhicule";
 
+  // Affichage du prix original quand une conversion de devise a eu lieu
+  let currencyBadge = "";
+  if (vehicle && vehicle.price_original && vehicle.currency) {
+    const fmtOrig = vehicle.price_original.toLocaleString("fr-FR");
+    const fmtEur = vehicle.price.toLocaleString("fr-FR");
+    currencyBadge = `<span class="copilot-currency-badge">${escapeHTML(fmtOrig)} ${escapeHTML(vehicle.currency)} <span style="opacity:0.6">\u2248 ${escapeHTML(fmtEur)} \u20AC</span></span>`;
+  }
+
   const partialBadge = is_partial ? `<span class="copilot-badge-partial">Analyse partielle</span>` : "";
 
   const l9 = (filters || []).find((f) => f.filter_id === "L9");
@@ -583,6 +591,7 @@ function buildResultsPopup(data, options = {}) {
           <button class="copilot-popup-close" id="copilot-close">&times;</button>
         </div>
         <p class="copilot-popup-vehicle">${escapeHTML(vehicleInfo)} ${daysOnlineBadge}</p>
+        ${currencyBadge ? `<p class="copilot-popup-currency">${currencyBadge}</p>` : ""}
         ${partialBadge}
       </div>
       <div class="copilot-radar-section">
@@ -965,6 +974,7 @@ function init() {
   if (window.__copilotRunning) return;
   window.__copilotRunning = true;
   initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
+  extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
   runAnalysis().finally(() => { window.__copilotRunning = false; });
 }
 

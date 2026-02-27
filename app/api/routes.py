@@ -3,6 +3,7 @@
 import logging
 import re
 import traceback
+from typing import Any
 
 import httpx
 from flask import current_app, jsonify, request
@@ -17,6 +18,7 @@ from app.models.scan import ScanLog
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from app.schemas.filter_result import FilterResultSchema
 from app.services import email_service
+from app.services.currency_service import convert_to_eur
 from app.services.extraction import extract_ad_data
 from app.services.scoring import calculate_score
 
@@ -118,6 +120,17 @@ def _do_analyze():
                     "data": None,
                 }
             ), 422
+
+    # Conversion de devise : si le prix est en CHF (ou autre), convertir en EUR
+    # pour que les filtres L4/L5 comparent des pommes avec des pommes.
+    # On preserve le prix original et la devise pour l'affichage.
+    original_currency = ad_data.get("currency")
+    original_price = ad_data.get("price_eur")
+    price_eur, was_converted = convert_to_eur(original_price, original_currency)
+    if was_converted:
+        ad_data["price_eur"] = price_eur
+        ad_data["price_original"] = original_price
+        ad_data["currency_original"] = original_currency
 
     # Detection non-voiture : categorie URL + presence marque/modele
     # Note : _extract_url_category ne fonctionne que pour les URLs LBC (/ad/<cat>/).
@@ -233,18 +246,24 @@ def _do_analyze():
         except (OSError, ValueError, TypeError) as exc:
             logger.debug("Featured video lookup failed: %s", exc)
 
+    vehicle_info: dict[str, Any] = {
+        "make": make,
+        "model": model,
+        "year": ad_data.get("year_model"),
+        "price": ad_data.get("price_eur"),
+        "mileage": ad_data.get("mileage_km"),
+    }
+    # Inclure le prix original si une conversion a ete appliquee
+    if ad_data.get("price_original") is not None:
+        vehicle_info["price_original"] = ad_data["price_original"]
+        vehicle_info["currency"] = ad_data.get("currency_original", "EUR")
+
     response = AnalyzeResponse(
         scan_id=scan.id if scan else None,
         score=score,
         is_partial=is_partial,
         filters=filters_out,
-        vehicle={
-            "make": make,
-            "model": model,
-            "year": ad_data.get("year_model"),
-            "price": ad_data.get("price_eur"),
-            "mileage": ad_data.get("mileage_km"),
-        },
+        vehicle=vehicle_info,
         featured_video=featured_video,
     )
 

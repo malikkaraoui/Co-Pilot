@@ -6,6 +6,19 @@
     static SITE_ID = "";
     /** Patterns regex pour detecter le site depuis l'URL. */
     static URL_PATTERNS = [];
+    /** @type {Function|null} Backend fetch proxy (injected by content.js) */
+    _fetch = null;
+    /** @type {string|null} API base URL (injected by content.js) */
+    _apiUrl = null;
+    /**
+     * Injecte les dependances communes (backendFetch, apiUrl).
+     * Appele par content.js apres construction de l'extracteur.
+     * @param {{fetch: Function, apiUrl: string}} deps
+     */
+    initDeps(deps) {
+      this._fetch = deps.fetch;
+      this._apiUrl = deps.apiUrl;
+    }
     /**
      * Detecte si l'URL courante est une page d'annonce.
      * @param {string} url
@@ -1090,6 +1103,21 @@
     /autoscout24\.\w+\/aanbod\//
   ];
   var AD_PAGE_PATTERN = /autoscout24\.\w+\/.*\/d\/.*-\d+/;
+  var TLD_TO_COUNTRY = {
+    ch: "Suisse",
+    de: "Allemagne",
+    fr: "France",
+    it: "Italie",
+    at: "Autriche",
+    be: "Belgique",
+    nl: "Pays-Bas",
+    es: "Espagne"
+  };
+  var TLD_TO_CURRENCY = {
+    ch: "CHF"
+  };
+  var CHF_TO_EUR = 0.94;
+  var MIN_PRICES = 5;
   var FUEL_MAP = {
     gasoline: "Essence",
     diesel: "Diesel",
@@ -1358,6 +1386,43 @@
     }
     return signals;
   }
+  function extractTld(url) {
+    const match = url.match(/autoscout24\.(\w+)/);
+    return match ? match[1] : "de";
+  }
+  function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
+    const { yearSpread = 1, fuel } = options;
+    const base = `https://www.autoscout24.${tld}/lst/${makeKey}/${modelKey}`;
+    const params = new URLSearchParams({
+      fregfrom: String(year - yearSpread),
+      fregto: String(year + yearSpread),
+      sort: "standard",
+      desc: "0",
+      atype: "C",
+      "ustate": "N,U"
+    });
+    if (fuel) params.set("fuel", fuel);
+    return `${base}?${params}`;
+  }
+  function parseSearchPrices(html) {
+    const results = [];
+    const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
+    let match;
+    while ((match = listingPattern.exec(html)) !== null) {
+      const price = parseInt(match[1], 10);
+      const mileage = parseInt(match[2], 10);
+      if (price > 500 && price < 5e5) {
+        results.push({ price, year: null, km: mileage, fuel: null });
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    return results.filter((r) => {
+      const key = `${r.price}-${r.km}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
   var AutoScout24Extractor = class extends SiteExtractor {
     static SITE_ID = "autoscout24";
     static URL_PATTERNS = AS24_URL_PATTERNS;
@@ -1401,16 +1466,135 @@
       };
     }
     /**
+     * AS24 phone data is public (JSON-LD), no login needed.
      * @returns {boolean}
      */
     isLoggedIn() {
-      return false;
+      return true;
+    }
+    /**
+     * Returns the phone number already extracted from JSON-LD.
+     * No DOM interaction needed (unlike LBC where a button click reveals it).
+     * @returns {Promise<string|null>}
+     */
+    async revealPhone() {
+      return this._adData?.phone || null;
+    }
+    /**
+     * AS24 ads include the phone in JSON-LD (seller.telephone).
+     * @returns {boolean}
+     */
+    hasPhone() {
+      return Boolean(this._adData?.phone);
     }
     /**
      * @returns {Array<{label: string, value: string, status: string}>}
      */
     getBonusSignals() {
       return buildBonusSignals(this._rsc, this._jsonLd);
+    }
+    /**
+     * Collects market prices from AS24 search results for the current vehicle.
+     * Fetches a search page, parses prices, converts CHF→EUR if needed,
+     * and submits to the backend /api/market-prices endpoint.
+     *
+     * @param {object} progress - Progress tracker for UI updates
+     * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
+     */
+    async collectMarketPrices(progress) {
+      if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
+        return { submitted: false, isCurrentVehicle: false };
+      }
+      if (!this._fetch || !this._apiUrl) {
+        console.warn("[CoPilot] AS24 collectMarketPrices: deps not injected");
+        return { submitted: false, isCurrentVehicle: false };
+      }
+      const tld = extractTld(window.location.href);
+      const country = TLD_TO_COUNTRY[tld] || "Europe";
+      const currency = TLD_TO_CURRENCY[tld] || "EUR";
+      const makeKey = (this._rsc?.make?.key || this._adData.make).toLowerCase();
+      const modelKey = (this._rsc?.model?.key || this._adData.model).toLowerCase();
+      const year = parseInt(this._adData.year_model, 10);
+      const fuelKey = this._rsc?.fuelType || null;
+      if (progress) progress.update("job", "done", `${this._adData.make} ${this._adData.model} ${year} (${country})`);
+      const strategies = [
+        { yearSpread: 1, fuel: fuelKey, precision: 4, label: "pr\xE9cise" },
+        { yearSpread: 2, fuel: null, precision: 3, label: "\xE9largie" }
+      ];
+      let prices = [];
+      let usedPrecision = 3;
+      for (const strat of strategies) {
+        const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, {
+          yearSpread: strat.yearSpread,
+          fuel: strat.fuel
+        });
+        if (progress) progress.update("collect", "running", `Recherche ${strat.label}...`);
+        try {
+          const resp = await fetch(searchUrl, { credentials: "same-origin" });
+          if (!resp.ok) {
+            console.warn(`[CoPilot] AS24 search HTTP ${resp.status}: ${searchUrl}`);
+            continue;
+          }
+          const html = await resp.text();
+          prices = parseSearchPrices(html);
+          usedPrecision = strat.precision;
+          if (prices.length >= MIN_PRICES) {
+            if (progress) progress.update("collect", "done", `${prices.length} annonces trouv\xE9es`);
+            break;
+          }
+        } catch (err) {
+          console.error("[CoPilot] AS24 search error:", err);
+        }
+      }
+      if (prices.length < MIN_PRICES) {
+        if (progress) {
+          progress.update("collect", "warning", `${prices.length} annonces (min ${MIN_PRICES})`);
+          progress.update("submit", "skip", "Pas assez de donn\xE9es");
+          progress.update("bonus", "skip");
+        }
+        return { submitted: false, isCurrentVehicle: true };
+      }
+      let priceInts = prices.map((p) => p.price);
+      let priceDetails = prices;
+      if (currency === "CHF") {
+        priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+        priceDetails = prices.map((p) => ({
+          ...p,
+          price: Math.round(p.price * CHF_TO_EUR)
+        }));
+      }
+      if (progress) progress.update("submit", "running");
+      const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
+      const payload = {
+        make: this._adData.make,
+        model: this._adData.model,
+        year,
+        region: country,
+        prices: priceInts,
+        price_details: priceDetails,
+        fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
+        precision: usedPrecision
+      };
+      try {
+        const resp = await this._fetch(marketUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+          if (progress) progress.update("submit", "done", `${priceInts.length} prix envoy\xE9s (${country})`);
+          if (progress) progress.update("bonus", "skip", "Pas de jobs bonus");
+          return { submitted: true, isCurrentVehicle: true };
+        }
+        const errBody = await resp.json().catch(() => null);
+        console.warn("[CoPilot] AS24 market-prices POST failed:", resp.status, errBody);
+        if (progress) progress.update("submit", "error", `Erreur serveur (${resp.status})`);
+      } catch (err) {
+        console.error("[CoPilot] AS24 market-prices POST error:", err);
+        if (progress) progress.update("submit", "error", "Erreur r\xE9seau");
+      }
+      if (progress) progress.update("bonus", "skip");
+      return { submitted: false, isCurrentVehicle: true };
     }
   };
 
@@ -1428,7 +1612,7 @@
   }
 
   // extension/content.js
-  var API_URL = "http://localhost:5001/api/analyze";
+  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
   var lastScanId = null;
   var ERROR_MESSAGES = [
     "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
@@ -1871,6 +2055,12 @@
     const { autovizaUrl, bonusSignals } = options;
     const color = scoreColor(score);
     const vehicleInfo = vehicle ? `${vehicle.make || ""} ${vehicle.model || ""} ${vehicle.year || ""}`.trim() : "V\xE9hicule";
+    let currencyBadge = "";
+    if (vehicle && vehicle.price_original && vehicle.currency) {
+      const fmtOrig = vehicle.price_original.toLocaleString("fr-FR");
+      const fmtEur = vehicle.price.toLocaleString("fr-FR");
+      currencyBadge = `<span class="copilot-currency-badge">${escapeHTML(fmtOrig)} ${escapeHTML(vehicle.currency)} <span style="opacity:0.6">\u2248 ${escapeHTML(fmtEur)} \u20AC</span></span>`;
+    }
     const partialBadge = is_partial ? `<span class="copilot-badge-partial">Analyse partielle</span>` : "";
     const l9 = (filters || []).find((f) => f.filter_id === "L9");
     const daysOnline = l9?.details?.days_online;
@@ -1920,6 +2110,7 @@
           <button class="copilot-popup-close" id="copilot-close">&times;</button>
         </div>
         <p class="copilot-popup-vehicle">${escapeHTML(vehicleInfo)} ${daysOnlineBadge}</p>
+        ${currencyBadge ? `<p class="copilot-popup-currency">${currencyBadge}</p>` : ""}
         ${partialBadge}
       </div>
       <div class="copilot-radar-section">
@@ -2353,6 +2544,7 @@
     if (window.__copilotRunning) return;
     window.__copilotRunning = true;
     initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
+    extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
     runAnalysis().finally(() => {
       window.__copilotRunning = false;
     });
