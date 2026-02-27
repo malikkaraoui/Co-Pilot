@@ -43,6 +43,18 @@ IMPORT_COUNTRIES = [
     "croatie",
 ]
 
+# Noms locaux par pays -- a exclure de la detection d'import sur le site du pays
+_COUNTRY_LOCAL_NAMES: dict[str, set[str]] = {
+    "FR": {"france"},
+    "CH": {"suisse"},
+    "DE": {"allemagne"},
+    "AT": {"autriche"},
+    "IT": {"italie"},
+    "NL": {"pays-bas", "hollande"},
+    "BE": {"belgique"},
+    "ES": {"espagne"},
+}
+
 # Keywords multi-langues (descriptions copiees-collees de sites etrangers)
 IMPORT_KEYWORDS_FOREIGN = [
     # Allemand
@@ -68,6 +80,18 @@ IMPORT_KEYWORDS_FOREIGN = [
     "lhd",
     "imported from",
 ]
+
+# Sous-ensemble allemand (normal sur sites CH/DE/AT)
+_GERMAN_KEYWORDS = {
+    "unfallwagen",
+    "fahrzeug",
+    "kilometerstand",
+    "gebraucht",
+    "automatik",
+    "schaltgetriebe",
+    "erstbesitzer",
+    "unfallfrei",
+}
 
 # Signaux fiscaux / TVA (import pro)
 TAX_KEYWORDS = [
@@ -106,14 +130,30 @@ class L8ImportDetectionFilter(BaseFilter):
 
     filter_id = "L8"
 
+    # Indicatifs locaux par pays (meme mapping que L6)
+    _LOCAL_PREFIXES: dict[str, str] = {
+        "FR": "33",
+        "CH": "41",
+        "DE": "49",
+        "AT": "43",
+        "IT": "39",
+        "NL": "31",
+        "BE": "32",
+        "ES": "34",
+    }
+
     def run(self, data: dict[str, Any]) -> FilterResult:
         signals = []
+        country = (data.get("country") or "FR").upper()
 
         # Signal 1 : Telephone etranger (recoupement avec les donnees L6)
+        # Adapte au pays : +41 n'est pas etranger en Suisse, +49 en Allemagne, etc.
         phone = data.get("phone") or ""
         cleaned_phone = re.sub(r"[\s\-.]", "", phone)
-        if cleaned_phone and re.match(r"^\+(?!33)\d", cleaned_phone):
-            signals.append("Numéro de téléphone avec indicatif étranger")
+        local_prefix = self._LOCAL_PREFIXES.get(country, "33")
+        if cleaned_phone and cleaned_phone.startswith("+"):
+            if not cleaned_phone.startswith("+" + local_prefix):
+                signals.append("Numéro de téléphone avec indicatif étranger")
 
         # Signal 2 : Mots-cles d'import dans la description
         description = (data.get("description") or "").lower()
@@ -121,14 +161,22 @@ class L8ImportDetectionFilter(BaseFilter):
         text = f"{title} {description}"
 
         found_import = [kw for kw in IMPORT_KEYWORDS_FR if kw in text]
-        found_countries = [kw for kw in IMPORT_COUNTRIES if kw in text]
+        # Exclure le pays local de la liste d'import (ex: "suisse" sur .ch)
+        local_country_names = _COUNTRY_LOCAL_NAMES.get(country, set())
+        import_countries = [c for c in IMPORT_COUNTRIES if c not in local_country_names]
+        found_countries = [kw for kw in import_countries if kw in text]
         if found_import:
             signals.append(f"Mention d'import dans l'annonce ({', '.join(found_import[:3])})")
         if found_countries:
             signals.append(f"Pays d'origine mentionné ({', '.join(found_countries[:3])})")
 
         # Signal 3 : Texte en langue etrangere (copier-coller de site etranger)
-        found_foreign = [kw for kw in IMPORT_KEYWORDS_FOREIGN if kw in text]
+        # Sur les sites CH/DE/AT, l'allemand est normal -- ne pas flagger
+        if country in ("CH", "DE", "AT"):
+            foreign_keywords = [kw for kw in IMPORT_KEYWORDS_FOREIGN if kw not in _GERMAN_KEYWORDS]
+        else:
+            foreign_keywords = IMPORT_KEYWORDS_FOREIGN
+        found_foreign = [kw for kw in foreign_keywords if kw in text]
         if found_foreign:
             signals.append(f"Texte en langue étrangère détecté ({', '.join(found_foreign[:3])})")
 
@@ -154,11 +202,18 @@ class L8ImportDetectionFilter(BaseFilter):
             except (ValueError, TypeError):
                 pass
 
-        # Signal 7 : Vendeur professionnel sans SIRET
+        # Signal 7 : Vendeur professionnel sans numero d'entreprise
+        # Skip sur plateformes verifiees (AS24 verifie le statut pro)
         owner_type = data.get("owner_type")
         siret = data.get("siret")
-        if owner_type == "pro" and not siret:
-            signals.append("Vendeur professionnel sans SIRET")
+        source = (data.get("source") or "").lower()
+        if owner_type == "pro" and not siret and source not in ("autoscout24",):
+            if country == "CH":
+                signals.append("Vendeur professionnel sans UID")
+            elif country == "FR":
+                signals.append("Vendeur professionnel sans SIRET")
+            else:
+                signals.append("Vendeur professionnel sans numéro d'entreprise")
 
         # Verdict final
         if not signals:
