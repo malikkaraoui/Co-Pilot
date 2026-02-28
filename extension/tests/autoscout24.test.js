@@ -15,6 +15,7 @@ import {
   parseRSCPayload,
   parseJsonLd,
   extractTld,
+  extractLang,
   buildSearchUrl,
   parseSearchPrices,
   getAs24GearCode,
@@ -596,6 +597,47 @@ describe('buildSearchUrl', () => {
     const url = buildSearchUrl('bmw', '320', 2021, 'de', { fuel: null, gear: null });
     expect(url).not.toContain('fuel=');
     expect(url).not.toContain('gear=');
+  });
+
+  it('includes lang prefix in URL when provided', () => {
+    const url = buildSearchUrl('vw', 'tiguan', 2016, 'ch', { lang: 'fr' });
+    expect(url).toContain('autoscout24.ch/fr/lst/vw/tiguan');
+  });
+
+  it('includes lang prefix for de language', () => {
+    const url = buildSearchUrl('audi', 'q5', 2023, 'ch', { lang: 'de' });
+    expect(url).toContain('autoscout24.ch/de/lst/audi/q5');
+  });
+
+  it('omits lang prefix when lang is null', () => {
+    const url = buildSearchUrl('vw', 'golf', 2022, 'de', { lang: null });
+    expect(url).toContain('autoscout24.de/lst/vw/golf');
+    expect(url).not.toMatch(/autoscout24\.de\/\w+\/lst/);
+  });
+});
+
+
+// ── 12b. extractLang ─────────────────────────────────────────────────
+
+describe('extractLang', () => {
+  it('extracts fr from Swiss French URL', () => {
+    expect(extractLang('https://www.autoscout24.ch/fr/d/vw-tiguan-123')).toBe('fr');
+  });
+
+  it('extracts de from Swiss German URL', () => {
+    expect(extractLang('https://www.autoscout24.ch/de/d/bmw-320-456')).toBe('de');
+  });
+
+  it('extracts it from Swiss Italian URL', () => {
+    expect(extractLang('https://www.autoscout24.ch/it/d/audi-a3-789')).toBe('it');
+  });
+
+  it('returns null for URL without lang prefix', () => {
+    expect(extractLang('https://www.autoscout24.de/angebote/vw-golf-123')).toBeNull();
+  });
+
+  it('extracts nl from Belgian Dutch URL', () => {
+    expect(extractLang('https://www.autoscout24.be/nl/d/vw-polo-123')).toBe('nl');
   });
 });
 

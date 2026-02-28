@@ -314,6 +314,13 @@
 .copilot-filter-item[data-status="fail"] {
   border-left-color: var(--copilot-red);
 }
+.copilot-filter-item[data-status="neutral"] {
+  border-left-color: var(--copilot-gray);
+  opacity: 0.7;
+}
+.copilot-filter-item[data-status="skip"] {
+  border-left-color: var(--copilot-gray);
+}
 
 .copilot-filter-header {
   display: flex;

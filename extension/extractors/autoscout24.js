@@ -781,6 +781,18 @@ export function extractTld(url) {
 }
 
 /**
+ * Extracts the language prefix from an AS24 URL.
+ * AS24.ch uses /fr/, /de/, /it/ ; AS24.be uses /fr/, /nl/.
+ * Monolingual TLDs (de, fr, it, at, nl, es) may not have a prefix.
+ * @param {string} url
+ * @returns {string|null} e.g. 'fr', 'de', 'it', or null
+ */
+export function extractLang(url) {
+  const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
+  return match ? match[1] : null;
+}
+
+/**
  * Builds an AutoScout24 search URL for similar vehicles.
  * Supports all AS24 search filters: fuel, gear, power, mileage, location.
  *
@@ -798,11 +810,13 @@ export function extractTld(url) {
  * @param {number} [options.kmto] - Max mileage
  * @param {string} [options.zip] - ZIP code for geo search
  * @param {number} [options.radius] - Radius in km (requires zip)
+ * @param {string} [options.lang] - Language prefix (e.g. 'fr', 'de')
  * @returns {string}
  */
 export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-  const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius } = options;
-  const base = `https://www.autoscout24.${tld}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
+  const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang } = options;
+  const langSegment = lang ? `/${lang}` : '';
+  const base = `https://www.autoscout24.${tld}${langSegment}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
   const params = new URLSearchParams({
     fregfrom: String(year - yearSpread),
     fregto: String(year + yearSpread),
@@ -965,6 +979,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     const tld = extractTld(window.location.href);
+    const lang = extractLang(window.location.href);
     const countryName = TLD_TO_COUNTRY[tld] || 'Europe';
     const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
     const currency = TLD_TO_CURRENCY[tld] || 'EUR';
@@ -1030,7 +1045,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         progress.update('collect', 'skip', 'Véhicule déjà à jour');
         progress.update('submit', 'skip');
       }
-      await this._executeBonusJobs(queuedJobs, tld, progress);
+      await this._executeBonusJobs(queuedJobs, tld, progress, lang);
       return { submitted: false, isCurrentVehicle: false };
     }
 
@@ -1054,7 +1069,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           progress.update('submit', 'skip');
         }
         if (bonusJobs.length > 0) {
-          await this._executeBonusJobs(bonusJobs, tld, progress);
+          await this._executeBonusJobs(bonusJobs, tld, progress, lang);
         } else if (progress) {
           progress.update('bonus', 'skip');
         }
@@ -1132,7 +1147,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
 
       const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
-      const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, searchOpts);
+      const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
       const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
 
       try {
@@ -1240,7 +1255,7 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     // ── 7. Execute bonus jobs ─────────────────────────────────────
     if (bonusJobs.length > 0) {
-      await this._executeBonusJobs(bonusJobs, tld, progress);
+      await this._executeBonusJobs(bonusJobs, tld, progress, lang);
     } else if (progress) {
       progress.update('bonus', 'skip', 'Pas de jobs bonus');
     }
@@ -1262,7 +1277,7 @@ export class AutoScout24Extractor extends SiteExtractor {
    * @param {string} tld - Current site TLD (ch, de, etc.)
    * @param {object} progress - Progress tracker
    */
-  async _executeBonusJobs(bonusJobs, tld, progress) {
+  async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
     const MIN_BONUS_PRICES = 5;
     const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
     const jobDoneUrl = this._apiUrl.replace('/analyze', '/market-prices/job-done');
@@ -1307,7 +1322,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           searchOpts.radius = 50;
         }
 
-        const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, searchOpts);
+        const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
         const resp = await fetch(searchUrl, { credentials: 'same-origin' });
 
         if (!resp.ok) {

@@ -155,6 +155,7 @@ function statusColor(status) {
     case "warning": return "#f59e0b";
     case "fail": return "#ef4444";
     case "skip": return "#9ca3af";
+    case "neutral": return "#94a3b8";
     default: return "#6b7280";
   }
 }
@@ -165,6 +166,7 @@ function statusIcon(status) {
     case "warning": return "\u26A0";
     case "fail": return "\u2717";
     case "skip": return "\u2014";
+    case "neutral": return "\u25CB";
     default: return "?";
   }
 }
@@ -218,8 +220,12 @@ const RADAR_SHORT_LABELS = {
 function buildRadarSVG(filters, overallScore) {
   if (!filters || !filters.length) return "";
 
+  // Exclure les filtres neutral du radar (non applicables)
+  const activeFilters = filters.filter((f) => f.status !== "neutral");
+  if (!activeFilters.length) return "";
+
   const cx = 160, cy = 145, R = 100;
-  const n = filters.length;
+  const n = activeFilters.length;
   const angleStep = (2 * Math.PI) / n;
   const startAngle = -Math.PI / 2;
 
@@ -250,7 +256,7 @@ function buildRadarSVG(filters, overallScore) {
 
   const dataPts = [];
   for (let i = 0; i < n; i++) {
-    const p = pt(i, R * filters[i].score);
+    const p = pt(i, R * activeFilters[i].score);
     dataPts.push(`${p.x},${p.y}`);
   }
   const dataStr = dataPts.join(" ");
@@ -259,7 +265,7 @@ function buildRadarSVG(filters, overallScore) {
   let labelsSVG = "";
   const labelPad = 18;
   for (let i = 0; i < n; i++) {
-    const f = filters[i];
+    const f = activeFilters[i];
     const score = f.score;
     const dp = pt(i, R * score);
 
@@ -321,7 +327,7 @@ function buildFiltersList(filters) {
           <div class="copilot-filter-header">
             <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
             <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
-            <span class="copilot-filter-score" style="color:${color}">${Math.round(f.score * 100)}%</span>
+            <span class="copilot-filter-score" style="color:${color}">${f.status === "neutral" ? "N/A" : Math.round(f.score * 100) + "%"}</span>
           </div>
           ${priceBarHTML || `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`}
           ${detailsHTML}
@@ -826,7 +832,7 @@ function showProgress() {
     '    <div class="copilot-progress-phase">',
     '      <div class="copilot-progress-phase-title">2. Collecte prix march\u00e9</div>',
     '      <div class="copilot-step" id="copilot-step-job" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Demande au serveur : quel v\u00e9hicule collecter ?</div></div>',
-    '      <div class="copilot-step" id="copilot-step-collect" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte des prix (cascade LeBonCoin)</div></div>',
+    '      <div class="copilot-step" id="copilot-step-collect" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte des prix (cascade recherche)</div></div>',
     '      <div class="copilot-step" id="copilot-step-submit" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Envoi des prix au serveur</div></div>',
     '      <div class="copilot-step" id="copilot-step-bonus" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte bonus multi-r\u00e9gion</div></div>',
     '    </div>',
