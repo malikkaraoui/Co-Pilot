@@ -113,11 +113,7 @@
             <span class="badge badge-{{ d.status }}">{{ d.status }}</span>
           </td>
           <td style="font-size:12px">
-            {% if d.created_at %}
-              {{ d.created_at.strftime('%d/%m/%Y %H:%M') }}
-            {% else %}
-              -
-            {% endif %}
+            {{ d.created_at|localdatetime }}
           </td>
           <td class="text-center">
             <a href="{{ url_for('admin.email_detail', draft_id=d.id) }}"

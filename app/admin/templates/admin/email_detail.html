@@ -76,11 +76,7 @@
         <tr>
           <td class="text-muted">Date</td>
           <td style="font-size:12px">
-            {% if draft.created_at %}
-              {{ draft.created_at.strftime('%d/%m/%Y %H:%M') }}
-            {% else %}
-              -
-            {% endif %}
+            {{ draft.created_at|localdatetime }}
           </td>
         </tr>
         <tr>

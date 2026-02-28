@@ -292,7 +292,7 @@
           <td>{{ s.llm_model }}</td>
           <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
           <td class="text-end">{{ "{:,}".format(s.raw_transcript_chars or 0).replace(",", " ") }}</td>
-          <td style="font-size:12px">{{ s.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+          <td style="font-size:12px">{{ s.created_at|localdatetime }}</td>
           <td class="text-center">
             {% if s.status == 'draft' %}
             <form method="post" action="{{ url_for('admin.youtube_synthesis_validate', synthesis_id=s.id) }}" style="display:inline">

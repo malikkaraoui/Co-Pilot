@@ -281,10 +281,10 @@
             <span style="font-size:12px; color:#64748b">{{ (g.regions or '')|truncate(40) }}</span>
           </td>
           <td>
-            <span class="time-ago">{{ g.first_seen.strftime('%d/%m/%y') if g.first_seen else '-' }}</span>
+            <span class="time-ago">{{ g.first_seen|localdatetime('%d/%m/%Y') }}</span>
           </td>
           <td>
-            <span class="time-ago">{{ g.last_seen.strftime('%d/%m/%y %H:%M') if g.last_seen else '-' }}</span>
+            <span class="time-ago">{{ g.last_seen|localdatetime }}</span>
           </td>
           <td onclick="event.stopPropagation()">
             <a href="{{ url_for('admin.failed_search_detail', make=g.make, model_name=g.model) }}" class="btn btn-sm btn-outline-primary" style="font-size:11px; padding:2px 8px">Detail</a>

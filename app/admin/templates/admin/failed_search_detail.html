@@ -78,11 +78,11 @@
   <div class="row mt-3" style="font-size:13px">
     <div class="col-auto">
       <span class="text-muted">Premier vu :</span>
-      <strong>{{ first_seen.strftime('%d/%m/%Y %H:%M') if first_seen else '-' }}</strong>
+      <strong>{{ first_seen|localdatetime }}</strong>
     </div>
     <div class="col-auto">
       <span class="text-muted">Dernier vu :</span>
-      <strong>{{ last_seen.strftime('%d/%m/%Y %H:%M') if last_seen else '-' }}</strong>
+      <strong>{{ last_seen|localdatetime }}</strong>
     </div>
   </div>
 </div>
@@ -96,7 +96,7 @@
     <div>
       <span class="badge badge-status-{{ rec.status }}" style="font-size:11px">{{ rec.status }}</span>
       <span class="text-muted" style="font-size:12px; margin-left:8px">
-        {{ rec.created_at.strftime('%d/%m/%Y %H:%M') if rec.created_at else '-' }}
+        {{ rec.created_at|localdatetime }}
       </span>
       {% if rec.country %}
       <span class="badge bg-{{ 'primary' if rec.country == 'FR' else 'info' if rec.country == 'CH' else 'secondary' }}" style="font-size:10px; margin-left:4px">{{ rec.country }}</span>

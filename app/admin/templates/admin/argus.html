@@ -116,7 +116,7 @@
         {% set details = m.get_calculation_details() %}
         <tr>
           <td style="font-size:12px; white-space:nowrap">
-            {{ (m.collected_at|localtime).strftime('%d/%m/%Y %H:%M') if m.collected_at else '-' }}
+            {{ m.collected_at|localdatetime }}
           </td>
           <td>
             <strong>{{ m.make }}</strong> {{ m.model }}
@@ -506,7 +506,7 @@
             {% endif %}
           </td>
           <td style="font-size:12px; white-space:nowrap">
-            {{ a.collected_at.strftime('%d/%m/%Y') if a.collected_at else '-' }}
+            {{ a.collected_at|localdatetime('%d/%m/%Y') }}
           </td>
         </tr>
         {% endfor %}
