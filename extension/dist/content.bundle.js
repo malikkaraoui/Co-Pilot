@@ -1183,20 +1183,151 @@
       if (depth !== 0) break;
     }
   }
+  function findVehicleNode(input, depth = 0) {
+    if (!input || depth > 12) return null;
+    if (Array.isArray(input)) {
+      for (const item of input) {
+        const found = findVehicleNode(item, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof input !== "object") return null;
+    const obj = input;
+    const hasMake = !!(typeof obj.make === "string" || obj.make?.name);
+    const hasModel = !!(typeof obj.model === "string" || obj.model?.name);
+    const isRealVehicle = typeof obj.vehicleCategory === "string" || typeof obj.price === "number" || typeof obj.firstRegistrationDate === "string" || typeof obj.mileage === "number";
+    if (hasMake && hasModel && isRealVehicle) return obj;
+    for (const value of Object.values(obj)) {
+      const found = findVehicleNode(value, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  function parseLooselyJsonLd(text) {
+    const cleaned = String(text || "").trim().replace(/^<!--\s*/, "").replace(/\s*-->$/, "").trim();
+    if (!cleaned) return null;
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      return null;
+    }
+  }
+  function isVehicleLikeLdNode(node) {
+    if (!node || typeof node !== "object") return false;
+    const type = String(node["@type"] || "").toLowerCase();
+    if (type === "car") return true;
+    const hasMake = !!(node.brand?.name || node.brand);
+    const hasModel = !!node.model;
+    if (type === "vehicle") return hasMake && hasModel;
+    const hasSignals = !!(node.offers || node.vehicleModelDate || node.mileageFromOdometer || node.vehicleEngine);
+    return hasMake && hasModel && hasSignals;
+  }
+  function findVehicleLikeLdNode(input, depth = 0) {
+    if (!input || depth > 12) return null;
+    if (Array.isArray(input)) {
+      for (const item of input) {
+        const found = findVehicleLikeLdNode(item, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof input !== "object") return null;
+    if (isVehicleLikeLdNode(input)) return input;
+    if (Array.isArray(input["@graph"])) {
+      for (const item of input["@graph"]) {
+        const found = findVehicleLikeLdNode(item, depth + 1);
+        if (found) return found;
+      }
+    }
+    for (const value of Object.values(input)) {
+      const found = findVehicleLikeLdNode(value, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  function extractMakeModelFromUrl(url) {
+    try {
+      const u = new URL(url);
+      const match = u.pathname.match(/\/d\/([^/]+)-(\d+)(?:\/|$)/i);
+      if (!match) return { make: null, model: null };
+      const slug = decodeURIComponent(match[1] || "");
+      const tokens = slug.split("-").filter(Boolean);
+      if (!tokens.length) return { make: null, model: null };
+      return {
+        make: tokens[0] ? tokens[0].toUpperCase() : null,
+        model: tokens[1] ? tokens[1].toUpperCase() : null
+      };
+    } catch {
+      return { make: null, model: null };
+    }
+  }
+  function fallbackAdDataFromDom(doc, url) {
+    const h1 = doc.querySelector("h1")?.textContent?.trim() || null;
+    const title = h1 || doc.querySelector('meta[property="og:title"]')?.getAttribute("content") || doc.title || null;
+    const priceMeta = doc.querySelector('meta[property="product:price:amount"]')?.getAttribute("content");
+    const price = priceMeta ? Number(String(priceMeta).replace(/[^\d.]/g, "")) : null;
+    const currency = doc.querySelector('meta[property="product:price:currency"]')?.getAttribute("content") || null;
+    const fromUrl = extractMakeModelFromUrl(url);
+    return {
+      title,
+      price_eur: Number.isFinite(price) ? price : null,
+      currency,
+      make: fromUrl.make,
+      model: fromUrl.model,
+      year_model: null,
+      mileage_km: null,
+      fuel: null,
+      gearbox: null,
+      doors: null,
+      seats: null,
+      first_registration: null,
+      color: null,
+      power_fiscal_cv: null,
+      power_din_hp: null,
+      location: {
+        city: null,
+        zipcode: null,
+        department: null,
+        region: null,
+        lat: null,
+        lng: null
+      },
+      phone: null,
+      description: null,
+      owner_type: "private",
+      owner_name: null,
+      siret: null,
+      raw_attributes: {},
+      image_count: 0,
+      has_phone: false,
+      has_urgent: false,
+      has_highlight: false,
+      has_boost: false,
+      publication_date: null,
+      days_online: null,
+      index_date: null,
+      days_since_refresh: null,
+      republished: false,
+      lbc_estimation: null
+    };
+  }
   function parseRSCPayload(doc) {
     const scripts = doc.querySelectorAll("script");
     for (const script of scripts) {
       const text = script.textContent || "";
-      if (!text.includes('"vehicleCategory"') && !text.includes('"firstRegistrationDate"')) {
+      if (!text.includes("vehicleCategory") && !text.includes("firstRegistrationDate")) {
         continue;
       }
-      for (const candidate of extractJsonObjects(text)) {
+      const searchText = text.includes("self.__next_f") ? text.replace(/\\+"/g, '"') : text;
+      for (const candidate of extractJsonObjects(searchText)) {
         if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
           continue;
         }
         try {
           const parsed = JSON.parse(candidate);
-          if (parsed.make && parsed.model) return parsed;
+          const vehicle = findVehicleNode(parsed);
+          if (vehicle) return vehicle;
         } catch {
         }
       }
@@ -1206,15 +1337,10 @@
   function parseJsonLd(doc) {
     const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
     for (const script of scripts) {
-      try {
-        const data = JSON.parse(script.textContent || "");
-        if (data["@type"] === "Car") return data;
-        if (Array.isArray(data["@graph"])) {
-          const car = data["@graph"].find((item) => item["@type"] === "Car");
-          if (car) return car;
-        }
-      } catch {
-      }
+      const data = parseLooselyJsonLd(script.textContent || "");
+      if (!data) continue;
+      const vehicle = findVehicleLikeLdNode(data);
+      if (vehicle) return vehicle;
     }
     return null;
   }
@@ -1243,6 +1369,9 @@
       }
       return ld.model || null;
     }
+    const rating = seller.aggregateRating || {};
+    const dealerRating = rating.ratingValue ?? null;
+    const dealerReviewCount = rating.reviewCount ?? null;
     if (rsc) {
       return {
         title: rsc.versionFullName || ld.name || null,
@@ -1273,8 +1402,10 @@
         owner_type: resolveOwnerType(),
         owner_name: seller.name || null,
         siret: null,
+        dealer_rating: dealerRating,
+        dealer_review_count: dealerReviewCount,
         raw_attributes: {},
-        image_count: Array.isArray(rsc.images) ? rsc.images.length : 0,
+        image_count: Array.isArray(rsc.images) && rsc.images.length > 0 ? rsc.images.length : Array.isArray(ld.image) ? ld.image.length : 0,
         has_phone: Boolean(seller.telephone),
         has_urgent: false,
         has_highlight: false,
@@ -1316,8 +1447,10 @@
       owner_type: resolveOwnerType(),
       owner_name: seller.name || null,
       siret: null,
+      dealer_rating: dealerRating,
+      dealer_review_count: dealerReviewCount,
       raw_attributes: {},
-      image_count: 0,
+      image_count: Array.isArray(ld.image) ? ld.image.length : 0,
       has_phone: Boolean(seller.telephone),
       has_urgent: false,
       has_highlight: false,
@@ -1446,7 +1579,16 @@
     async extract() {
       this._rsc = parseRSCPayload(document);
       this._jsonLd = parseJsonLd(document);
-      if (!this._rsc && !this._jsonLd) return null;
+      if (!this._rsc && !this._jsonLd) {
+        this._adData = fallbackAdDataFromDom(document, window.location.href);
+        const hasSomeData = Boolean(this._adData.title || this._adData.make || this._adData.model);
+        if (!hasSomeData) return null;
+        return {
+          type: "normalized",
+          source: "autoscout24",
+          ad_data: this._adData
+        };
+      }
       this._adData = normalizeToAdData(this._rsc, this._jsonLd);
       return {
         type: "normalized",
@@ -1612,7 +1754,7 @@
   }
 
   // extension/content.js
-  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
+  var API_URL = typeof __API_URL__ !== "undefined" ? __API_URL__ : "http://localhost:5001/api/analyze";
   var lastScanId = null;
   var ERROR_MESSAGES = [
     "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
@@ -2418,8 +2560,8 @@
     showPopup(html);
     return createProgressTracker();
   }
-  async function runAnalysis() {
-    const extractor = getExtractor(window.location.href);
+  async function runAnalysis(injectedExtractor) {
+    const extractor = injectedExtractor || getExtractor(window.location.href);
     if (!extractor) {
       showPopup(buildErrorPopup("Site non support\xE9."));
       return;
@@ -2545,7 +2687,7 @@
     window.__copilotRunning = true;
     initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
     extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
-    runAnalysis().finally(() => {
+    runAnalysis(extractor).finally(() => {
       window.__copilotRunning = false;
     });
   }

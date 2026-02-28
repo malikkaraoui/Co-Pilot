@@ -851,8 +851,8 @@ function showProgress() {
 
 // ── Generic runAnalysis ──────────────────────────────────────
 
-async function runAnalysis() {
-  const extractor = getExtractor(window.location.href);
+async function runAnalysis(injectedExtractor) {
+  const extractor = injectedExtractor || getExtractor(window.location.href);
   if (!extractor) { showPopup(buildErrorPopup("Site non supporté.")); return; }
 
   const progress = showProgress();
@@ -975,7 +975,7 @@ function init() {
   window.__copilotRunning = true;
   initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
   extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
-  runAnalysis().finally(() => { window.__copilotRunning = false; });
+  runAnalysis(extractor).finally(() => { window.__copilotRunning = false; });
 }
 
 init();

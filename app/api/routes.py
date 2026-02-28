@@ -3,6 +3,7 @@
 import logging
 import re
 import traceback
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -121,6 +122,9 @@ def _do_analyze():
                 }
             ), 422
 
+    # Detection du pays depuis le TLD de l'URL pour les filtres (L6, L7)
+    ad_data["country"] = _detect_country(req.url or "", req.source)
+
     # Conversion de devise : si le prix est en CHF (ou autre), convertir en EUR
     # pour que les filtres L4/L5 comparent des pommes avec des pommes.
     # On preserve le prix original et la devise pour l'affichage.
@@ -131,6 +135,16 @@ def _do_analyze():
         ad_data["price_eur"] = price_eur
         ad_data["price_original"] = original_price
         ad_data["currency_original"] = original_currency
+
+    # Calcul days_online si absent mais publication_date present
+    # (sources pre-normalisees comme AS24 envoient la date mais pas le calcul)
+    if ad_data.get("days_online") is None and ad_data.get("publication_date"):
+        try:
+            pub_str = ad_data["publication_date"]
+            pub_date = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+            ad_data["days_online"] = (datetime.now(timezone.utc) - pub_date).days
+        except (ValueError, TypeError):
+            pass  # format de date non reconnu, L10 fera skip
 
     # Detection non-voiture : categorie URL + presence marque/modele
     # Note : _extract_url_category ne fonctionne que pour les URLs LBC (/ad/<cat>/).
@@ -312,6 +326,30 @@ def _extract_url_category(url: str) -> str | None:
     """Extrait la categorie LeBonCoin depuis l'URL (ex. 'voitures', 'equipement_auto')."""
     m = _URL_CATEGORY_RE.search(url)
     return m.group(1) if m else None
+
+
+_TLD_COUNTRY_MAP = {
+    ".ch": "CH",
+    ".de": "DE",
+    ".at": "AT",
+    ".it": "IT",
+    ".nl": "NL",
+    ".be": "BE",
+    ".es": "ES",
+    ".fr": "FR",
+}
+
+
+def _detect_country(url: str, source: str | None) -> str:
+    """Detecte le pays depuis le TLD de l'URL ou la source. Defaut: FR."""
+    url_lower = url.lower()
+    for tld, country in _TLD_COUNTRY_MAP.items():
+        if tld in url_lower:
+            return country
+    # leboncoin.fr => FR implicite
+    if source is None or source == "leboncoin":
+        return "FR"
+    return "FR"
 
 
 @api_bp.route("/email-draft", methods=["POST"])

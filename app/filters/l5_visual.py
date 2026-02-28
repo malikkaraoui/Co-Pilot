@@ -18,9 +18,48 @@ class L5VisualFilter(BaseFilter):
     # Seuil minimum de samples pour utiliser les donnees MarketPrice
     MARKET_MIN_SAMPLES = 3
 
+    # Tranches de puissance DIN (ch) -- meme logique que getHorsePowerRange() en JS
+    HP_RANGES: list[tuple[int, str]] = [
+        (80, "min-90"),
+        (110, "70-120"),
+        (140, "100-150"),
+        (180, "130-190"),
+        (250, "170-260"),
+        (350, "240-360"),
+    ]
+    HP_RANGE_MAX = "340-max"
+
+    @classmethod
+    def _get_hp_range(cls, hp: int | None) -> str | None:
+        """Calcule la tranche de puissance DIN pour filtrer les comparables."""
+        if not hp or hp <= 0:
+            return None
+        for threshold, range_label in cls.HP_RANGES:
+            if hp < threshold:
+                return range_label
+        return cls.HP_RANGE_MAX
+
     @staticmethod
-    def _collect_market_prices(data: dict[str, Any], min_samples: int) -> np.ndarray | None:
-        """Collecte les prix de reference depuis MarketPrice (pas besoin du referentiel)."""
+    def _records_to_array(records: list, min_count: int = 3) -> np.ndarray | None:
+        """Extrait les prix (min/median/max) d'une liste de MarketPrice et retourne un ndarray."""
+        prices = []
+        for r in records:
+            prices.extend([r.price_min, r.price_median, r.price_max])
+        ref = np.array([p for p in prices if p], dtype=float)
+        return ref if len(ref) >= min_count else None
+
+    @classmethod
+    def _collect_market_prices(cls, data: dict[str, Any], min_samples: int) -> np.ndarray | None:
+        """Collecte les prix de reference depuis MarketPrice avec filtrage hp_range.
+
+        Cascade de precision :
+        1. fuel + hp_range exact
+        2. fuel + hp_range=NULL (generique)
+        3. fuel + any hp_range
+        4. sans fuel + hp_range exact
+        5. sans fuel + hp_range=NULL
+        6. sans fuel + any hp_range
+        """
         from sqlalchemy import func
 
         from app.models.market_price import MarketPrice
@@ -46,31 +85,36 @@ class L5VisualFilter(BaseFilter):
             MarketPrice.sample_count >= min_samples,
         ]
 
-        # Tenter d'abord avec fuel (plus precis)
         fuel = (data.get("fuel") or "").strip().lower() or None
-        if fuel:
-            records = MarketPrice.query.filter(
-                *base_filters,
-                func.lower(MarketPrice.fuel) == fuel,
-            ).all()
-            if records:
-                prices = []
-                for r in records:
-                    prices.extend([r.price_min, r.price_median, r.price_max])
-                ref = np.array([p for p in prices if p], dtype=float)
-                if len(ref) >= 3:
-                    return ref
+        hp = data.get("power_din_hp") or data.get("power_hp") or data.get("horse_power_din")
+        hp_range = cls._get_hp_range(int(hp) if hp else None)
 
-        # Fallback sans fuel
-        records = MarketPrice.query.filter(*base_filters).all()
-        if records:
-            prices = []
-            for r in records:
-                prices.extend([r.price_min, r.price_median, r.price_max])
-            ref = np.array([p for p in prices if p], dtype=float)
-            if len(ref) >= 3:
+        def _query(extra_filters: list) -> list:
+            return MarketPrice.query.filter(*base_filters, *extra_filters).all()
+
+        def _try_hp_cascade(extra_filters: list) -> np.ndarray | None:
+            """Tente hp_range exact → hp_range=NULL → any hp_range."""
+            if hp_range:
+                ref = cls._records_to_array(
+                    _query([*extra_filters, func.lower(MarketPrice.hp_range) == hp_range.lower()])
+                )
+                if ref is not None:
+                    return ref
+            # Fallback hp_range=NULL (generique)
+            ref = cls._records_to_array(_query([*extra_filters, MarketPrice.hp_range.is_(None)]))
+            if ref is not None:
                 return ref
-        return None
+            # Dernier fallback : any hp_range
+            return cls._records_to_array(_query(extra_filters))
+
+        # 1. Avec fuel (plus precis)
+        if fuel:
+            ref = _try_hp_cascade([func.lower(MarketPrice.fuel) == fuel])
+            if ref is not None:
+                return ref
+
+        # 2. Sans fuel
+        return _try_hp_cascade([])
 
     @staticmethod
     def _collect_argus_prices(vehicle_id: int) -> np.ndarray:
@@ -152,6 +196,8 @@ class L5VisualFilter(BaseFilter):
                     anomalies.append(f"Prix en marge (z={z_price:.1f})")
 
         # Statistiques recapitulatives
+        hp = data.get("power_din_hp") or data.get("power_hp") or data.get("horse_power_din")
+        hp_range_used = self._get_hp_range(int(hp) if hp else None)
         stats = {
             "ref_count": len(ref_prices),
             "ref_mean": round(float(np.mean(ref_prices))),
@@ -161,6 +207,7 @@ class L5VisualFilter(BaseFilter):
             "anomalies": anomalies,
             "source": source,
             "diesel_urban": diesel_urban_warning is not None,
+            "hp_range": hp_range_used,
         }
 
         if not anomalies:
