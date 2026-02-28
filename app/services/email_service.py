@@ -11,7 +11,7 @@ from app.services.extraction import extract_ad_data
 
 logger = logging.getLogger(__name__)
 
-# Mapping filter_id -> nom lisible pour le prompt
+# Mapping filter_id -> nom lisible pour le prompt (par defaut FR)
 _FILTER_NAMES = {
     "L1": "Completude annonce",
     "L2": "Identification vehicule",
@@ -24,6 +24,10 @@ _FILTER_NAMES = {
     "L9": "Qualite annonce",
     "L10": "Anciennete annonce",
 }
+
+# Overrides par pays
+_FILTER_NAMES_CH = {**_FILTER_NAMES, "L7": "Verification UID"}
+_FILTER_NAMES_BY_COUNTRY = {"CH": _FILTER_NAMES_CH}
 
 _SYSTEM_PROMPT_TEMPLATE = """\
 Tu es un acheteur automobile averti qui redige un email au vendeur \
@@ -54,17 +58,18 @@ def _detect_source(scan_url: str, raw_data: dict) -> str:
     return "leboncoin"
 
 
-def _build_signals_block(filters: list[dict]) -> str:
+def _build_signals_block(filters: list[dict], country: str = "FR") -> str:
     """Construit un bloc de texte decrivant les signaux d'analyse."""
     alerts = []
     positives = []
+    names = _FILTER_NAMES_BY_COUNTRY.get(country, _FILTER_NAMES)
 
     for f in filters:
         fid = f.get("filter_id", "")
         status = f.get("status", "")
         message = f.get("message", "")
         details = f.get("details") or {}
-        name = _FILTER_NAMES.get(fid, fid)
+        name = names.get(fid, fid)
 
         if status == "fail":
             detail_text = _extract_detail_text(fid, details)
@@ -105,12 +110,25 @@ def _extract_detail_text(filter_id: str, details: dict) -> str:
             parts.append(f"{days}j en ligne")
 
     elif filter_id == "L7":
-        etat = details.get("etat_administratif")
+        # France: etat_administratif / nom_complet
+        etat = details.get("etat_administratif") or details.get("etat")
         if etat:
             parts.append(f"etat entreprise: {etat}")
-        nom = details.get("nom_complet")
+        nom = details.get("nom_complet") or details.get("denomination") or details.get("name")
         if nom:
             parts.append(f"societe: {nom}")
+        # Suisse: UID + status Zefix
+        uid = details.get("formatted") or details.get("uid")
+        if uid and uid.startswith("CHE"):
+            parts.append(f"UID: {uid}")
+        zefix_status = details.get("status")
+        if zefix_status:
+            parts.append(f"statut: {zefix_status}")
+        # Dealer rating (AS24 etc.)
+        dealer_rating = details.get("dealer_rating")
+        dealer_review_count = details.get("dealer_review_count")
+        if dealer_rating:
+            parts.append(f"note vendeur: {dealer_rating}/5 ({dealer_review_count} avis)")
 
     elif filter_id == "L8":
         signals = details.get("signals") or []
@@ -133,9 +151,31 @@ def _extract_detail_text(filter_id: str, details: dict) -> str:
     return f" ({', '.join(parts)})" if parts else ""
 
 
+def _import_consigne(country: str) -> str:
+    """Retourne la consigne import adaptee au pays."""
+    if country == "CH":
+        return "Si import detecte, demande le permis de circulation et le dedouanement (formulaire 13.20A)"
+    return "Si import detecte, demande COC et carte grise"
+
+
+def _detect_country_from_source(source: str, scan_url: str = "") -> str:
+    """Detecte le pays depuis la source et l'URL pour le prompt email."""
+    url_lower = (scan_url or "").lower()
+    if ".ch" in url_lower:
+        return "CH"
+    if ".de" in url_lower:
+        return "DE"
+    if ".at" in url_lower:
+        return "AT"
+    if ".it" in url_lower:
+        return "IT"
+    return "FR"
+
+
 def build_email_prompt(scan_data: dict, filters: list[dict], source: str = "leboncoin") -> str:
     """Construit le prompt pour Gemini a partir des donnees d'analyse."""
     site_name = _SOURCE_NAMES.get(source, source)
+    country = _detect_country_from_source(source, scan_data.get("url", ""))
     make = scan_data.get("make") or "?"
     model = scan_data.get("model") or "?"
 
@@ -165,15 +205,30 @@ def build_email_prompt(scan_data: dict, filters: list[dict], source: str = "lebo
     if len(description) > 500:
         description = description[:500] + "..."
 
-    signals_block = _build_signals_block(filters)
+    signals_block = _build_signals_block(filters, country=country)
 
-    # Contexte vendeur adapte
+    # Contexte vendeur adapte au pays
     if owner_type == "pro":
+        if country == "CH":
+            seller_context = (
+                "VENDEUR PROFESSIONNEL (Suisse). Pose des questions precises: "
+                "historique du vehicule, carnet d'entretien complet, "
+                "garanties professionnelles, possibilite de facture. "
+                "Demande le permis de circulation et le rapport d'expertise MFK. "
+                "Mentionne que tu veux voir les documents en personne."
+            )
+        else:
+            seller_context = (
+                "VENDEUR PROFESSIONNEL. Pose des questions precises: "
+                "historique du vehicule en parc, carnet d'entretien complet, "
+                "garanties professionnelles, possibilite de facture. "
+                "Mentionne que tu veux voir les documents en personne."
+            )
+    elif country == "CH":
         seller_context = (
-            "VENDEUR PROFESSIONNEL. Pose des questions precises: "
-            "historique du vehicule en parc, carnet d'entretien complet, "
-            "garanties professionnelles, possibilite de facture. "
-            "Mentionne que tu veux voir les documents en personne."
+            "VENDEUR PARTICULIER (Suisse). Sois cordial mais direct. "
+            "Demande les factures d'entretien, le rapport d'expertise MFK, "
+            "les raisons de la vente, et si le vehicule a eu des sinistres."
         )
     else:
         seller_context = (
@@ -245,7 +300,7 @@ CONSIGNES FINALES:
 pertinentes d'acheteur averti
 - Si le vehicule est en ligne depuis longtemps, mentionne-le pour negocier
 - Si peu de photos ({image_count}), demande des photos supplementaires
-- Si import detecte, demande COC et carte grise
+- {_import_consigne(country)}
 - Si entreprise radiee/fermee, pose la question de la garantie
 - Termine par une proposition de rendez-vous concret
 - Signe "[Votre prenom]"

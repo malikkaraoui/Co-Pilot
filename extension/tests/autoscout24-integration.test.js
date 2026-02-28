@@ -154,4 +154,65 @@ describe('AutoScout24 integration', () => {
     expect(adData.price_eur).toBe(22000);
     expect(adData.currency).toBe('CHF');
   });
+
+  it('extracts vehicle data from Product JSON-LD', () => {
+    const html = `
+      <html><head>
+        <script type="application/ld+json">${JSON.stringify({
+          "@type": "Product",
+          "name": "BMW X3 xDrive20d",
+          "brand": { "name": "BMW" },
+          "model": "X3",
+          "vehicleModelDate": 2021,
+          "mileageFromOdometer": { "value": 78000 },
+          "offers": {
+            "price": 32900,
+            "priceCurrency": "CHF",
+            "seller": {
+              "@type": "AutoDealer",
+              "name": "Garage Test",
+              "telephone": "+41000000000",
+              "address": { "addressLocality": "Lausanne", "postalCode": "1000" }
+            }
+          }
+        })}</script>
+      </head><body></body></html>
+    `;
+
+    const dom = new JSDOM(html);
+    const jsonLd = parseJsonLd(dom.window.document);
+
+    expect(jsonLd).not.toBeNull();
+    const adData = normalizeToAdData(null, jsonLd);
+    expect(adData.make).toBe('BMW');
+    expect(adData.model).toBe('X3');
+    expect(adData.price_eur).toBe(32900);
+  });
+
+  it('extracts vehicle data from JSON-LD root array', () => {
+    const html = `
+      <html><head>
+        <script type="application/ld+json">${JSON.stringify([
+          { "@type": "WebSite", "name": "AutoScout24" },
+          {
+            "@type": "Product",
+            "name": "Audi A4 Avant",
+            "brand": { "name": "AUDI" },
+            "model": "A4",
+            "vehicleModelDate": 2020,
+            "offers": { "price": 24900, "priceCurrency": "CHF" }
+          }
+        ])}</script>
+      </head><body></body></html>
+    `;
+
+    const dom = new JSDOM(html);
+    const jsonLd = parseJsonLd(dom.window.document);
+
+    expect(jsonLd).not.toBeNull();
+    const adData = normalizeToAdData(null, jsonLd);
+    expect(adData.make).toBe('AUDI');
+    expect(adData.model).toBe('A4');
+    expect(adData.price_eur).toBe(24900);
+  });
 });

@@ -12,9 +12,13 @@
   const statusEl = document.getElementById("popup-status");
   const statusText = document.getElementById("popup-status-text");
 
-  /** Verifie si l'onglet actif est une page annonce leboncoin. */
-  function isLeboncoinAd(url) {
-    return url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/");
+  /** Verifie si l'onglet actif est une page annonce supportee. */
+  function isSupportedAd(url) {
+    // LeBonCoin
+    if (url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/")) return true;
+    // AutoScout24 (tous TLDs)
+    if (/autoscout24\.\w+\/(?:fr|de|it|nl|es|en)?\/?d\//.test(url)) return true;
+    return false;
   }
 
   /** Met a jour le statut dans le popup. */
@@ -35,8 +39,8 @@
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-      if (!tab || !tab.url || !isLeboncoinAd(tab.url)) {
-        setStatus("Cette page n'est pas une annonce Leboncoin.", true);
+      if (!tab || !tab.url || !isSupportedAd(tab.url)) {
+        setStatus("Cette page n'est pas une annonce supportée.", true);
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = "Analyser cette annonce";
         return;
@@ -66,8 +70,8 @@
 
   // Au chargement, verifier si on est sur leboncoin
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-    if (!tab || !tab.url || !isLeboncoinAd(tab.url)) {
-      setStatus("Naviguez vers une annonce Leboncoin.", true);
+    if (!tab || !tab.url || !isSupportedAd(tab.url)) {
+      setStatus("Naviguez vers une annonce auto.", true);
       analyzeBtn.disabled = true;
     }
   });
