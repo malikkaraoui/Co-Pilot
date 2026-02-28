@@ -1021,3 +1021,80 @@ class TestNextJobWithQueue:
         bonus = data["data"]["bonus_jobs"]
         if bonus:
             assert "job_id" in bonus[0]
+
+    def test_next_job_bonus_includes_country(self, app, client):
+        """Bonus jobs include country field for multi-site extension dispatch."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            job = CollectionJob(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Geneve",
+                fuel="diesel",
+                priority=1,
+                source_vehicle="test",
+                country="CH",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            from app.services.market_service import store_market_prices
+
+            store_market_prices(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Zurich",
+                prices=list(range(15000, 30000, 500)),
+                country="CH",
+            )
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=VW&model=Golf&year=2022&region=Zurich&country=CH"
+        )
+        data = resp.get_json()
+        bonus = data["data"]["bonus_jobs"]
+        if bonus:
+            assert "country" in bonus[0]
+            assert bonus[0]["country"] == "CH"
+
+    def test_next_job_response_includes_country(self, app, client):
+        """Next-job collect=true response includes country field."""
+        self._clean_queue(app)
+        resp = client.get(
+            "/api/market-prices/next-job?make=BMW&model=X3&year=2023&region=Geneve&country=CH"
+        )
+        data = resp.get_json()
+        if data["data"]["collect"]:
+            assert data["data"]["country"] == "CH"
+
+    def test_next_job_ch_uses_cantons(self, app, client):
+        """expand_collection_jobs with country=CH creates canton-based jobs."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            # Clear all existing jobs
+            CollectionJob.query.delete()
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=Renault&model=Clio&year=2022"
+            "&region=Geneve&country=CH&fuel=essence"
+        )
+        data = resp.get_json()
+        assert data["data"]["collect"] is True
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            ch_jobs = CollectionJob.query.filter_by(country="CH").all()
+            # Should have created jobs for other cantons (P1)
+            assert len(ch_jobs) >= 10  # 25 other cantons at minimum
+            # Verify regions are Swiss cantons
+            regions = {j.region for j in ch_jobs}
+            assert "Zurich" in regions
+            assert "Vaud" in regions

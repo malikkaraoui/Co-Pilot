@@ -23,6 +23,8 @@ import {
   getHpRangeString,
   getCantonCenterZip,
   getCantonFromZip,
+  getAs24FuelCode,
+  parseHpRange,
   AS24_URL_PATTERNS,
   AutoScout24Extractor,
 } from '../extractors/autoscout24.js';
@@ -831,5 +833,197 @@ describe('getCantonFromZip', () => {
   it('returns null for empty', () => {
     expect(getCantonFromZip('')).toBeNull();
     expect(getCantonFromZip(null)).toBeNull();
+  });
+});
+
+
+// ─── getAs24FuelCode ─────────────────────────────────────────────────
+
+describe('getAs24FuelCode', () => {
+  it('maps RSC diesel to D', () => {
+    expect(getAs24FuelCode('diesel')).toBe('D');
+  });
+
+  it('maps RSC gasoline to B', () => {
+    expect(getAs24FuelCode('gasoline')).toBe('B');
+  });
+
+  it('maps RSC electric to E', () => {
+    expect(getAs24FuelCode('electric')).toBe('E');
+  });
+
+  it('maps French essence to B', () => {
+    expect(getAs24FuelCode('essence')).toBe('B');
+  });
+
+  it('maps French electrique to E', () => {
+    expect(getAs24FuelCode('electrique')).toBe('E');
+  });
+
+  it('maps phev-gasoline to 2 (hybrid)', () => {
+    expect(getAs24FuelCode('phev-gasoline')).toBe('2');
+  });
+
+  it('maps mhev-diesel to D', () => {
+    expect(getAs24FuelCode('mhev-diesel')).toBe('D');
+  });
+
+  it('is case insensitive', () => {
+    expect(getAs24FuelCode('Diesel')).toBe('D');
+    expect(getAs24FuelCode('ESSENCE')).toBe('B');
+  });
+
+  it('returns null for unknown', () => {
+    expect(getAs24FuelCode('unknown')).toBeNull();
+    expect(getAs24FuelCode(null)).toBeNull();
+    expect(getAs24FuelCode('')).toBeNull();
+  });
+});
+
+
+// ─── parseHpRange ────────────────────────────────────────────────────
+
+describe('parseHpRange', () => {
+  it('parses 170-260 into powerfrom/powerto', () => {
+    expect(parseHpRange('170-260')).toEqual({ powerfrom: 170, powerto: 260 });
+  });
+
+  it('parses min-90 into powerto only', () => {
+    expect(parseHpRange('min-90')).toEqual({ powerto: 90 });
+  });
+
+  it('parses 340-max into powerfrom only', () => {
+    expect(parseHpRange('340-max')).toEqual({ powerfrom: 340 });
+  });
+
+  it('returns empty for null/empty', () => {
+    expect(parseHpRange(null)).toEqual({});
+    expect(parseHpRange('')).toEqual({});
+  });
+
+  it('returns empty for invalid format', () => {
+    expect(parseHpRange('200')).toEqual({});
+  });
+});
+
+
+// ─── collectMarketPrices next-job integration ────────────────────────
+
+describe('collectMarketPrices next-job integration', () => {
+  function createExtractor(adData, rsc) {
+    const ext = new AutoScout24Extractor();
+    ext._adData = adData;
+    ext._rsc = rsc || null;
+    return ext;
+  }
+
+  const baseAdData = {
+    make: 'AUDI', model: 'Q5', year_model: '2023',
+    power_din_hp: 204, mileage_km: 29000,
+    fuel: 'Diesel', gearbox: 'Automatique',
+    location: { zipcode: '1201', region: 'Geneve' },
+    phone: '+41628929454',
+  };
+
+  const baseRsc = {
+    fuelType: 'diesel', transmissionType: 'automatic',
+    make: { key: 'audi', name: 'AUDI' },
+    model: { key: 'q5', name: 'Q5' },
+  };
+
+  it('returns {submitted: false} when no make/model', async () => {
+    const ext = createExtractor({ make: null, model: null, year_model: '2023' });
+    ext.initDeps({ fetch: vi.fn(), apiUrl: 'http://localhost:5001/api/analyze' });
+    const result = await ext.collectMarketPrices(null);
+    expect(result.submitted).toBe(false);
+  });
+
+  it('returns {submitted: false} when deps not injected', async () => {
+    const ext = createExtractor(baseAdData, baseRsc);
+    const result = await ext.collectMarketPrices(null);
+    expect(result.submitted).toBe(false);
+  });
+
+  it('calls next-job API with correct params', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { collect: false, bonus_jobs: [] } }),
+    });
+
+    // Mock window.location for extractTld
+    const origLocation = globalThis.window;
+    globalThis.window = { location: { href: 'https://www.autoscout24.ch/fr/d/audi-q5-123' } };
+
+    const ext = createExtractor(baseAdData, baseRsc);
+    ext.initDeps({ fetch: mockFetch, apiUrl: 'http://localhost:5001/api/analyze' });
+
+    await ext.collectMarketPrices(null);
+
+    // Verify next-job was called
+    expect(mockFetch).toHaveBeenCalled();
+    const firstCallUrl = mockFetch.mock.calls[0][0];
+    expect(firstCallUrl).toContain('/market-prices/next-job');
+    expect(firstCallUrl).toContain('make=AUDI');
+    expect(firstCallUrl).toContain('model=Q5');
+    expect(firstCallUrl).toContain('country=CH');
+    expect(firstCallUrl).toContain('region=Geneve');
+
+    globalThis.window = origLocation;
+  });
+
+  it('skips cascade when collect=false with no bonus', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { collect: false, bonus_jobs: [] } }),
+    });
+
+    globalThis.window = { location: { href: 'https://www.autoscout24.ch/fr/d/audi-q5-123' } };
+
+    const ext = createExtractor(baseAdData, baseRsc);
+    ext.initDeps({ fetch: mockFetch, apiUrl: 'http://localhost:5001/api/analyze' });
+
+    const progress = {
+      update: vi.fn(),
+      addSubStep: vi.fn(),
+    };
+
+    const result = await ext.collectMarketPrices(progress);
+
+    expect(result.submitted).toBe(false);
+    // Should update job to done, collect/submit/bonus to skip
+    expect(progress.update).toHaveBeenCalledWith('job', 'done', expect.any(String));
+    expect(progress.update).toHaveBeenCalledWith('collect', 'skip', expect.any(String));
+    expect(progress.update).toHaveBeenCalledWith('bonus', 'skip');
+
+    globalThis.window = undefined;
+  });
+
+  it('handles next-job error gracefully', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    globalThis.window = { location: { href: 'https://www.autoscout24.ch/fr/d/audi-q5-123' } };
+
+    const ext = createExtractor(baseAdData, baseRsc);
+    ext.initDeps({ fetch: mockFetch, apiUrl: 'http://localhost:5001/api/analyze' });
+
+    const result = await ext.collectMarketPrices(null);
+    expect(result.submitted).toBe(false);
+
+    globalThis.window = undefined;
+  });
+});
+
+
+// ─── buildSearchUrl fuel code integration ────────────────────────────
+
+describe('buildSearchUrl with fuel codes', () => {
+  it('uses AS24 fuel code D for diesel', () => {
+    const url = buildSearchUrl('audi', 'q5', 2023, 'ch', { fuel: 'D' });
+    expect(url).toContain('fuel=D');
+  });
+
+  it('uses AS24 fuel code B for gasoline', () => {
+    const url = buildSearchUrl('bmw', '320', 2022, 'de', { fuel: 'B' });
+    expect(url).toContain('fuel=B');
   });
 });

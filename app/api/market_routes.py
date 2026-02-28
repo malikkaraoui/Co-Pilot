@@ -60,6 +60,7 @@ def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
             "fuel": j.fuel,
             "gearbox": j.gearbox,
             "hp_range": j.hp_range,
+            "country": j.country or "FR",
             "job_id": j.id,
         }
         tokens = _lookup_site_tokens(j.make, j.model)
@@ -428,6 +429,7 @@ def next_market_job():
                         **tokens,
                     },
                     "region": region,
+                    "country": country_upper,
                     "bonus_jobs": bonus,
                 },
             }
@@ -515,6 +517,7 @@ def next_market_job():
                         **tokens,
                     },
                     "region": region,
+                    "country": country_upper,
                     "bonus_jobs": bonus,
                 },
             }

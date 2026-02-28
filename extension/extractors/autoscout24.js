@@ -96,6 +96,9 @@ export function getCantonFromZip(zipcode) {
 // Minimum prices to submit (raised from 5 for better statistical significance)
 const MIN_PRICES = 10;
 
+// Cooldown for collecting OTHER vehicles (24h), same as LBC
+const COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 // ── Fuel type mapping ───────────────────────────────────────────────
 
 const FUEL_MAP = {
@@ -161,6 +164,28 @@ export function getAs24GearCode(gearbox) {
   return AS24_GEAR_MAP[(gearbox || '').toLowerCase()] || null;
 }
 
+// AS24 search fuel codes (single-letter params accepted by search URLs)
+const AS24_FUEL_CODE_MAP = {
+  // RSC fuelType keys (English)
+  gasoline: 'B', diesel: 'D', electric: 'E',
+  cng: 'C', lpg: 'L', hydrogen: 'H',
+  'mhev-diesel': 'D', 'mhev-gasoline': 'B',
+  'phev-diesel': '2', 'phev-gasoline': '2',
+  // French labels (from backend bonus jobs)
+  essence: 'B', electrique: 'E',
+  gnv: 'C', gpl: 'L', hydrogene: 'H',
+  'hybride rechargeable': '2',
+};
+
+/**
+ * Maps a fuel string (RSC key or French label) to AS24 search fuel code.
+ * @param {string} fuel
+ * @returns {string|null} e.g. 'D', 'B', 'E'
+ */
+export function getAs24FuelCode(fuel) {
+  return AS24_FUEL_CODE_MAP[(fuel || '').toLowerCase()] || null;
+}
+
 /**
  * Returns AS24 power search params {powerfrom, powerto} based on hp.
  * Same bands as LBC getHorsePowerRange() for consistency.
@@ -207,6 +232,22 @@ export function getHpRangeString(hp) {
   if (hp < 250) return '170-260';
   if (hp < 350) return '240-360';
   return '340-max';
+}
+
+/**
+ * Parses an hp_range string (e.g. '170-260', 'min-90', '340-max')
+ * into AS24 power search params {powerfrom, powerto}.
+ * @param {string} hpRange
+ * @returns {object} e.g. {powerfrom: 170, powerto: 260}
+ */
+export function parseHpRange(hpRange) {
+  if (!hpRange) return {};
+  const parts = hpRange.split('-');
+  if (parts.length !== 2) return {};
+  const result = {};
+  if (parts[0] !== 'min') result.powerfrom = parseInt(parts[0], 10);
+  if (parts[1] !== 'max') result.powerto = parseInt(parts[1], 10);
+  return result;
 }
 
 // Canton center ZIP codes for geo-targeted searches (chef-lieu)
@@ -904,15 +945,12 @@ export class AutoScout24Extractor extends SiteExtractor {
   }
 
   /**
-   * Collects market prices from AS24 search results for the current vehicle.
-   * Uses a 7-strategy cascade (precision 5→1) matching LBC parity:
-   *   1. ZIP+30km ±1yr, all filters (fuel+gear+hp+km)
-   *   2. Canton center+50km ±1yr, all filters
-   *   3. Canton center+50km ±2yrs, fuel+gear+hp (no km)
-   *   4. National ±1yr, fuel+gear+hp
-   *   5. National ±2yrs, fuel+gear
-   *   6. National ±2yrs, fuel only
-   *   7. National ±3yrs, no filters
+   * Collects market prices from AS24 search results.
+   * Full next-job integration:
+   *   1. Ask server which vehicle to collect (next-job API)
+   *   2. Run 7-strategy cascade for the target vehicle
+   *   3. Submit prices or report failure
+   *   4. Execute bonus jobs from the collection queue
    *
    * @param {object} progress - Progress tracker for UI updates
    * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
@@ -930,8 +968,6 @@ export class AutoScout24Extractor extends SiteExtractor {
     const countryName = TLD_TO_COUNTRY[tld] || 'Europe';
     const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
     const currency = TLD_TO_CURRENCY[tld] || 'EUR';
-    const makeKey = (this._rsc?.make?.key || this._adData.make).toLowerCase();
-    const modelKey = (this._rsc?.model?.key || this._adData.model).toLowerCase();
     const year = parseInt(this._adData.year_model, 10);
     const fuelKey = this._rsc?.fuelType || null;
 
@@ -940,70 +976,144 @@ export class AutoScout24Extractor extends SiteExtractor {
     const km = parseInt(this._adData.mileage_km, 10) || 0;
     const gearRaw = this._rsc?.transmissionType || '';
     const gearCode = getAs24GearCode(gearRaw);
-    const powerParams = getAs24PowerParams(hp);
-    const kmParams = getAs24KmParams(km);
     const hpRangeStr = getHpRangeString(hp);
 
     // Region = canton for CH, country name for others
     const zipcode = this._adData?.location?.zipcode;
     const canton = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
     const region = canton || countryName;
-    const cantonZip = canton ? getCantonCenterZip(canton) : null;
 
-    if (progress) progress.update('job', 'done', `${this._adData.make} ${this._adData.model} ${year} (${region})`);
+    // ── 1. Call next-job API ──────────────────────────────────────
+    if (progress) progress.update('job', 'running');
 
-    // ── Build 7 strategies (cascade) ──────────────────────────────
+    const fuelForJob = this._adData.fuel ? this._adData.fuel.toLowerCase() : '';
+    const gearboxForJob = this._adData.gearbox ? this._adData.gearbox.toLowerCase() : '';
+    const jobUrl = this._apiUrl.replace('/analyze', '/market-prices/next-job')
+      + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}`
+      + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
+      + `&country=${encodeURIComponent(countryCode)}`
+      + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : '')
+      + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : '')
+      + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : '');
+
+    let jobResp;
+    try {
+      console.log('[CoPilot] AS24 next-job →', jobUrl);
+      jobResp = await this._fetch(jobUrl).then((r) => r.json());
+      console.log('[CoPilot] AS24 next-job ←', JSON.stringify(jobResp));
+    } catch (err) {
+      console.warn('[CoPilot] AS24 next-job error:', err);
+      if (progress) {
+        progress.update('job', 'error', 'Serveur injoignable');
+        progress.update('collect', 'skip');
+        progress.update('submit', 'skip');
+        progress.update('bonus', 'skip');
+      }
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    // ── 2. Handle collect=false ───────────────────────────────────
+    if (!jobResp?.data?.collect) {
+      const queuedJobs = jobResp?.data?.bonus_jobs || [];
+      if (queuedJobs.length === 0) {
+        if (progress) {
+          progress.update('job', 'done', 'Données déjà à jour');
+          progress.update('collect', 'skip', 'Non nécessaire');
+          progress.update('submit', 'skip');
+          progress.update('bonus', 'skip');
+        }
+        return { submitted: false, isCurrentVehicle: false };
+      }
+      if (progress) {
+        progress.update('job', 'done', `À jour — ${queuedJobs.length} jobs en attente`);
+        progress.update('collect', 'skip', 'Véhicule déjà à jour');
+        progress.update('submit', 'skip');
+      }
+      await this._executeBonusJobs(queuedJobs, tld, progress);
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    // ── 3. Determine target vehicle ───────────────────────────────
+    const target = jobResp.data.vehicle;
+    const targetRegion = jobResp.data.region;
+    const isRedirect = !!jobResp.data.redirect;
+    const bonusJobs = jobResp.data.bonus_jobs || [];
+
+    const isCurrentVehicle =
+      target.make.toLowerCase() === this._adData.make.toLowerCase()
+      && target.model.toLowerCase() === this._adData.model.toLowerCase();
+
+    // Cooldown 24h for OTHER vehicles only
+    if (!isCurrentVehicle) {
+      const lastCollect = parseInt(localStorage.getItem('copilot_last_collect') || '0', 10);
+      if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) {
+        if (progress) {
+          progress.update('job', 'done', 'Cooldown actif (autre véhicule collecté récemment)');
+          progress.update('collect', 'skip', 'Cooldown 24h');
+          progress.update('submit', 'skip');
+        }
+        if (bonusJobs.length > 0) {
+          await this._executeBonusJobs(bonusJobs, tld, progress);
+        } else if (progress) {
+          progress.update('bonus', 'skip');
+        }
+        return { submitted: false, isCurrentVehicle: false };
+      }
+    }
+
+    const targetMakeKey = target.make.toLowerCase();
+    const targetModelKey = target.model.toLowerCase();
+    const targetYear = parseInt(target.year, 10);
+    const targetLabel = `${target.make} ${target.model} ${targetYear}`;
+
+    if (progress) {
+      progress.update('job', 'done', targetLabel
+        + (isCurrentVehicle ? ` (${targetRegion})` : ' (autre véhicule)'));
+    }
+
+    // ── 4. Build cascade strategies ───────────────────────────────
+    const fuelCode = fuelKey ? getAs24FuelCode(fuelKey) : null;
+    const targetCantonZip = getCantonCenterZip(targetRegion);
     const strategies = [];
 
-    // #1: Ad ZIP + 30km, ±1yr, all filters (fuel+gear+hp+km)
-    if (zipcode) {
-      strategies.push({
-        yearSpread: 1, fuel: fuelKey, gear: gearCode, ...powerParams, ...kmParams,
-        zip: zipcode, radius: 30, precision: 5, label: `ZIP ${zipcode} +30km`,
-      });
+    if (isCurrentVehicle) {
+      // Full 7-strategy cascade with all vehicle-specific filters
+      const powerParams = getAs24PowerParams(hp);
+      const kmParams = getAs24KmParams(km);
+
+      if (zipcode) {
+        strategies.push({
+          yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams,
+          zip: zipcode, radius: 30, precision: 5, label: `ZIP ${zipcode} +30km`,
+        });
+      }
+      if (targetCantonZip) {
+        strategies.push({
+          yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams,
+          zip: targetCantonZip, radius: 50, precision: 4, label: `${targetRegion} ±1an`,
+        });
+        strategies.push({
+          yearSpread: 2, fuel: fuelCode, gear: gearCode, ...powerParams,
+          zip: targetCantonZip, radius: 50, precision: 4, label: `${targetRegion} ±2ans`,
+        });
+      }
+      strategies.push({ yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, precision: 3, label: 'National ±1an' });
+      strategies.push({ yearSpread: 2, fuel: fuelCode, gear: gearCode, precision: 3, label: 'National ±2ans' });
+      strategies.push({ yearSpread: 2, fuel: fuelCode, precision: 2, label: 'National fuel' });
+      strategies.push({ yearSpread: 3, precision: 1, label: 'National large' });
+    } else {
+      // Simplified cascade for redirect (vehicle specs unknown)
+      if (targetCantonZip) {
+        strategies.push({
+          yearSpread: 1, zip: targetCantonZip, radius: 50,
+          precision: 3, label: `${targetRegion} ±1an`,
+        });
+      }
+      strategies.push({ yearSpread: 1, precision: 2, label: 'National ±1an' });
+      strategies.push({ yearSpread: 2, precision: 1, label: 'National ±2ans' });
     }
 
-    // #2: Canton center + 50km, ±1yr, all filters
-    if (cantonZip) {
-      strategies.push({
-        yearSpread: 1, fuel: fuelKey, gear: gearCode, ...powerParams, ...kmParams,
-        zip: cantonZip, radius: 50, precision: 4, label: `${canton} ±1an`,
-      });
-    }
-
-    // #3: Canton center + 50km, ±2yrs, fuel+gear+hp (no km)
-    if (cantonZip) {
-      strategies.push({
-        yearSpread: 2, fuel: fuelKey, gear: gearCode, ...powerParams,
-        zip: cantonZip, radius: 50, precision: 4, label: `${canton} ±2ans`,
-      });
-    }
-
-    // #4: National, ±1yr, fuel+gear+hp
-    strategies.push({
-      yearSpread: 1, fuel: fuelKey, gear: gearCode, ...powerParams,
-      precision: 3, label: 'National ±1an',
-    });
-
-    // #5: National, ±2yrs, fuel+gear
-    strategies.push({
-      yearSpread: 2, fuel: fuelKey, gear: gearCode,
-      precision: 3, label: 'National ±2ans',
-    });
-
-    // #6: National, ±2yrs, fuel only
-    strategies.push({
-      yearSpread: 2, fuel: fuelKey,
-      precision: 2, label: 'National fuel',
-    });
-
-    // #7: National, ±3yrs, no specific filters
-    strategies.push({
-      yearSpread: 3,
-      precision: 1, label: 'National large',
-    });
-
-    // ── Execute cascade ───────────────────────────────────────────
+    // ── 5. Execute cascade ────────────────────────────────────────
     let prices = [];
     let usedPrecision = null;
     const searchLog = [];
@@ -1011,20 +1121,15 @@ export class AutoScout24Extractor extends SiteExtractor {
     if (progress) progress.update('collect', 'running');
 
     for (let i = 0; i < strategies.length; i++) {
-      // Throttle between requests to avoid hammering
       if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
 
       const { precision, label, ...searchOpts } = strategies[i];
-      const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, searchOpts);
+      const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, searchOpts);
 
       try {
         const resp = await fetch(searchUrl, { credentials: 'same-origin' });
         if (!resp.ok) {
-          console.warn(`[CoPilot] AS24 search HTTP ${resp.status}: ${searchUrl}`);
-          searchLog.push({
-            step: i + 1, precision, label, ads_found: 0,
-            url: searchUrl, was_selected: false, reason: `HTTP ${resp.status}`,
-          });
+          searchLog.push({ step: i + 1, precision, label, ads_found: 0, url: searchUrl, was_selected: false, reason: `HTTP ${resp.status}` });
           if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', `HTTP ${resp.status}`);
           continue;
         }
@@ -1033,19 +1138,12 @@ export class AutoScout24Extractor extends SiteExtractor {
         prices = parseSearchPrices(html);
         const enough = prices.length >= MIN_PRICES;
 
-        console.log(
-          '[CoPilot] AS24 strategie %d (precision=%d): %d prix | %s',
-          i + 1, precision, prices.length, searchUrl.substring(0, 150),
-        );
+        console.log('[CoPilot] AS24 strategie %d (precision=%d): %d prix | %s', i + 1, precision, prices.length, searchUrl.substring(0, 150));
 
         searchLog.push({
-          step: i + 1, precision, label,
-          ads_found: prices.length,
-          url: searchUrl,
-          was_selected: enough,
-          reason: enough
-            ? `${prices.length} >= ${MIN_PRICES}`
-            : `${prices.length} < ${MIN_PRICES}`,
+          step: i + 1, precision, label, ads_found: prices.length,
+          url: searchUrl, was_selected: enough,
+          reason: enough ? `${prices.length} >= ${MIN_PRICES}` : `${prices.length} < ${MIN_PRICES}`,
         });
 
         if (progress) {
@@ -1053,31 +1151,23 @@ export class AutoScout24Extractor extends SiteExtractor {
             enough ? 'done' : 'skip', `${prices.length} annonces`);
         }
 
-        if (enough) {
-          usedPrecision = precision;
-          break;
-        }
+        if (enough) { usedPrecision = precision; break; }
       } catch (err) {
         console.error('[CoPilot] AS24 search error:', err);
-        searchLog.push({
-          step: i + 1, precision, label, ads_found: 0,
-          url: searchUrl, was_selected: false, reason: err.message,
-        });
+        searchLog.push({ step: i + 1, precision, label, ads_found: 0, url: searchUrl, was_selected: false, reason: err.message });
         if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', 'Erreur');
       }
     }
 
-    // ── Submit or report failure ──────────────────────────────────
+    // ── 6. Submit or report failure ───────────────────────────────
+    let submitted = false;
+
     if (prices.length >= MIN_PRICES) {
-      // Convert CHF to EUR if needed
       let priceInts = prices.map((p) => p.price);
       let priceDetails = prices;
       if (currency === 'CHF') {
         priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-        priceDetails = prices.map((p) => ({
-          ...p,
-          price: Math.round(p.price * CHF_TO_EUR),
-        }));
+        priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
       }
 
       if (progress) {
@@ -1087,17 +1177,17 @@ export class AutoScout24Extractor extends SiteExtractor {
 
       const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
       const payload = {
-        make: this._adData.make,
-        model: this._adData.model,
-        year,
-        region,
+        make: target.make,
+        model: target.model,
+        year: targetYear,
+        region: targetRegion,
         prices: priceInts,
         price_details: priceDetails,
-        fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
+        fuel: isCurrentVehicle && this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
         precision: usedPrecision,
         country: countryCode,
-        hp_range: hpRangeStr,
-        gearbox: this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
+        hp_range: isCurrentVehicle ? hpRangeStr : null,
+        gearbox: isCurrentVehicle && this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
         search_log: searchLog,
       };
 
@@ -1107,53 +1197,184 @@ export class AutoScout24Extractor extends SiteExtractor {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-
         if (resp.ok) {
-          if (progress) {
-            progress.update('submit', 'done', `${priceInts.length} prix envoyés (${region})`);
-            progress.update('bonus', 'skip', 'Pas de jobs bonus');
-          }
-          return { submitted: true, isCurrentVehicle: true };
+          if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${targetRegion})`);
+          submitted = true;
+        } else {
+          if (progress) progress.update('submit', 'error', 'Erreur serveur');
         }
-
-        const errBody = await resp.json().catch(() => null);
-        console.warn('[CoPilot] AS24 market-prices POST failed:', resp.status, errBody);
-        if (progress) progress.update('submit', 'error', `Erreur serveur (${resp.status})`);
       } catch (err) {
         console.error('[CoPilot] AS24 market-prices POST error:', err);
         if (progress) progress.update('submit', 'error', 'Erreur réseau');
       }
     } else {
-      // Not enough prices after all strategies
       if (progress) {
         progress.update('collect', 'warning', `${prices.length} annonces (min ${MIN_PRICES})`);
         progress.update('submit', 'skip', 'Pas assez de données');
       }
-
-      // Report failed search to server for diagnostics
+      // Report failed search
       try {
         const failedUrl = this._apiUrl.replace('/analyze', '/market-prices/failed-search');
         await this._fetch(failedUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            make: this._adData.make,
-            model: this._adData.model,
-            year,
-            region,
-            fuel: fuelKey || null,
-            hp_range: hpRangeStr,
-            country: countryCode,
-            search_log: searchLog,
+            make: target.make, model: target.model, year: targetYear,
+            region: targetRegion,
+            fuel: isCurrentVehicle ? (fuelKey || null) : null,
+            hp_range: isCurrentVehicle ? hpRangeStr : null,
+            country: countryCode, search_log: searchLog,
           }),
         });
-        console.log('[CoPilot] AS24 failed search reported');
-      } catch {
-        // Ignore reporting errors
+      } catch { /* ignore */ }
+    }
+
+    // ── 7. Execute bonus jobs ─────────────────────────────────────
+    if (bonusJobs.length > 0) {
+      await this._executeBonusJobs(bonusJobs, tld, progress);
+    } else if (progress) {
+      progress.update('bonus', 'skip', 'Pas de jobs bonus');
+    }
+
+    // Update cooldown for redirected vehicles
+    if (!isCurrentVehicle) {
+      localStorage.setItem('copilot_last_collect', String(Date.now()));
+    }
+
+    return { submitted, isCurrentVehicle };
+  }
+
+  /**
+   * Executes bonus collection jobs from the server queue.
+   * Each job specifies a vehicle+region to collect prices for.
+   * Only executes jobs matching the current site's country.
+   *
+   * @param {Array} bonusJobs - Jobs from next-job response
+   * @param {string} tld - Current site TLD (ch, de, etc.)
+   * @param {object} progress - Progress tracker
+   */
+  async _executeBonusJobs(bonusJobs, tld, progress) {
+    const MIN_BONUS_PRICES = 5;
+    const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
+    const jobDoneUrl = this._apiUrl.replace('/analyze', '/market-prices/job-done');
+    const currency = TLD_TO_CURRENCY[tld] || 'EUR';
+    const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
+
+    if (progress) progress.update('bonus', 'running', `${bonusJobs.length} jobs`);
+
+    for (const job of bonusJobs) {
+      // Only execute jobs for the current country
+      if ((job.country || 'FR') !== countryCode) {
+        console.log('[CoPilot] AS24 bonus skip: country %s != %s', job.country, countryCode);
+        await this._reportJobDone(jobDoneUrl, job.job_id, false);
+        if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model}`, 'skip', 'Pays différent');
+        continue;
+      }
+
+      try {
+        await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
+
+        const jobMakeKey = job.make.toLowerCase();
+        const jobModelKey = job.model.toLowerCase();
+        const jobYear = parseInt(job.year, 10);
+        const cantonZip = getCantonCenterZip(job.region);
+
+        // Build search options from job data
+        const searchOpts = { yearSpread: 1 };
+        if (job.fuel) {
+          const fc = getAs24FuelCode(job.fuel);
+          if (fc) searchOpts.fuel = fc;
+        }
+        if (job.gearbox) {
+          const gc = getAs24GearCode(job.gearbox);
+          if (gc) searchOpts.gear = gc;
+        }
+        if (job.hp_range) {
+          const pp = parseHpRange(job.hp_range);
+          Object.assign(searchOpts, pp);
+        }
+        if (cantonZip) {
+          searchOpts.zip = cantonZip;
+          searchOpts.radius = 50;
+        }
+
+        const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, searchOpts);
+        const resp = await fetch(searchUrl, { credentials: 'same-origin' });
+
+        if (!resp.ok) {
+          await this._reportJobDone(jobDoneUrl, job.job_id, false);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `HTTP ${resp.status}`);
+          continue;
+        }
+
+        const html = await resp.text();
+        const prices = parseSearchPrices(html);
+
+        console.log('[CoPilot] AS24 bonus %s %s %d %s: %d prix', job.make, job.model, jobYear, job.region, prices.length);
+
+        if (prices.length >= MIN_BONUS_PRICES) {
+          let priceInts = prices.map((p) => p.price);
+          let priceDetails = prices;
+          if (currency === 'CHF') {
+            priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+            priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
+          }
+
+          const bonusPrecision = prices.length >= 20 ? 4 : 2;
+          const bonusPayload = {
+            make: job.make, model: job.model, year: jobYear,
+            region: job.region, prices: priceInts, price_details: priceDetails,
+            fuel: job.fuel || null, hp_range: job.hp_range || null,
+            precision: bonusPrecision, country: countryCode,
+            search_log: [{
+              step: 1, precision: bonusPrecision,
+              location_type: cantonZip ? 'canton' : 'national',
+              year_spread: 1,
+              filters_applied: [
+                ...(searchOpts.fuel ? ['fuel'] : []),
+                ...(searchOpts.gear ? ['gearbox'] : []),
+                ...(searchOpts.powerfrom || searchOpts.powerto ? ['hp'] : []),
+              ],
+              ads_found: prices.length, url: searchUrl,
+              was_selected: true, reason: `bonus job: ${prices.length} annonces`,
+            }],
+          };
+
+          const postResp = await this._fetch(marketUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bonusPayload),
+          });
+          await this._reportJobDone(jobDoneUrl, job.job_id, postResp.ok);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'done', `${priceInts.length} prix`);
+        } else {
+          await this._reportJobDone(jobDoneUrl, job.job_id, false);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `${prices.length} annonces`);
+        }
+      } catch (err) {
+        console.warn('[CoPilot] AS24 bonus job error:', err);
+        await this._reportJobDone(jobDoneUrl, job.job_id, false);
+        if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', 'Erreur');
       }
     }
 
-    if (progress) progress.update('bonus', 'skip');
-    return { submitted: prices.length >= MIN_PRICES, isCurrentVehicle: true };
+    if (progress) progress.update('bonus', 'done');
+  }
+
+  /**
+   * Reports a bonus job as done/failed to the server.
+   * @param {string} jobDoneUrl
+   * @param {number} jobId
+   * @param {boolean} success
+   */
+  async _reportJobDone(jobDoneUrl, jobId, success) {
+    if (!jobId) return;
+    try {
+      await this._fetch(jobDoneUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, success }),
+      });
+    } catch { /* ignore */ }
   }
 }
