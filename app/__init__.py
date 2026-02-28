@@ -95,6 +95,13 @@ def create_app(config_name: str | None = None) -> Flask:
     def localtime_filter(dt):
         return _to_paris(dt) if dt else dt
 
+    @app.template_filter("localdatetime")
+    def localdatetime_filter(dt, fmt="%d/%m/%Y %H:%M"):
+        """Convertit UTC → Paris et formate. Retourne '-' si None."""
+        if dt is None:
+            return "-"
+        return _to_paris(dt).strftime(fmt)
+
     # Enregistrement des blueprints
     from app.admin import admin_bp
     from app.api import api_bp
