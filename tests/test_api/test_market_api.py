@@ -1098,3 +1098,53 @@ class TestNextJobWithQueue:
             regions = {j.region for j in ch_jobs}
             assert "Zurich" in regions
             assert "Vaud" in regions
+
+
+class TestNextJobYearValidation:
+    """Regression: next-job must require year param to avoid crashes."""
+
+    def test_next_job_without_year_returns_no_collect(self, client):
+        """next-job sans year ne doit pas crasher (retourne collect=false)."""
+        resp = client.get("/api/market-prices/next-job?make=Peugeot&model=208&region=Bretagne")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["data"]["collect"] is False
+
+
+class TestLowDataCountryIsolation:
+    """Regression: low-data detection must be isolated per country."""
+
+    def test_ch_fails_dont_block_fr_expansion(self, app):
+        """Des echecs CH ne doivent pas bloquer l'expansion FR."""
+        from app.services.collection_job_service import (
+            LOW_DATA_FAIL_THRESHOLD,
+            _get_low_data_vehicles,
+        )
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            # Create failed jobs for Peugeot 208 in CH
+            for i in range(LOW_DATA_FAIL_THRESHOLD):
+                db.session.add(
+                    CollectionJob(
+                        make="Peugeot",
+                        model="208",
+                        year=2022,
+                        region=f"Canton{i}",
+                        fuel="essence",
+                        status="failed",
+                        attempts=3,
+                        country="CH",
+                        source_vehicle="test",
+                    )
+                )
+            db.session.commit()
+
+            # CH should be low-data
+            low_ch = _get_low_data_vehicles("CH")
+            assert ("peugeot", "208", "CH") in low_ch
+
+            # FR should NOT be low-data
+            low_fr = _get_low_data_vehicles("FR")
+            assert ("peugeot", "208", "FR") not in low_fr

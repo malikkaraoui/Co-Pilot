@@ -305,17 +305,19 @@ def expand_collection_jobs(
         gearbox = gearbox.strip().lower()
 
     # Skip si ce vehicule est low-data (trop de fails recents)
-    low_data = _get_low_data_vehicles()
-    if (make.strip().lower(), model.strip().lower()) in low_data:
+    low_data = _get_low_data_vehicles(country)
+    if (make.strip().lower(), model.strip().lower(), country) in low_data:
         logger.info(
-            "Skipping expansion for low-data vehicle %s %s",
+            "Skipping expansion for low-data vehicle %s %s (country=%s)",
             make,
             model,
+            country,
         )
         return []
 
     # Cache : skip si deja expanded recemment (evite ~128 queries par appel)
-    cache_key = market_text_key(f"{make}:{model}:{year}")
+    # Inclut country pour eviter collision FR/CH sur le meme vehicule
+    cache_key = market_text_key(f"{make}:{model}:{year}:{country}")
     now_mono = time.monotonic()
     if cache_key in _expand_cache:
         if now_mono - _expand_cache[cache_key] < _EXPAND_COOLDOWN_SECONDS:
@@ -444,35 +446,45 @@ def _reclaim_stale_jobs() -> int:
 LOW_DATA_FAIL_THRESHOLD = 3
 
 
-def _get_low_data_vehicles() -> set[tuple[str, str]]:
-    """Identifie les vehicules (make, model) avec >= LOW_DATA_FAIL_THRESHOLD jobs failed recents.
+def _get_low_data_vehicles(country: str | None = None) -> set[tuple[str, str, str]]:
+    """Identifie les vehicules (make, model, country) avec >= LOW_DATA_FAIL_THRESHOLD jobs failed recents.
 
-    Si les 3 regions les plus peuplees (IDF, ARA, PACA) echouent,
-    les petites regions n'auront pas mieux. On skip ce vehicule.
+    Groupe par (make, model, country) pour eviter que les echecs d'un pays
+    contaminent un autre. Si country est fourni, ne retourne que ce pays.
     """
     failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
+
+    filters = [
+        CollectionJob.status == "failed",
+        CollectionJob.created_at >= failed_cutoff,
+    ]
+    if country:
+        filters.append(func.coalesce(CollectionJob.country, "FR") == country)
 
     rows = (
         db.session.query(
             func.lower(CollectionJob.make),
             func.lower(CollectionJob.model),
+            func.coalesce(CollectionJob.country, "FR"),
             func.count(CollectionJob.id),
         )
-        .filter(
-            CollectionJob.status == "failed",
-            CollectionJob.created_at >= failed_cutoff,
+        .filter(*filters)
+        .group_by(
+            func.lower(CollectionJob.make),
+            func.lower(CollectionJob.model),
+            func.coalesce(CollectionJob.country, "FR"),
         )
-        .group_by(func.lower(CollectionJob.make), func.lower(CollectionJob.model))
         .having(func.count(CollectionJob.id) >= LOW_DATA_FAIL_THRESHOLD)
         .all()
     )
 
-    return {(make, model) for make, model, _ in rows}
+    return {(make, model, ctry) for make, model, ctry, _ in rows}
 
 
-def _cancel_low_data_pending(low_data: set[tuple[str, str]]) -> int:
+def _cancel_low_data_pending(low_data: set[tuple[str, str, str]]) -> int:
     """Annule (status=failed) tous les jobs pending/assigned pour les vehicules low-data.
 
+    Filtre par (make, model, country) pour ne pas annuler les jobs d'un autre pays.
     Evite que des dizaines de jobs P2/P3/P4 restent en queue et soient
     re-selectionnes sans fin quand le vehicule est manifestement introuvable.
     """
@@ -480,11 +492,12 @@ def _cancel_low_data_pending(low_data: set[tuple[str, str]]) -> int:
         return 0
 
     cancelled = 0
-    for make, model in low_data:
+    for make, model, ctry in low_data:
         zombies = CollectionJob.query.filter(
             func.lower(CollectionJob.make) == make,
             func.lower(CollectionJob.model) == model,
             CollectionJob.status.in_(("pending", "assigned")),
+            func.coalesce(CollectionJob.country, "FR") == ctry,
         ).all()
         for job in zombies:
             job.status = "failed"
@@ -492,10 +505,11 @@ def _cancel_low_data_pending(low_data: set[tuple[str, str]]) -> int:
             cancelled += 1
         if zombies:
             logger.info(
-                "Cancelled %d zombie jobs for low-data vehicle %s %s",
+                "Cancelled %d zombie jobs for low-data vehicle %s %s (country=%s)",
                 len(zombies),
                 make,
                 model,
+                ctry,
             )
 
     if cancelled:
@@ -512,9 +526,8 @@ def pick_bonus_jobs(max_jobs: int = 3) -> list[CollectionJob]:
     """
     _reclaim_stale_jobs()
 
-    low_data = _get_low_data_vehicles()
-
-    # Annuler definitivement les jobs des vehicules low-data
+    # Detecter les vehicules low-data (tous pays) et annuler leurs jobs
+    low_data = _get_low_data_vehicles(country=None)
     _cancel_low_data_pending(low_data)
 
     query = CollectionJob.query.filter(CollectionJob.status == "pending").order_by(

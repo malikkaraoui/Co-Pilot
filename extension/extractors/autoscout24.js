@@ -802,7 +802,7 @@ export function extractTld(url) {
  */
 export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
   const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius } = options;
-  const base = `https://www.autoscout24.${tld}/lst/${makeKey}/${modelKey}`;
+  const base = `https://www.autoscout24.${tld}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
   const params = new URLSearchParams({
     fregfrom: String(year - yearSpread),
     fregto: String(year + yearSpread),
@@ -1076,41 +1076,48 @@ export class AutoScout24Extractor extends SiteExtractor {
     const targetCantonZip = getCantonCenterZip(targetRegion);
     const strategies = [];
 
+    // Helper: derive filters_applied list from strategy search options
+    function _filtersApplied(opts) {
+      const f = [];
+      if (opts.fuel) f.push('fuel');
+      if (opts.gear) f.push('gearbox');
+      if (opts.powerfrom || opts.powerto) f.push('hp');
+      if (opts.kmfrom || opts.kmto) f.push('km');
+      return f;
+    }
+
     if (isCurrentVehicle) {
       // Full 7-strategy cascade with all vehicle-specific filters
       const powerParams = getAs24PowerParams(hp);
       const kmParams = getAs24KmParams(km);
 
       if (zipcode) {
-        strategies.push({
-          yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams,
-          zip: zipcode, radius: 30, precision: 5, label: `ZIP ${zipcode} +30km`,
-        });
+        const opts = { yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams, zip: zipcode, radius: 30 };
+        strategies.push({ ...opts, precision: 5, label: `ZIP ${zipcode} +30km`, location_type: 'zip', filters_applied: _filtersApplied(opts) });
       }
       if (targetCantonZip) {
-        strategies.push({
-          yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams,
-          zip: targetCantonZip, radius: 50, precision: 4, label: `${targetRegion} ±1an`,
-        });
-        strategies.push({
-          yearSpread: 2, fuel: fuelCode, gear: gearCode, ...powerParams,
-          zip: targetCantonZip, radius: 50, precision: 4, label: `${targetRegion} ±2ans`,
-        });
+        const opts1 = { yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams, zip: targetCantonZip, radius: 50 };
+        strategies.push({ ...opts1, precision: 4, label: `${targetRegion} ±1an`, location_type: 'canton', filters_applied: _filtersApplied(opts1) });
+        const opts2 = { yearSpread: 2, fuel: fuelCode, gear: gearCode, ...powerParams, zip: targetCantonZip, radius: 50 };
+        strategies.push({ ...opts2, precision: 4, label: `${targetRegion} ±2ans`, location_type: 'canton', filters_applied: _filtersApplied(opts2) });
       }
-      strategies.push({ yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, precision: 3, label: 'National ±1an' });
-      strategies.push({ yearSpread: 2, fuel: fuelCode, gear: gearCode, precision: 3, label: 'National ±2ans' });
-      strategies.push({ yearSpread: 2, fuel: fuelCode, precision: 2, label: 'National fuel' });
-      strategies.push({ yearSpread: 3, precision: 1, label: 'National large' });
+      const opts3 = { yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams };
+      strategies.push({ ...opts3, precision: 3, label: 'National ±1an', location_type: 'national', filters_applied: _filtersApplied(opts3) });
+      const opts4 = { yearSpread: 2, fuel: fuelCode, gear: gearCode };
+      strategies.push({ ...opts4, precision: 3, label: 'National ±2ans', location_type: 'national', filters_applied: _filtersApplied(opts4) });
+      const opts5 = { yearSpread: 2, fuel: fuelCode };
+      strategies.push({ ...opts5, precision: 2, label: 'National fuel', location_type: 'national', filters_applied: _filtersApplied(opts5) });
+      strategies.push({ yearSpread: 3, precision: 1, label: 'National large', location_type: 'national', filters_applied: [] });
     } else {
       // Simplified cascade for redirect (vehicle specs unknown)
       if (targetCantonZip) {
         strategies.push({
           yearSpread: 1, zip: targetCantonZip, radius: 50,
-          precision: 3, label: `${targetRegion} ±1an`,
+          precision: 3, label: `${targetRegion} ±1an`, location_type: 'canton', filters_applied: [],
         });
       }
-      strategies.push({ yearSpread: 1, precision: 2, label: 'National ±1an' });
-      strategies.push({ yearSpread: 2, precision: 1, label: 'National ±2ans' });
+      strategies.push({ yearSpread: 1, precision: 2, label: 'National ±1an', location_type: 'national', filters_applied: [] });
+      strategies.push({ yearSpread: 2, precision: 1, label: 'National ±2ans', location_type: 'national', filters_applied: [] });
     }
 
     // ── 5. Execute cascade ────────────────────────────────────────
@@ -1123,13 +1130,14 @@ export class AutoScout24Extractor extends SiteExtractor {
     for (let i = 0; i < strategies.length; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
 
-      const { precision, label, ...searchOpts } = strategies[i];
+      const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
       const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, searchOpts);
+      const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
 
       try {
         const resp = await fetch(searchUrl, { credentials: 'same-origin' });
         if (!resp.ok) {
-          searchLog.push({ step: i + 1, precision, label, ads_found: 0, url: searchUrl, was_selected: false, reason: `HTTP ${resp.status}` });
+          searchLog.push({ ...logBase, ads_found: 0, url: searchUrl, was_selected: false, reason: `HTTP ${resp.status}` });
           if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', `HTTP ${resp.status}`);
           continue;
         }
@@ -1141,7 +1149,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         console.log('[CoPilot] AS24 strategie %d (precision=%d): %d prix | %s', i + 1, precision, prices.length, searchUrl.substring(0, 150));
 
         searchLog.push({
-          step: i + 1, precision, label, ads_found: prices.length,
+          ...logBase, ads_found: prices.length,
           url: searchUrl, was_selected: enough,
           reason: enough ? `${prices.length} >= ${MIN_PRICES}` : `${prices.length} < ${MIN_PRICES}`,
         });
@@ -1154,7 +1162,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         if (enough) { usedPrecision = precision; break; }
       } catch (err) {
         console.error('[CoPilot] AS24 search error:', err);
-        searchLog.push({ step: i + 1, precision, label, ads_found: 0, url: searchUrl, was_selected: false, reason: err.message });
+        searchLog.push({ ...logBase, ads_found: 0, url: searchUrl, was_selected: false, reason: err.message });
         if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', 'Erreur');
       }
     }

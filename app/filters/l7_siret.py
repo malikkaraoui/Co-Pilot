@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from app.errors import ExternalAPIError
-from app.filters.base import BaseFilter, FilterResult
+from app.filters.base import VERIFIED_PRO_PLATFORMS, BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class L7SiretFilter(BaseFilter):
             # Plateformes verifiees : AS24 verifie le statut pro des vendeurs.
             # Si la plateforme dit "pro", c'est booleeen = pass.
             # La note vendeur enrichit le message mais ne change pas le verdict.
-            if source in ("autoscout24",):
+            if source in VERIFIED_PRO_PLATFORMS:
                 msg = "Vendeur professionnel vérifié par la plateforme"
                 if dealer_rating is not None and dealer_review_count is not None:
                     msg += f" — noté {dealer_rating}/5 ({dealer_review_count} avis)"

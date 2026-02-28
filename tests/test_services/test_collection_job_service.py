@@ -554,14 +554,14 @@ class TestLowDataVehicleSkip:
         with app.app_context():
             self._create_failed_jobs("Kia", "Optima", LOW_DATA_FAIL_THRESHOLD)
             low_data = _get_low_data_vehicles()
-            assert ("kia", "optima") in low_data
+            assert ("kia", "optima", "FR") in low_data
 
     def test_below_threshold_not_detected(self, app):
         """Vehicles with < threshold fails are NOT detected as low-data."""
         with app.app_context():
             self._create_failed_jobs("Kia", "Niro", LOW_DATA_FAIL_THRESHOLD - 1)
             low_data = _get_low_data_vehicles()
-            assert ("kia", "niro") not in low_data
+            assert ("kia", "niro", "FR") not in low_data
 
     def test_pick_bonus_skips_low_data_vehicle(self, app):
         """pick_bonus_jobs does not pick pending jobs from low-data vehicles."""

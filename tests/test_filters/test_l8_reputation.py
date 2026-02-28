@@ -181,3 +181,45 @@ class TestL8ImportDetectionFilter:
         result = self.filt.run(data)
         # Import keyword still triggers, but allemagne should not
         assert not any("allemagne" in s.lower() for s in result.details["signals"])
+
+    # ── Regressions GPT review ─────────────────────────────────────
+
+    def test_00xx_phone_detected_as_foreign(self):
+        """Un numero 0049 (format 00+indicatif) sur .fr doit etre detecte comme etranger."""
+        data = {
+            "phone": "0049 171 123 4567",
+            "description": "Belle voiture.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert any("étranger" in s for s in result.details["signals"])
+
+    def test_00xx_local_phone_not_flagged(self):
+        """Un 0033 sur .fr ne doit PAS etre etranger (c'est local)."""
+        data = {
+            "phone": "0033612345678",
+            "description": "Belle voiture.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert not any("étranger" in s for s in result.details.get("signals", []))
+
+    def test_ht_no_false_positive(self):
+        """'ht' ne doit pas matcher dans des mots normaux comme 'nacht'."""
+        data = {
+            "description": "Nachtblau metallic, sehr guter Zustand.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert not any(
+            "fiscal" in s.lower() or "TVA" in s for s in result.details.get("signals", [])
+        )
+
+    def test_ht_standalone_detected(self):
+        """'ht' isole (prix HT) doit declencher le signal fiscal."""
+        data = {
+            "description": "Prix ht negociable, vehicule professionnel.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert any("fiscal" in s.lower() or "TVA" in s for s in result.details["signals"])

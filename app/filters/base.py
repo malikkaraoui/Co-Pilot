@@ -8,6 +8,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+# Plateformes qui verifient le statut pro de leurs vendeurs.
+# Utilise par L7 (bypass SIRET/UID) et L8 (bypass signal "pro sans ID").
+VERIFIED_PRO_PLATFORMS: frozenset[str] = frozenset({"autoscout24"})
+
 
 @dataclass
 class FilterResult:

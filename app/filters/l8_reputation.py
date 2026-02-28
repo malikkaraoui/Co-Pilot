@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from app.filters.base import BaseFilter, FilterResult
+from app.filters.base import VERIFIED_PRO_PLATFORMS, BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +150,9 @@ class L8ImportDetectionFilter(BaseFilter):
         # Adapte au pays : +41 n'est pas etranger en Suisse, +49 en Allemagne, etc.
         phone = data.get("phone") or ""
         cleaned_phone = re.sub(r"[\s\-.]", "", phone)
+        # Normaliser le format 00XX en +XX (ex: 0049 → +49)
+        if cleaned_phone.startswith("00") and len(cleaned_phone) > 4:
+            cleaned_phone = "+" + cleaned_phone[2:]
         local_prefix = self._LOCAL_PREFIXES.get(country, "33")
         if cleaned_phone and cleaned_phone.startswith("+"):
             if not cleaned_phone.startswith("+" + local_prefix):
@@ -181,7 +184,13 @@ class L8ImportDetectionFilter(BaseFilter):
             signals.append(f"Texte en langue étrangère détecté ({', '.join(found_foreign[:3])})")
 
         # Signal 4 : Signaux fiscaux (malus, TVA, export)
-        found_tax = [kw for kw in TAX_KEYWORDS if kw in text]
+        # Word boundary pour les tokens courts (ex: "ht") pour eviter les faux positifs
+        found_tax = [
+            kw
+            for kw in TAX_KEYWORDS
+            if (len(kw) <= 3 and re.search(rf"\b{re.escape(kw)}\b", text))
+            or (len(kw) > 3 and kw in text)
+        ]
         if found_tax:
             signals.append(f"Signal fiscal/TVA ({', '.join(found_tax[:3])})")
 
@@ -207,7 +216,7 @@ class L8ImportDetectionFilter(BaseFilter):
         owner_type = data.get("owner_type")
         siret = data.get("siret")
         source = (data.get("source") or "").lower()
-        if owner_type == "pro" and not siret and source not in ("autoscout24",):
+        if owner_type == "pro" and not siret and source not in VERIFIED_PRO_PLATFORMS:
             if country == "CH":
                 signals.append("Vendeur professionnel sans UID")
             elif country == "FR":

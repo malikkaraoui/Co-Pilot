@@ -90,6 +90,8 @@ class SearchStep(BaseModel):
     url: str = Field(max_length=500)
     was_selected: bool = False
     reason: str = Field(default="", max_length=200)
+    # Label optionnel pour lisibilite UI (pas utilise cote backend)
+    label: str | None = Field(default=None, max_length=100)
 
 
 class MarketPricesRequest(BaseModel):
@@ -361,14 +363,14 @@ def next_market_job():
     hp_range = request.args.get("hp_range")
     country = request.args.get("country") or "FR"
 
-    if not all([make, model, region]):
+    if not all([make, model, year, region]):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
     # Ne pas collecter de prix pour les modeles generiques
     if model and model.strip().lower() in _GENERIC_MODELS:
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
-    if year is not None and not (1990 <= year <= 2030):
+    if not (1990 <= year <= 2030):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
     # Expand collection jobs pour ce vehicule (dedup gere les repetitions)
