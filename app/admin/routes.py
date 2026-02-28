@@ -1932,80 +1932,328 @@ def purge_failed_jobs():
     return redirect(url_for("admin.issues"))
 
 
-# ── Failed Searches (diagnostic URLs) ────────────────────────────
+# ── Failed Searches (dashboard erreurs) ──────────────────────────
 
 
 @admin_bp.route("/failed-searches")
 @login_required
 def failed_searches():
-    """Page d'inspection des recherches LBC echouees (0 annonces)."""
-    from app.models.failed_search import FailedSearch
-
-    resolved_filter = request.args.get("resolved", "")
-    make_filter = request.args.get("make", "").strip()
-    page = request.args.get("page", 1, type=int)
-
-    # Stats
-    total = FailedSearch.query.count()
-    unresolved = FailedSearch.query.filter_by(resolved=False).count()
-    resolved = FailedSearch.query.filter_by(resolved=True).count()
-
-    # Token source breakdown
+    """Dashboard de monitoring des recherches echouees (inspire Sentry/Datadog)."""
     from sqlalchemy import func as sqla_func
 
+    from app.models.failed_search import FailedSearch
+
+    # ── Filtres depuis la query string ──
+    status_filter = request.args.get("status", "").strip()
+    severity_filter = request.args.get("severity", "").strip()
+    make_filter = request.args.get("make", "").strip()
+    country_filter = request.args.get("country", "").strip()
+    period_filter = request.args.get("period", "").strip()
+    sort_by = request.args.get("sort", "last_seen")
+    page = request.args.get("page", 1, type=int)
+
+    now_utc = datetime.now(timezone.utc)
+
+    # ── KPI Stats ──
+    total = FailedSearch.query.count()
+    new_count = FailedSearch.query.filter(FailedSearch.status == "new").count()
+    investigating_count = FailedSearch.query.filter(FailedSearch.status == "investigating").count()
+    resolved_count = FailedSearch.query.filter(
+        FailedSearch.status.in_(("resolved", "auto_resolved", "wont_fix"))
+    ).count()
+
+    # Nouveaux derniers 24h
+    cutoff_24h = now_utc - timedelta(hours=24)
+    new_last_24h = FailedSearch.query.filter(FailedSearch.created_at >= cutoff_24h).count()
+
+    # Taux de resolution
+    resolution_rate = round(resolved_count / total * 100) if total > 0 else 0
+
+    # Top offender (vehicule avec le plus d'echecs non resolus)
+    top_offender = (
+        db.session.query(
+            FailedSearch.make,
+            FailedSearch.model,
+            sqla_func.count().label("cnt"),
+        )
+        .filter(FailedSearch.status.in_(("new", "investigating")))
+        .group_by(FailedSearch.make, FailedSearch.model)
+        .order_by(sqla_func.count().desc())
+        .first()
+    )
+
+    # Severity breakdown (actifs seulement)
+    severity_stats = dict(
+        db.session.query(FailedSearch.severity, sqla_func.count())
+        .filter(FailedSearch.status.in_(("new", "investigating")))
+        .group_by(FailedSearch.severity)
+        .all()
+    )
+
+    # Source breakdown
     source_stats = dict(
-        db.session.query(FailedSearch.token_source, sqla_func.count())
+        db.session.query(
+            sqla_func.coalesce(FailedSearch.token_source, "unknown"),
+            sqla_func.count(),
+        )
         .group_by(FailedSearch.token_source)
         .all()
     )
 
-    # Query
-    query = FailedSearch.query.order_by(FailedSearch.created_at.desc())
-    if resolved_filter == "0":
-        query = query.filter(FailedSearch.resolved.is_(False))
-    elif resolved_filter == "1":
-        query = query.filter(FailedSearch.resolved.is_(True))
+    # Country breakdown
+    country_stats = dict(
+        db.session.query(
+            sqla_func.coalesce(FailedSearch.country, "FR"),
+            sqla_func.count(),
+        )
+        .group_by(FailedSearch.country)
+        .all()
+    )
+
+    # ── Trend data (30 jours) pour Plotly ──
+    cutoff_30d = now_utc - timedelta(days=30)
+    trend_raw = (
+        db.session.query(
+            sqla_func.date(FailedSearch.created_at).label("day"),
+            sqla_func.count().label("cnt"),
+        )
+        .filter(FailedSearch.created_at >= cutoff_30d)
+        .group_by(sqla_func.date(FailedSearch.created_at))
+        .order_by(sqla_func.date(FailedSearch.created_at))
+        .all()
+    )
+    trend_dates = [str(r.day) for r in trend_raw]
+    trend_counts = [r.cnt for r in trend_raw]
+
+    # ── Query groupee par vehicule (make+model) ──
+    base_query = db.session.query(
+        FailedSearch.make,
+        FailedSearch.model,
+        sqla_func.count().label("occurrence_count"),
+        sqla_func.min(FailedSearch.created_at).label("first_seen"),
+        sqla_func.max(FailedSearch.created_at).label("last_seen"),
+        sqla_func.max(FailedSearch.severity).label("worst_severity"),
+        sqla_func.sum(FailedSearch.total_ads_found).label("total_ads_sum"),
+        sqla_func.group_concat(sqla_func.distinct(FailedSearch.region)).label("regions"),
+        sqla_func.group_concat(
+            sqla_func.distinct(sqla_func.coalesce(FailedSearch.country, "FR"))
+        ).label("countries"),
+        sqla_func.group_concat(sqla_func.distinct(FailedSearch.status)).label("statuses"),
+    ).group_by(FailedSearch.make, FailedSearch.model)
+
+    # Appliquer les filtres
+    if status_filter:
+        base_query = base_query.having(
+            sqla_func.group_concat(sqla_func.distinct(FailedSearch.status)).contains(status_filter)
+        )
+    if severity_filter:
+        base_query = base_query.having(sqla_func.max(FailedSearch.severity) == severity_filter)
     if make_filter:
-        query = query.filter(FailedSearch.make == make_filter)
+        base_query = base_query.filter(FailedSearch.make == make_filter)
+    if country_filter:
+        base_query = base_query.filter(
+            sqla_func.coalesce(FailedSearch.country, "FR") == country_filter
+        )
+    if period_filter:
+        period_map = {"24h": 1, "7d": 7, "30d": 30}
+        days = period_map.get(period_filter)
+        if days:
+            base_query = base_query.filter(
+                FailedSearch.created_at >= now_utc - timedelta(days=days)
+            )
 
-    per_page = 50
-    total_results = query.count()
-    total_pages = max(1, (total_results + per_page - 1) // per_page)
-    page = min(page, total_pages)
-    records = query.offset((page - 1) * per_page).limit(per_page).all()
+    # Tri
+    sort_map = {
+        "last_seen": sqla_func.max(FailedSearch.created_at).desc(),
+        "first_seen": sqla_func.min(FailedSearch.created_at).asc(),
+        "occurrences": sqla_func.count().desc(),
+        "severity": sqla_func.max(FailedSearch.severity).desc(),
+    }
+    order_clause = sort_map.get(sort_by, sqla_func.max(FailedSearch.created_at).desc())
+    base_query = base_query.order_by(order_clause)
 
+    # Pagination
+    per_page = 30
+    all_groups = base_query.all()
+    total_groups = len(all_groups)
+    total_pages = max(1, (total_groups + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    groups = all_groups[(page - 1) * per_page : page * per_page]
+
+    # Listes pour les filtres dropdown
     make_list = [
         r[0]
         for r in db.session.query(FailedSearch.make).distinct().order_by(FailedSearch.make).all()
     ]
+    country_list = sorted(
+        {
+            r[0]
+            for r in db.session.query(
+                sqla_func.distinct(sqla_func.coalesce(FailedSearch.country, "FR"))
+            ).all()
+        }
+    )
 
     return render_template(
         "admin/failed_searches.html",
+        # KPIs
         total=total,
-        unresolved=unresolved,
-        resolved_count=resolved,
+        new_count=new_count,
+        investigating_count=investigating_count,
+        resolved_count=resolved_count,
+        new_last_24h=new_last_24h,
+        resolution_rate=resolution_rate,
+        top_offender=top_offender,
+        severity_stats=severity_stats,
         source_stats=source_stats,
-        records=records,
+        country_stats=country_stats,
+        # Trend
+        trend_dates=trend_dates,
+        trend_counts=trend_counts,
+        # Table
+        groups=groups,
+        total_groups=total_groups,
         page=page,
         total_pages=total_pages,
-        total_results=total_results,
-        resolved_filter=resolved_filter,
+        # Filtres
+        status_filter=status_filter,
+        severity_filter=severity_filter,
         make_filter=make_filter,
+        country_filter=country_filter,
+        period_filter=period_filter,
+        sort_by=sort_by,
         make_list=make_list,
+        country_list=country_list,
     )
 
 
-@admin_bp.route("/failed-searches/<int:fs_id>/resolve", methods=["POST"])
+@admin_bp.route("/failed-searches/<path:make>/<path:model_name>")
 @login_required
-def resolve_failed_search(fs_id):
-    """Marquer une recherche echouee comme resolue."""
+def failed_search_detail(make, model_name):
+    """Vue detail pour un vehicule : toutes les occurrences, timeline, actions."""
+    from app.models.failed_search import FailedSearch
+
+    records = (
+        FailedSearch.query.filter(
+            FailedSearch.make == make,
+            FailedSearch.model == model_name,
+        )
+        .order_by(FailedSearch.created_at.desc())
+        .all()
+    )
+    if not records:
+        abort(404)
+
+    occurrence_count = len(records)
+    first_seen = min(r.created_at for r in records if r.created_at)
+    last_seen = max(r.created_at for r in records if r.created_at)
+    worst_severity = FailedSearch.compute_severity(occurrence_count, records[0].token_source)
+    regions = sorted({r.region for r in records})
+    countries = sorted({r.country or "FR" for r in records})
+    statuses = {r.status for r in records}
+
+    return render_template(
+        "admin/failed_search_detail.html",
+        make=make,
+        model_name=model_name,
+        records=records,
+        occurrence_count=occurrence_count,
+        first_seen=first_seen,
+        last_seen=last_seen,
+        worst_severity=worst_severity,
+        regions=regions,
+        countries=countries,
+        statuses=statuses,
+    )
+
+
+@admin_bp.route("/failed-searches/<int:fs_id>/status", methods=["POST"])
+@login_required
+def update_failed_search_status(fs_id):
+    """Change le statut d'une recherche echouee."""
     from app.models.failed_search import FailedSearch
 
     fs = db.session.get(FailedSearch, fs_id)
     if not fs:
         abort(404)
-    fs.resolved = True
-    fs.resolved_note = request.form.get("note", "")
+
+    new_status = request.form.get("status", "").strip()
+    note = request.form.get("note", "").strip()
+
+    valid_statuses = ("new", "investigating", "resolved", "wont_fix")
+    if new_status not in valid_statuses:
+        flash(f"Statut invalide : {new_status}", "error")
+        return redirect(request.referrer or url_for("admin.failed_searches"))
+
+    fs.set_status(new_status, note)
+    if note:
+        fs.resolved_note = note
+    db.session.commit()
+
+    flash(f"{fs.make} {fs.model} : statut -> {new_status}", "success")
+    return redirect(request.referrer or url_for("admin.failed_searches"))
+
+
+@admin_bp.route("/failed-searches/<int:fs_id>/note", methods=["POST"])
+@login_required
+def add_failed_search_note(fs_id):
+    """Ajoute une note sans changer le statut."""
+    from app.models.failed_search import FailedSearch
+
+    fs = db.session.get(FailedSearch, fs_id)
+    if not fs:
+        abort(404)
+
+    note = request.form.get("note", "").strip()
+    if note:
+        fs.add_note("comment", note)
+        db.session.commit()
+        flash("Note ajoutee.", "success")
+
+    return redirect(request.referrer or url_for("admin.failed_searches"))
+
+
+@admin_bp.route("/failed-searches/bulk-action", methods=["POST"])
+@login_required
+def bulk_failed_search_action():
+    """Action en masse sur les recherches echouees."""
+    from app.models.failed_search import FailedSearch
+
+    action = request.form.get("action", "")
+    ids = request.form.getlist("fs_ids")
+
+    if not ids:
+        flash("Aucun element selectionne.", "warning")
+        return redirect(url_for("admin.failed_searches"))
+
+    count = 0
+    for fs_id_str in ids:
+        fs = db.session.get(FailedSearch, int(fs_id_str))
+        if not fs:
+            continue
+        if action == "resolve":
+            fs.set_status("resolved", "Resolution en masse")
+        elif action == "wont_fix":
+            fs.set_status("wont_fix", "Won't fix en masse")
+        elif action == "investigating":
+            fs.set_status("investigating", "Prise en charge en masse")
+        count += 1
+
+    db.session.commit()
+    flash(f"{count} element(s) mis a jour ({action}).", "success")
+    return redirect(url_for("admin.failed_searches"))
+
+
+@admin_bp.route("/failed-searches/<int:fs_id>/resolve", methods=["POST"])
+@login_required
+def resolve_failed_search(fs_id):
+    """Marquer comme resolu (compat legacy)."""
+    from app.models.failed_search import FailedSearch
+
+    fs = db.session.get(FailedSearch, fs_id)
+    if not fs:
+        abort(404)
+    fs.set_status("resolved", request.form.get("note", ""))
     db.session.commit()
     flash(f"Recherche {fs.make} {fs.model} marquee comme resolue.", "success")
     return redirect(url_for("admin.failed_searches"))

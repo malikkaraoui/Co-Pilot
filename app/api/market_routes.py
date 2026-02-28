@@ -565,6 +565,17 @@ def report_failed_search():
     search_log = data.get("search_log")
     total_ads = sum(s.get("ads_found", 0) for s in search_log) if search_log else 0
 
+    # Compter les occurrences precedentes pour auto-calculer la severite
+    from sqlalchemy import func as sqla_func
+
+    occurrence_count = FailedSearch.query.filter(
+        sqla_func.lower(FailedSearch.make) == make.strip().lower(),
+        sqla_func.lower(FailedSearch.model) == model_name.strip().lower(),
+    ).count()
+
+    token_source = data.get("token_source")
+    severity = FailedSearch.compute_severity(occurrence_count + 1, token_source)
+
     entry = FailedSearch(
         make=make,
         model=model_name,
@@ -572,23 +583,26 @@ def report_failed_search():
         region=region,
         fuel=data.get("fuel"),
         hp_range=data.get("hp_range"),
+        country=data.get("country", "FR"),
         brand_token_used=data.get("brand_token_used"),
         model_token_used=data.get("model_token_used"),
-        token_source=data.get("token_source"),
+        token_source=token_source,
         search_log=json_mod.dumps(search_log) if search_log else None,
         total_ads_found=total_ads,
+        severity=severity,
     )
     db.session.add(entry)
     db.session.commit()
 
     logger.warning(
-        "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d)",
+        "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d, severity=%s)",
         make,
         model_name,
         entry.year,
         region,
-        entry.token_source,
+        token_source,
         total_ads,
+        severity,
     )
 
     return jsonify(

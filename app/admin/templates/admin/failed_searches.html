@@ -1,175 +1,308 @@
 {% extends "admin/base.html" %}
-{% block title %}Recherches echouees - Co-Pilot Admin{% endblock %}
+{% block title %}Monitoring Recherches - Co-Pilot Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  @media (max-width: 992px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+  .kpi-card {
+    background: #fff; border-radius: 10px; padding: 16px 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); position: relative; overflow: hidden;
+  }
+  .kpi-card .kpi-icon { position: absolute; top: 12px; right: 14px; font-size: 20px; opacity: 0.15; }
+  .kpi-card .kpi-value { font-size: 28px; font-weight: 800; line-height: 1.1; }
+  .kpi-card .kpi-label { font-size: 12px; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-card .kpi-sub { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+
+  .severity-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; }
+  .severity-critical { background: #ef4444; }
+  .severity-high { background: #f97316; }
+  .severity-medium { background: #eab308; }
+  .severity-low { background: #22c55e; }
+
+  .status-tabs { display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; margin-bottom: 16px; }
+  .status-tab {
+    padding: 8px 16px; font-size: 13px; font-weight: 600; color: #64748b;
+    text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: all 0.15s;
+  }
+  .status-tab:hover { color: #334155; border-bottom-color: #cbd5e1; }
+  .status-tab.active { color: #1e293b; border-bottom-color: #3b82f6; }
+  .status-tab .tab-count {
+    display: inline-block; background: #e2e8f0; color: #475569; border-radius: 10px;
+    padding: 1px 7px; font-size: 11px; margin-left: 4px;
+  }
+  .status-tab.active .tab-count { background: #3b82f6; color: #fff; }
+
+  .filter-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 0; }
+  .filter-bar select, .filter-bar .btn-group { font-size: 13px; }
+
+  .vehicle-row { cursor: pointer; transition: background 0.1s; }
+  .vehicle-row:hover { background: #f1f5f9 !important; }
+
+  .occ-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 24px; height: 20px; border-radius: 10px; font-size: 11px; font-weight: 700;
+    padding: 0 6px;
+  }
+  .occ-1 { background: #e2e8f0; color: #475569; }
+  .occ-2 { background: #fef3c7; color: #92400e; }
+  .occ-3 { background: #fed7aa; color: #9a3412; }
+  .occ-5 { background: #fecaca; color: #991b1b; }
+
+  .trend-chart { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+
+  .badge-status-new { background: #fecaca; color: #991b1b; }
+  .badge-status-investigating { background: #fed7aa; color: #9a3412; }
+  .badge-status-resolved { background: #bbf7d0; color: #166534; }
+  .badge-status-wont_fix { background: #e2e8f0; color: #475569; }
+  .badge-status-auto_resolved { background: #d1fae5; color: #065f46; }
+
+  .time-ago { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+
+  .source-badge { font-size: 10px; padding: 2px 6px; }
+
+  .bulk-bar {
+    display: none; position: sticky; bottom: 0; left: 0; right: 0;
+    background: #1e293b; color: #fff; padding: 10px 20px; border-radius: 8px 8px 0 0;
+    z-index: 100; align-items: center; gap: 12px;
+  }
+  .bulk-bar.show { display: flex; }
+  .bulk-bar .bulk-count { font-weight: 700; font-size: 14px; }
+</style>
+{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">Recherches echouees</h2>
-<p class="text-muted mb-4">URLs de recherche LBC qui ont retourne 0 annonces. Diagnostic des tokens et filtres.</p>
-
-<!-- Stats resume -->
-<div class="row g-3 mb-4">
-  <div class="col-md-3">
-    <div class="stat-card">
-      <div class="stat-value" style="color: #ef4444;">{{ unresolved }}</div>
-      <div class="stat-label">Non resolues</div>
-    </div>
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h2 class="mb-0" style="font-weight:800">Monitoring Recherches</h2>
+    <p class="text-muted mb-0" style="font-size:13px">Suivi des recherches echouees -- diagnostic, prise en charge et resolution</p>
   </div>
-  <div class="col-md-3">
-    <div class="stat-card">
-      <div class="stat-value" style="color: #22c55e;">{{ resolved_count }}</div>
-      <div class="stat-label">Resolues</div>
-    </div>
-  </div>
-  <div class="col-md-3">
-    <div class="stat-card">
-      <div class="stat-value">{{ total }}</div>
-      <div class="stat-label">Total</div>
-    </div>
-  </div>
-  <div class="col-md-3">
-    <div class="stat-card">
-      <div class="stat-value" style="font-size:14px">
-        {% for src, cnt in source_stats.items() %}
-        <span class="badge bg-{{ 'success' if src == 'DOM' else 'info' if src == 'serveur' else 'warning text-dark' }} me-1">{{ src or '?' }}: {{ cnt }}</span>
-        {% endfor %}
-      </div>
-      <div class="stat-label">Par source token</div>
-    </div>
+  <div class="text-end text-muted" style="font-size:12px">
+    {{ total }} recherche{{ 's' if total != 1 else '' }} au total
   </div>
 </div>
 
-<!-- Filtres -->
-<div class="stat-card mb-4">
-  <form method="get" class="row g-2 align-items-end">
-    <div class="col-md-3">
-      <label class="form-label mb-1" style="font-size:13px">Statut</label>
-      <select name="resolved" class="form-select form-select-sm">
-        <option value="">Toutes</option>
-        <option value="0" {% if resolved_filter == '0' %}selected{% endif %}>Non resolues</option>
-        <option value="1" {% if resolved_filter == '1' %}selected{% endif %}>Resolues</option>
-      </select>
+<!-- KPI Cards -->
+<div class="kpi-grid mb-4">
+  <div class="kpi-card">
+    <div class="kpi-icon">!</div>
+    <div class="kpi-value" style="color:#ef4444">{{ new_count }}</div>
+    <div class="kpi-label">Nouvelles</div>
+    <div class="kpi-sub">En attente de prise en charge</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">?</div>
+    <div class="kpi-value" style="color:#f97316">{{ investigating_count }}</div>
+    <div class="kpi-label">En cours</div>
+    <div class="kpi-sub">Investigation active</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">+</div>
+    <div class="kpi-value" style="color:#3b82f6">{{ new_last_24h }}</div>
+    <div class="kpi-label">Derniers 24h</div>
+    <div class="kpi-sub">Nouvelles erreurs detectees</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">%</div>
+    <div class="kpi-value" style="color:{% if resolution_rate >= 80 %}#22c55e{% elif resolution_rate >= 50 %}#eab308{% else %}#ef4444{% endif %}">{{ resolution_rate }}%</div>
+    <div class="kpi-label">Taux resolution</div>
+    <div class="kpi-sub">{{ resolved_count }} / {{ total }} resolues</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">*</div>
+    {% if top_offender %}
+    <div class="kpi-value" style="font-size:16px; color:#ef4444">{{ top_offender.make }} {{ top_offender.model }}</div>
+    <div class="kpi-label">Top recidiviste</div>
+    <div class="kpi-sub">{{ top_offender.cnt }} echec{{ 's' if top_offender.cnt > 1 else '' }} non resolus</div>
+    {% else %}
+    <div class="kpi-value" style="font-size:16px; color:#22c55e">--</div>
+    <div class="kpi-label">Top recidiviste</div>
+    <div class="kpi-sub">Aucun echec actif</div>
+    {% endif %}
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">S</div>
+    <div class="kpi-value" style="font-size:14px; padding-top:4px">
+      {% for sev in ['critical','high','medium','low'] %}
+      {% if severity_stats.get(sev, 0) > 0 %}
+      <span class="d-inline-flex align-items-center me-1">
+        <span class="severity-dot severity-{{ sev }}"></span>
+        <span style="font-size:13px; font-weight:700">{{ severity_stats.get(sev, 0) }}</span>
+      </span>
+      {% endif %}
+      {% endfor %}
+      {% if not severity_stats %}<span style="color:#94a3b8">--</span>{% endif %}
     </div>
-    <div class="col-md-3">
-      <label class="form-label mb-1" style="font-size:13px">Marque</label>
-      <select name="make" class="form-select form-select-sm">
-        <option value="">Toutes</option>
-        {% for m in make_list %}
-        <option value="{{ m }}" {% if m == make_filter %}selected{% endif %}>{{ m }}</option>
+    <div class="kpi-label">Par severite</div>
+    <div class="kpi-sub">Erreurs actives uniquement</div>
+  </div>
+</div>
+
+<!-- Trend Chart (30 jours) -->
+<div class="trend-chart mb-4">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <strong style="font-size:14px">Tendance 30 jours</strong>
+    <div style="font-size:12px; color:#64748b">
+      {% for cc, cnt in country_stats.items() %}
+      <span class="badge bg-{{ 'primary' if cc == 'FR' else 'info' if cc == 'CH' else 'secondary' }} source-badge me-1">{{ cc }}: {{ cnt }}</span>
+      {% endfor %}
+      |
+      {% for src, cnt in source_stats.items() %}
+      <span class="badge bg-{{ 'success' if src == 'DOM' else 'info' if src == 'serveur' else 'warning text-dark' if src == 'fallback' else 'secondary' }} source-badge me-1">{{ src or '?' }}: {{ cnt }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  <div id="trend-chart" style="height:180px"></div>
+</div>
+
+<!-- Status Tabs -->
+<div class="status-tabs">
+  <a href="{{ url_for('admin.failed_searches', make=make_filter, severity=severity_filter, country=country_filter, period=period_filter, sort=sort_by) }}"
+     class="status-tab {% if not status_filter %}active{% endif %}">
+    Tous <span class="tab-count">{{ total_groups }}</span>
+  </a>
+  <a href="{{ url_for('admin.failed_searches', status='new', make=make_filter, severity=severity_filter, country=country_filter, period=period_filter, sort=sort_by) }}"
+     class="status-tab {% if status_filter == 'new' %}active{% endif %}">
+    Nouvelles <span class="tab-count">{{ new_count }}</span>
+  </a>
+  <a href="{{ url_for('admin.failed_searches', status='investigating', make=make_filter, severity=severity_filter, country=country_filter, period=period_filter, sort=sort_by) }}"
+     class="status-tab {% if status_filter == 'investigating' %}active{% endif %}">
+    En cours <span class="tab-count">{{ investigating_count }}</span>
+  </a>
+  <a href="{{ url_for('admin.failed_searches', status='resolved', make=make_filter, severity=severity_filter, country=country_filter, period=period_filter, sort=sort_by) }}"
+     class="status-tab {% if status_filter == 'resolved' %}active{% endif %}">
+    Resolues <span class="tab-count">{{ resolved_count }}</span>
+  </a>
+  <a href="{{ url_for('admin.failed_searches', status='wont_fix', make=make_filter, severity=severity_filter, country=country_filter, period=period_filter, sort=sort_by) }}"
+     class="status-tab {% if status_filter == 'wont_fix' %}active{% endif %}">
+    Won't fix
+  </a>
+</div>
+
+<!-- Filter Bar -->
+<div class="stat-card mb-3" style="padding:12px 16px">
+  <form method="get" class="filter-bar">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    <select name="severity" class="form-select form-select-sm" style="width:130px" onchange="this.form.submit()">
+      <option value="">Severite</option>
+      {% for sev in ['critical','high','medium','low'] %}
+      <option value="{{ sev }}" {% if severity_filter == sev %}selected{% endif %}>{{ sev|capitalize }}</option>
+      {% endfor %}
+    </select>
+    <select name="make" class="form-select form-select-sm" style="width:140px" onchange="this.form.submit()">
+      <option value="">Marque</option>
+      {% for m in make_list %}
+      <option value="{{ m }}" {% if m == make_filter %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <select name="country" class="form-select form-select-sm" style="width:100px" onchange="this.form.submit()">
+      <option value="">Pays</option>
+      {% for c in country_list %}
+      <option value="{{ c }}" {% if c == country_filter %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <div class="btn-group btn-group-sm">
+      {% for p, label in [('24h','24h'), ('7d','7j'), ('30d','30j'), ('','Tout')] %}
+      <a href="{{ url_for('admin.failed_searches', status=status_filter, severity=severity_filter, make=make_filter, country=country_filter, period=p, sort=sort_by) }}"
+         class="btn btn-{{ 'primary' if period_filter == p else 'outline-secondary' }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <span style="font-size:12px; color:#64748b">Trier par :</span>
+      <select name="sort" class="form-select form-select-sm" style="width:140px" onchange="this.form.submit()">
+        {% for val, label in [('last_seen','Dernier vu'), ('first_seen','Premier vu'), ('occurrences','Occurrences'), ('severity','Severite')] %}
+        <option value="{{ val }}" {% if sort_by == val %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-    </div>
-    <div class="col-md-3">
-      <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
-      {% if resolved_filter or make_filter %}
-      <a href="{{ url_for('admin.failed_searches') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      {% if severity_filter or make_filter or country_filter or period_filter %}
+      <a href="{{ url_for('admin.failed_searches', status=status_filter) }}" class="btn btn-sm btn-outline-secondary">Reset</a>
       {% endif %}
-    </div>
-    <div class="col-md-3 text-end text-muted" style="font-size:13px">
-      {{ total_results }} resultat{{ 's' if total_results != 1 else '' }}
     </div>
   </form>
 </div>
 
-<!-- Table -->
+<!-- Table groupee par vehicule -->
 <div class="stat-card">
-  {% if records %}
+  {% if groups %}
+  <form id="bulk-form" method="post" action="{{ url_for('admin.bulk_failed_search_action') }}">
   <div class="table-responsive">
-    <table class="table table-sm table-hover mb-0">
+    <table class="table table-sm mb-0" style="font-size:13px">
       <thead>
-        <tr>
+        <tr style="background:#f8fafc">
+          <th style="width:30px"><input type="checkbox" id="select-all"></th>
           <th>Vehicule</th>
-          <th>Region</th>
-          <th>Token source</th>
-          <th>Token modele utilise</th>
-          <th class="text-center">Ads</th>
-          <th class="text-center">Statut</th>
-          <th>Date</th>
+          <th class="text-center">Severite</th>
+          <th class="text-center">Statut(s)</th>
+          <th class="text-center">Occurrences</th>
+          <th>Regions</th>
+          <th>Premier vu</th>
+          <th>Dernier vu</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        {% for fs in records %}
-        <tr class="{% if fs.resolved %}table-light{% endif %}">
-          <td>
-            <strong>{{ fs.make }}</strong> {{ fs.model }}
-            <span class="text-muted" style="font-size:12px">{{ fs.year }}</span>
-            {% if fs.fuel %}<span class="badge bg-secondary ms-1" style="font-size:10px">{{ fs.fuel }}</span>{% endif %}
+        {% for g in groups %}
+        {% set occ = g.occurrence_count %}
+        {% set sev = g.worst_severity or 'medium' %}
+        <tr class="vehicle-row" onclick="window.location='{{ url_for('admin.failed_search_detail', make=g.make, model_name=g.model) }}'" style="cursor:pointer">
+          <td onclick="event.stopPropagation()">
+            <input type="checkbox" name="fs_ids" value="{{ g.make }}|{{ g.model }}" class="bulk-check">
           </td>
-          <td>{{ fs.region }}</td>
           <td>
-            {% set src_colors = {'DOM': 'success', 'serveur': 'info', 'fallback': 'warning'} %}
-            <span class="badge bg-{{ src_colors.get(fs.token_source, 'secondary') }} {% if fs.token_source == 'fallback' %}text-dark{% endif %}">
-              {{ fs.token_source or '?' }}
+            <div class="d-flex align-items-center gap-2">
+              <span class="severity-dot severity-{{ sev }}" title="{{ sev }}"></span>
+              <div>
+                <strong>{{ g.make }}</strong> {{ g.model }}
+                {% if g.countries %}
+                  {% for cc in (g.countries or '').split(',') %}
+                  <span class="badge bg-{{ 'primary' if cc == 'FR' else 'info' if cc == 'CH' else 'secondary' }} source-badge">{{ cc }}</span>
+                  {% endfor %}
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td class="text-center">
+            <span class="badge" style="background:{% if sev == 'critical' %}#fecaca;color:#991b1b{% elif sev == 'high' %}#fed7aa;color:#9a3412{% elif sev == 'medium' %}#fef3c7;color:#92400e{% else %}#d1fae5;color:#065f46{% endif %};font-size:11px">
+              {{ sev|capitalize }}
             </span>
           </td>
-          <td style="font-size:12px; max-width:250px" class="text-truncate" title="{{ fs.model_token_used or '' }}">
-            <code>{{ fs.model_token_used or '-' }}</code>
+          <td class="text-center">
+            {% for st in (g.statuses or '').split(',') %}
+            <span class="badge badge-status-{{ st }}" style="font-size:10px">{{ st }}</span>
+            {% endfor %}
           </td>
           <td class="text-center">
-            <span class="badge bg-{{ 'danger' if fs.total_ads_found == 0 else 'warning text-dark' }}">{{ fs.total_ads_found }}</span>
+            <span class="occ-badge occ-{% if occ >= 5 %}5{% elif occ >= 3 %}3{% elif occ >= 2 %}2{% else %}1{% endif %}">
+              x{{ occ }}
+            </span>
           </td>
-          <td class="text-center">
-            {% if fs.resolved %}
-            <span class="badge bg-success">Resolu</span>
-            {% else %}
-            <span class="badge bg-danger">Non resolu</span>
-            {% endif %}
-          </td>
-          <td style="font-size:12px; white-space:nowrap">
-            {{ fs.created_at.strftime('%d/%m/%Y %H:%M') if fs.created_at else '-' }}
+          <td style="max-width:180px" class="text-truncate" title="{{ g.regions }}">
+            <span style="font-size:12px; color:#64748b">{{ (g.regions or '')|truncate(40) }}</span>
           </td>
           <td>
-            {% if not fs.resolved %}
-            <form method="post" action="{{ url_for('admin.resolve_failed_search', fs_id=fs.id) }}" class="d-inline">
-              <button type="submit" class="btn btn-sm btn-outline-success" title="Marquer comme resolu">OK</button>
-            </form>
-            {% endif %}
-            {% if fs.search_log %}
-            <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#log-{{ fs.id }}">Log</button>
-            {% endif %}
+            <span class="time-ago">{{ g.first_seen.strftime('%d/%m/%y') if g.first_seen else '-' }}</span>
+          </td>
+          <td>
+            <span class="time-ago">{{ g.last_seen.strftime('%d/%m/%y %H:%M') if g.last_seen else '-' }}</span>
+          </td>
+          <td onclick="event.stopPropagation()">
+            <a href="{{ url_for('admin.failed_search_detail', make=g.make, model_name=g.model) }}" class="btn btn-sm btn-outline-primary" style="font-size:11px; padding:2px 8px">Detail</a>
           </td>
         </tr>
-        {% if fs.search_log %}
-        <tr class="collapse" id="log-{{ fs.id }}">
-          <td colspan="8" style="background:#f8f9fa; padding:12px">
-            <strong>Strategies tentees :</strong>
-            {% set log = fs.get_search_log() %}
-            {% if log %}
-            <table class="table table-sm table-bordered mt-2 mb-0" style="font-size:12px">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Precision</th>
-                  <th>Location</th>
-                  <th>Annee +/-</th>
-                  <th>Filtres</th>
-                  <th>Annonces</th>
-                  <th>URL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for step in log %}
-                <tr>
-                  <td>{{ step.step }}</td>
-                  <td>{{ step.precision }}</td>
-                  <td>{{ step.location_type }}</td>
-                  <td>{{ step.year_spread }}</td>
-                  <td>{{ step.filters_applied|join(', ') if step.filters_applied else '-' }}</td>
-                  <td><span class="badge bg-{{ 'success' if step.ads_found > 0 else 'danger' }}">{{ step.ads_found }}</span></td>
-                  <td><a href="{{ step.url }}" target="_blank" rel="noopener" style="font-size:11px; word-break:break-all">Ouvrir</a></td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-            {% else %}
-            <p class="text-muted mb-0">Log non disponible</p>
-            {% endif %}
-          </td>
-        </tr>
-        {% endif %}
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <!-- Bulk action bar -->
+  <div class="bulk-bar" id="bulk-bar">
+    <span class="bulk-count" id="bulk-count">0</span> selectionne(s)
+    <button type="submit" name="action" value="investigating" class="btn btn-sm btn-warning">Prendre en charge</button>
+    <button type="submit" name="action" value="resolve" class="btn btn-sm btn-success">Resoudre</button>
+    <button type="submit" name="action" value="wont_fix" class="btn btn-sm btn-secondary">Won't fix</button>
+  </div>
+  </form>
 
   <!-- Pagination -->
   {% if total_pages > 1 %}
@@ -177,7 +310,7 @@
     <ul class="pagination pagination-sm justify-content-center mb-0">
       {% for p in range(1, total_pages + 1) %}
       <li class="page-item {% if p == page %}active{% endif %}">
-        <a class="page-link" href="?page={{ p }}{% if resolved_filter %}&resolved={{ resolved_filter }}{% endif %}{% if make_filter %}&make={{ make_filter }}{% endif %}">{{ p }}</a>
+        <a class="page-link" href="?page={{ p }}&status={{ status_filter }}&severity={{ severity_filter }}&make={{ make_filter }}&country={{ country_filter }}&period={{ period_filter }}&sort={{ sort_by }}">{{ p }}</a>
       </li>
       {% endfor %}
     </ul>
@@ -185,7 +318,54 @@
   {% endif %}
 
   {% else %}
-  <p class="text-muted text-center py-4 mb-0">Aucune recherche echouee enregistree.</p>
+  <div class="text-center py-5">
+    <div style="font-size:48px; opacity:0.15; margin-bottom:8px">?</div>
+    <p class="text-muted mb-0">Aucune recherche echouee enregistree{% if status_filter or severity_filter or make_filter or country_filter or period_filter %} avec ces filtres{% endif %}.</p>
+  </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Trend chart
+var dates = {{ trend_dates|tojson }};
+var counts = {{ trend_counts|tojson }};
+if (dates.length > 0) {
+  Plotly.newPlot('trend-chart', [{
+    x: dates, y: counts,
+    type: 'bar',
+    marker: { color: counts.map(function(c) { return c >= 5 ? '#ef4444' : c >= 3 ? '#f97316' : c >= 1 ? '#3b82f6' : '#e2e8f0'; }) },
+    hovertemplate: '%{x}<br><b>%{y}</b> echec(s)<extra></extra>',
+  }], {
+    margin: { t: 5, r: 10, b: 30, l: 35 },
+    xaxis: { showgrid: false, tickfont: { size: 10, color: '#94a3b8' } },
+    yaxis: { showgrid: true, gridcolor: '#f1f5f9', tickfont: { size: 10, color: '#94a3b8' }, dtick: 1 },
+    plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+    hoverlabel: { bgcolor: '#1e293b', font: { color: '#fff', size: 12 } },
+  }, { displayModeBar: false, responsive: true });
+} else {
+  document.getElementById('trend-chart').textContent = 'Pas de donnees sur les 30 derniers jours';
+  document.getElementById('trend-chart').style.cssText = 'text-align:center;padding:30px;color:#94a3b8;font-size:13px';
+}
+
+// Bulk selection
+var checks = document.querySelectorAll('.bulk-check');
+var selectAll = document.getElementById('select-all');
+var bulkBar = document.getElementById('bulk-bar');
+var bulkCount = document.getElementById('bulk-count');
+
+function updateBulk() {
+  var checked = document.querySelectorAll('.bulk-check:checked').length;
+  bulkCount.textContent = String(checked);
+  if (checked > 0) { bulkBar.classList.add('show'); } else { bulkBar.classList.remove('show'); }
+}
+if (selectAll) {
+  selectAll.addEventListener('change', function() {
+    checks.forEach(function(c) { c.checked = selectAll.checked; });
+    updateBulk();
+  });
+}
+checks.forEach(function(c) { c.addEventListener('change', updateBulk); });
+</script>
 {% endblock %}

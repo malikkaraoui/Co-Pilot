@@ -1,0 +1,214 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ make }} {{ model_name }} - Recherches echouees{% endblock %}
+
+{% block extra_css %}
+<style>
+  .severity-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .severity-critical { background: #ef4444; }
+  .severity-high { background: #f97316; }
+  .severity-medium { background: #eab308; }
+  .severity-low { background: #22c55e; }
+
+  .badge-status-new { background: #fecaca; color: #991b1b; }
+  .badge-status-investigating { background: #fed7aa; color: #9a3412; }
+  .badge-status-resolved { background: #bbf7d0; color: #166534; }
+  .badge-status-wont_fix { background: #e2e8f0; color: #475569; }
+  .badge-status-auto_resolved { background: #d1fae5; color: #065f46; }
+
+  .timeline-item {
+    position: relative; padding-left: 28px; padding-bottom: 20px;
+    border-left: 2px solid #e2e8f0;
+  }
+  .timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .timeline-dot {
+    position: absolute; left: -7px; top: 2px; width: 12px; height: 12px;
+    border-radius: 50%; border: 2px solid #fff;
+  }
+  .timeline-dot-new { background: #ef4444; }
+  .timeline-dot-investigating { background: #f97316; }
+  .timeline-dot-resolved { background: #22c55e; }
+  .timeline-dot-wont_fix { background: #94a3b8; }
+  .timeline-dot-comment { background: #3b82f6; }
+
+  .occurrence-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 16px; margin-bottom: 12px; transition: box-shadow 0.15s;
+  }
+  .occurrence-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+  .strategy-table th { font-size: 11px; text-transform: uppercase; color: #64748b; }
+  .strategy-table td { font-size: 12px; }
+
+  .action-btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb" style="font-size:13px">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin.failed_searches') }}">Monitoring Recherches</a></li>
+    <li class="breadcrumb-item active">{{ make }} {{ model_name }}</li>
+  </ol>
+</nav>
+
+<!-- Header -->
+<div class="stat-card mb-4">
+  <div class="d-flex align-items-start justify-content-between">
+    <div class="d-flex align-items-center gap-3">
+      <span class="severity-dot severity-{{ worst_severity }}"></span>
+      <div>
+        <h3 class="mb-0" style="font-weight:800">{{ make }} {{ model_name }}</h3>
+        <div class="text-muted" style="font-size:13px">
+          {{ occurrence_count }} occurrence{{ 's' if occurrence_count > 1 else '' }}
+          | Regions : {{ regions|join(', ') }}
+          | Pays : {{ countries|join(', ') }}
+        </div>
+      </div>
+    </div>
+    <div class="text-end">
+      <span class="badge" style="background:{% if worst_severity == 'critical' %}#fecaca;color:#991b1b{% elif worst_severity == 'high' %}#fed7aa;color:#9a3412{% elif worst_severity == 'medium' %}#fef3c7;color:#92400e{% else %}#d1fae5;color:#065f46{% endif %}">
+        {{ worst_severity|capitalize }}
+      </span>
+      {% for st in statuses %}
+      <span class="badge badge-status-{{ st }}">{{ st }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="row mt-3" style="font-size:13px">
+    <div class="col-auto">
+      <span class="text-muted">Premier vu :</span>
+      <strong>{{ first_seen.strftime('%d/%m/%Y %H:%M') if first_seen else '-' }}</strong>
+    </div>
+    <div class="col-auto">
+      <span class="text-muted">Dernier vu :</span>
+      <strong>{{ last_seen.strftime('%d/%m/%Y %H:%M') if last_seen else '-' }}</strong>
+    </div>
+  </div>
+</div>
+
+<!-- Occurrences (timeline) -->
+<h5 class="mb-3" style="font-weight:700">Occurrences ({{ occurrence_count }})</h5>
+
+{% for rec in records %}
+<div class="occurrence-card">
+  <div class="d-flex align-items-start justify-content-between mb-2">
+    <div>
+      <span class="badge badge-status-{{ rec.status }}" style="font-size:11px">{{ rec.status }}</span>
+      <span class="text-muted" style="font-size:12px; margin-left:8px">
+        {{ rec.created_at.strftime('%d/%m/%Y %H:%M') if rec.created_at else '-' }}
+      </span>
+      {% if rec.country %}
+      <span class="badge bg-{{ 'primary' if rec.country == 'FR' else 'info' if rec.country == 'CH' else 'secondary' }}" style="font-size:10px; margin-left:4px">{{ rec.country }}</span>
+      {% endif %}
+    </div>
+    <div class="action-btn-group">
+      {% if rec.status == 'new' %}
+      <form method="post" action="{{ url_for('admin.update_failed_search_status', fs_id=rec.id) }}" class="d-inline">
+        <input type="hidden" name="status" value="investigating">
+        <button type="submit" class="btn btn-sm btn-outline-warning" style="font-size:11px; padding:2px 8px">Investiguer</button>
+      </form>
+      {% endif %}
+      {% if rec.status in ('new', 'investigating') %}
+      <form method="post" action="{{ url_for('admin.update_failed_search_status', fs_id=rec.id) }}" class="d-inline">
+        <input type="hidden" name="status" value="resolved">
+        <button type="submit" class="btn btn-sm btn-outline-success" style="font-size:11px; padding:2px 8px">Resoudre</button>
+      </form>
+      <form method="post" action="{{ url_for('admin.update_failed_search_status', fs_id=rec.id) }}" class="d-inline">
+        <input type="hidden" name="status" value="wont_fix">
+        <button type="submit" class="btn btn-sm btn-outline-secondary" style="font-size:11px; padding:2px 8px">Won't fix</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Infos vehicule -->
+  <div class="row mb-2" style="font-size:12px">
+    <div class="col-auto"><span class="text-muted">Region :</span> <strong>{{ rec.region }}</strong></div>
+    <div class="col-auto"><span class="text-muted">Annee :</span> <strong>{{ rec.year }}</strong></div>
+    {% if rec.fuel %}<div class="col-auto"><span class="text-muted">Carburant :</span> {{ rec.fuel }}</div>{% endif %}
+    {% if rec.hp_range %}<div class="col-auto"><span class="text-muted">Puissance :</span> {{ rec.hp_range }}</div>{% endif %}
+    <div class="col-auto"><span class="text-muted">Annonces :</span> <span class="badge bg-{{ 'danger' if rec.total_ads_found == 0 else 'warning text-dark' }}">{{ rec.total_ads_found }}</span></div>
+    {% if rec.token_source %}
+    <div class="col-auto">
+      <span class="text-muted">Token source :</span>
+      <span class="badge bg-{{ 'success' if rec.token_source == 'DOM' else 'info' if rec.token_source == 'serveur' else 'warning text-dark' }}">{{ rec.token_source }}</span>
+    </div>
+    {% endif %}
+    {% if rec.model_token_used %}
+    <div class="col-auto"><span class="text-muted">Token :</span> <code style="font-size:11px">{{ rec.model_token_used }}</code></div>
+    {% endif %}
+  </div>
+
+  <!-- Strategy log -->
+  {% set log = rec.get_search_log() %}
+  {% if log %}
+  <details class="mt-2">
+    <summary style="font-size:12px; cursor:pointer; color:#3b82f6; font-weight:600">
+      {{ log|length }} strategie{{ 's' if log|length > 1 else '' }} tentee{{ 's' if log|length > 1 else '' }}
+    </summary>
+    <table class="table table-sm table-bordered strategy-table mt-2 mb-0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Precision</th>
+          <th>Label</th>
+          <th>Annonces</th>
+          <th>Raison</th>
+          <th>URL</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for step in log %}
+        <tr style="{% if step.get('ads_found', 0) == 0 %}background:#fef2f2{% elif step.get('was_selected') %}background:#f0fdf4{% endif %}">
+          <td>{{ step.get('step', loop.index) }}</td>
+          <td>
+            <span class="badge bg-{{ 'success' if step.get('precision', 0) >= 4 else 'info' if step.get('precision', 0) >= 3 else 'secondary' }}">
+              {{ step.get('precision', '?') }}
+            </span>
+          </td>
+          <td>{{ step.get('label', step.get('location_type', '-')) }}</td>
+          <td>
+            <span class="badge bg-{{ 'success' if step.get('ads_found', 0) > 0 else 'danger' }}">{{ step.get('ads_found', 0) }}</span>
+          </td>
+          <td style="font-size:11px; color:#64748b">{{ step.get('reason', '') }}</td>
+          <td>
+            {% if step.get('url') %}
+            <a href="{{ step.url }}" target="_blank" rel="noopener" style="font-size:10px; word-break:break-all">Ouvrir</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
+  <!-- Activity log (notes) -->
+  {% set notes = rec.get_notes() %}
+  {% if notes %}
+  <div class="mt-2" style="border-top:1px solid #f1f5f9; padding-top:8px">
+    <strong style="font-size:11px; color:#64748b">Journal d'activite :</strong>
+    {% for note in notes %}
+    <div style="font-size:11px; color:#475569; margin-top:2px">
+      <span style="color:#94a3b8">{{ note.timestamp[:16] if note.timestamp else '' }}</span>
+      <span class="badge badge-status-{{ note.action.split(':')[-1] if ':' in note.action else 'comment' }}" style="font-size:9px; padding:1px 4px">{{ note.action }}</span>
+      {{ note.message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Add note form -->
+  <form method="post" action="{{ url_for('admin.add_failed_search_note', fs_id=rec.id) }}" class="mt-2 d-flex gap-2" style="max-width:500px">
+    <input type="text" name="note" class="form-control form-control-sm" placeholder="Ajouter une note..." style="font-size:12px">
+    <button type="submit" class="btn btn-sm btn-outline-primary" style="font-size:11px; white-space:nowrap">Note</button>
+  </form>
+</div>
+{% endfor %}
+
+<!-- Back button -->
+<div class="mt-3">
+  <a href="{{ url_for('admin.failed_searches') }}" class="btn btn-outline-secondary btn-sm">Retour au dashboard</a>
+</div>
+{% endblock %}
