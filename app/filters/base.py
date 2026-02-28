@@ -19,14 +19,14 @@ class FilterResult:
 
     Attributs :
         filter_id: Identifiant du filtre, ex. "L1", "L2", ..., "L9".
-        status: Un parmi "pass", "warning", "fail", "skip".
+        status: Un parmi "pass", "warning", "fail", "skip", "neutral".
         score: Contribution au score global, de 0.0 a 1.0.
         message: Message destine a l'utilisateur (lisible sans expertise).
         details: Donnees supplementaires optionnelles pour la vue detaillee.
     """
 
     filter_id: str
-    status: str  # "pass" | "warning" | "fail" | "skip"
+    status: str  # "pass" | "warning" | "fail" | "skip" | "neutral"
     score: float
     message: str
     details: dict[str, Any] | None = field(default=None)
@@ -58,10 +58,24 @@ class BaseFilter(ABC):
         message: str = "Filtre non applicable",
         details: dict[str, Any] | None = None,
     ) -> FilterResult:
-        """Retourne un resultat skip pour ce filtre."""
+        """Retourne un resultat skip pour ce filtre (penalise dans le scoring)."""
         return FilterResult(
             filter_id=self.filter_id,
             status="skip",
+            score=0.0,
+            message=message,
+            details=details,
+        )
+
+    def neutral(
+        self,
+        message: str = "Filtre non applicable",
+        details: dict[str, Any] | None = None,
+    ) -> FilterResult:
+        """Retourne un resultat neutral pour ce filtre (exclu du scoring)."""
+        return FilterResult(
+            filter_id=self.filter_id,
+            status="neutral",
             score=0.0,
             message=message,
             details=details,
