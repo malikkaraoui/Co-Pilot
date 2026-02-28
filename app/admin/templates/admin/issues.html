@@ -5,6 +5,18 @@
 <h2 class="mb-4">Issues collecte</h2>
 <p class="text-muted mb-4">File d'attente des jobs de collecte argus a executer par les extensions Chrome.</p>
 
+<!-- Onglets LBC / AS24 -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if site == 'lbc' %}active{% endif %}"
+       href="{{ url_for('admin.issues', site='lbc') }}">LeBonCoin</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if site == 'as24' %}active{% endif %}"
+       href="{{ url_for('admin.issues', site='as24') }}">AutoScout24</a>
+  </li>
+</ul>
+
 <!-- Stats resume -->
 <div class="row g-3 mb-4">
   <div class="col-md-2">
@@ -50,6 +62,7 @@
   <div class="row g-2 align-items-end">
     <div class="col-md-8">
       <form method="get" class="row g-2 align-items-end">
+        <input type="hidden" name="site" value="{{ site }}">
         <div class="col-md-3">
           <label class="form-label mb-1" style="font-size:13px">Status</label>
           <select name="status" class="form-select form-select-sm">
@@ -82,7 +95,7 @@
         <div class="col-md-3">
           <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
           {% if status_filter or make_filter or priority_filter %}
-          <a href="{{ url_for('admin.issues') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+          <a href="{{ url_for('admin.issues', site=site) }}" class="btn btn-sm btn-outline-secondary">Reset</a>
           {% endif %}
         </div>
       </form>
@@ -90,6 +103,7 @@
     <div class="col-md-2 text-end">
       {% if failed > 0 %}
       <form method="post" action="{{ url_for('admin.purge_failed_jobs') }}">
+        <input type="hidden" name="site" value="{{ site }}">
         <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remettre {{ failed }} jobs echoues en attente ?')">
           Purger failed
         </button>
@@ -170,7 +184,7 @@
     <ul class="pagination pagination-sm justify-content-center mb-0">
       {% for p in range(1, total_pages + 1) %}
       <li class="page-item {% if p == page %}active{% endif %}">
-        <a class="page-link" href="?page={{ p }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if make_filter %}&make={{ make_filter }}{% endif %}{% if priority_filter %}&priority={{ priority_filter }}{% endif %}">{{ p }}</a>
+        <a class="page-link" href="?site={{ site }}&page={{ p }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if make_filter %}&make={{ make_filter }}{% endif %}{% if priority_filter %}&priority={{ priority_filter }}{% endif %}">{{ p }}</a>
       </li>
       {% endfor %}
     </ul>

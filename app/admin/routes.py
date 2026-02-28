@@ -1861,8 +1861,12 @@ def youtube_synthesis_validate(synthesis_id: int):
 @admin_bp.route("/issues")
 @login_required
 def issues():
-    """File d'attente des collectes argus (CollectionJob queue)."""
-    from app.models.collection_job import CollectionJob
+    """File d'attente des collectes argus (CollectionJob queue) -- onglets LBC / AS24."""
+    from app.models.collection_job import CollectionJobLBC
+    from app.models.collection_job_as24 import CollectionJobAS24
+
+    site = request.args.get("site", "lbc").strip().lower()
+    Model = CollectionJobAS24 if site == "as24" else CollectionJobLBC
 
     status_filter = request.args.get("status", "").strip()
     make_filter = request.args.get("make", "").strip()
@@ -1870,23 +1874,21 @@ def issues():
     page = request.args.get("page", 1, type=int)
 
     # Stats
-    pending = CollectionJob.query.filter_by(status="pending").count()
-    assigned = CollectionJob.query.filter_by(status="assigned").count()
-    done = CollectionJob.query.filter_by(status="done").count()
-    failed = CollectionJob.query.filter_by(status="failed").count()
+    pending = Model.query.filter_by(status="pending").count()
+    assigned = Model.query.filter_by(status="assigned").count()
+    done = Model.query.filter_by(status="done").count()
+    failed = Model.query.filter_by(status="failed").count()
     total = pending + assigned + done + failed
     completion_rate = round(done / total * 100) if total > 0 else 0
 
     # Query
-    query = CollectionJob.query.order_by(
-        CollectionJob.priority.asc(), CollectionJob.created_at.desc()
-    )
+    query = Model.query.order_by(Model.priority.asc(), Model.created_at.desc())
     if status_filter:
-        query = query.filter(CollectionJob.status == status_filter)
+        query = query.filter(Model.status == status_filter)
     if make_filter:
-        query = query.filter(CollectionJob.make == make_filter)
+        query = query.filter(Model.make == make_filter)
     if priority_filter:
-        query = query.filter(CollectionJob.priority == int(priority_filter))
+        query = query.filter(Model.priority == int(priority_filter))
 
     per_page = 50
     total_results = query.count()
@@ -1894,13 +1896,11 @@ def issues():
     page = min(page, total_pages)
     records = query.offset((page - 1) * per_page).limit(per_page).all()
 
-    make_list = [
-        r[0]
-        for r in db.session.query(CollectionJob.make).distinct().order_by(CollectionJob.make).all()
-    ]
+    make_list = [r[0] for r in db.session.query(Model.make).distinct().order_by(Model.make).all()]
 
     return render_template(
         "admin/issues.html",
+        site=site,
         pending=pending,
         assigned=assigned,
         done=done,
@@ -1922,14 +1922,16 @@ def issues():
 @login_required
 def purge_failed_jobs():
     """Reset all failed jobs back to pending."""
-    from app.models.collection_job import CollectionJob
+    from app.models.collection_job import CollectionJobLBC
+    from app.models.collection_job_as24 import CollectionJobAS24
 
-    count = CollectionJob.query.filter_by(status="failed").update(
-        {"status": "pending", "attempts": 0}
-    )
+    site = request.form.get("site", "lbc").strip().lower()
+    Model = CollectionJobAS24 if site == "as24" else CollectionJobLBC
+
+    count = Model.query.filter_by(status="failed").update({"status": "pending", "attempts": 0})
     db.session.commit()
     flash(f"{count} jobs echoues remis en attente.", "success")
-    return redirect(url_for("admin.issues"))
+    return redirect(url_for("admin.issues", site=site))
 
 
 # ── Failed Searches (dashboard erreurs) ──────────────────────────
