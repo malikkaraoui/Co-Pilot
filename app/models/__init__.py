@@ -2,6 +2,7 @@
 
 from app.models.argus import ArgusPrice  # noqa: F401
 from app.models.collection_job import CollectionJob  # noqa: F401
+from app.models.collection_job_as24 import CollectionJobAS24  # noqa: F401
 from app.models.email_draft import EmailDraft  # noqa: F401
 from app.models.failed_search import FailedSearch  # noqa: F401
 from app.models.filter_result import FilterResultDB  # noqa: F401
