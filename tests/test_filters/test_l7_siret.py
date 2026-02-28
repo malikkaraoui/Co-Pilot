@@ -16,9 +16,16 @@ class TestL7SiretFilter:
         result = self.filt.run({})
         assert result.status == "skip"
 
-    def test_private_seller_skips(self):
+    def test_private_seller_neutral(self):
+        """Particulier retourne neutral (exclu du scoring), pas skip."""
         result = self.filt.run({"owner_type": "private", "siret": "12345678901234"})
-        assert result.status == "skip"
+        assert result.status == "neutral"
+        assert "particulier" in result.message.lower()
+
+    def test_particulier_returns_neutral(self):
+        """owner_type francais 'particulier' aussi."""
+        result = self.filt.run({"owner_type": "particulier"})
+        assert result.status == "neutral"
 
     def test_invalid_format_fails(self):
         result = self.filt.run({"siret": "ABC123"})

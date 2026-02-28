@@ -98,7 +98,7 @@ class L6PhoneFilter(BaseFilter):
                 )
             # Particulier sans telephone : normal, pas de penalite
             if owner_type in ("private", "particulier", ""):
-                return self.skip("Pas de numéro — vendeur particulier, pas de pénalité")
+                return self.neutral("Pas de numéro — vendeur particulier, pas de pénalité")
             # Pro sans telephone : zero confiance
             return FilterResult(
                 filter_id=self.filter_id,

@@ -76,7 +76,7 @@ class L7SiretFilter(BaseFilter):
 
         # Particulier : pas de verification entreprise
         if owner_type in ("private", "particulier"):
-            return self.skip("Vendeur particulier — vérification entreprise non applicable")
+            return self.neutral("Vendeur particulier — vérification entreprise non applicable")
 
         # Pro sans identifiant : depends de la source
         source = (data.get("source") or "").lower()

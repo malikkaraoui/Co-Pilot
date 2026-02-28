@@ -153,7 +153,7 @@ SCENARIO_PRO_SIRET = {
 SCENARIO_INCOMPLET = {
     "name": "Dacia Sandero incomplet (donnees manquantes)",
     "expected_score_range": (20, 60),
-    "expected_status": {"L1": "warning", "L6": "skip"},
+    "expected_status": {"L1": "warning", "L6": "neutral"},
     "payload": {
         "props": {
             "pageProps": {

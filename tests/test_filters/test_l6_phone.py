@@ -46,16 +46,21 @@ class TestL6PhoneFilter:
 
     # ── No phone: private vs pro ─────────────────────────────────────
 
-    def test_no_phone_private_skips_no_penalty(self):
-        """Particulier sans telephone : skip sans penalite."""
+    def test_no_phone_private_neutral_no_penalty(self):
+        """Particulier sans telephone : neutral (exclu du scoring)."""
         result = self.filt.run({"owner_type": "private"})
-        assert result.status == "skip"
+        assert result.status == "neutral"
         assert "pénalité" in result.message
 
-    def test_no_phone_empty_owner_skips(self):
-        """Owner type vide : considere comme particulier."""
+    def test_no_phone_empty_owner_neutral(self):
+        """Owner type vide : considere comme particulier → neutral."""
         result = self.filt.run({})
-        assert result.status == "skip"
+        assert result.status == "neutral"
+
+    def test_particulier_no_phone_returns_neutral(self):
+        """owner_type francais 'particulier' → neutral."""
+        result = self.filt.run({"owner_type": "particulier"})
+        assert result.status == "neutral"
 
     def test_no_phone_pro_fails_zero(self):
         """Pro sans telephone : fail score 0.0."""
