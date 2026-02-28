@@ -93,8 +93,8 @@ export function getCantonFromZip(zipcode) {
   return SWISS_ZIP_TO_CANTON[prefix] || null;
 }
 
-// Minimum prices to submit
-const MIN_PRICES = 5;
+// Minimum prices to submit (raised from 5 for better statistical significance)
+const MIN_PRICES = 10;
 
 // ── Fuel type mapping ───────────────────────────────────────────────
 
@@ -139,6 +139,95 @@ const TRANSMISSION_MAP = {
 export function mapTransmission(transmission) {
   const key = (transmission || '').toLowerCase();
   return TRANSMISSION_MAP[key] || transmission;
+}
+
+// ── AS24 search parameter helpers ────────────────────────────────────
+
+// AS24 gear codes for search URL
+const AS24_GEAR_MAP = {
+  automatic: 'A',
+  automatique: 'A',
+  'semi-automatic': 'A',
+  manual: 'M',
+  manuelle: 'M',
+};
+
+/**
+ * Maps a gearbox string to AS24 search gear code ('A' or 'M').
+ * @param {string} gearbox
+ * @returns {string|null}
+ */
+export function getAs24GearCode(gearbox) {
+  return AS24_GEAR_MAP[(gearbox || '').toLowerCase()] || null;
+}
+
+/**
+ * Returns AS24 power search params {powerfrom, powerto} based on hp.
+ * Same bands as LBC getHorsePowerRange() for consistency.
+ * @param {number} hp
+ * @returns {object} e.g. {powerfrom: 170, powerto: 260}
+ */
+export function getAs24PowerParams(hp) {
+  if (!hp || hp <= 0) return {};
+  if (hp < 80)  return { powerto: 90 };
+  if (hp < 110) return { powerfrom: 70, powerto: 120 };
+  if (hp < 140) return { powerfrom: 100, powerto: 150 };
+  if (hp < 180) return { powerfrom: 130, powerto: 190 };
+  if (hp < 250) return { powerfrom: 170, powerto: 260 };
+  if (hp < 350) return { powerfrom: 240, powerto: 360 };
+  return { powerfrom: 340 };
+}
+
+/**
+ * Returns AS24 mileage search params {kmfrom, kmto} based on km.
+ * Same bands as LBC getMileageRange() for consistency.
+ * @param {number} km
+ * @returns {object} e.g. {kmfrom: 20000, kmto: 80000}
+ */
+export function getAs24KmParams(km) {
+  if (!km || km <= 0) return {};
+  if (km <= 10000) return { kmto: 20000 };
+  if (km <= 30000) return { kmto: 50000 };
+  if (km <= 60000) return { kmfrom: 20000, kmto: 80000 };
+  if (km <= 120000) return { kmfrom: 50000, kmto: 150000 };
+  return { kmfrom: 100000 };
+}
+
+/**
+ * Returns hp_range string for the backend payload (same format as LBC).
+ * @param {number} hp
+ * @returns {string|null} e.g. '170-260'
+ */
+export function getHpRangeString(hp) {
+  if (!hp || hp <= 0) return null;
+  if (hp < 80)  return 'min-90';
+  if (hp < 110) return '70-120';
+  if (hp < 140) return '100-150';
+  if (hp < 180) return '130-190';
+  if (hp < 250) return '170-260';
+  if (hp < 350) return '240-360';
+  return '340-max';
+}
+
+// Canton center ZIP codes for geo-targeted searches (chef-lieu)
+const CANTON_CENTER_ZIP = {
+  'Zurich': '8000', 'Berne': '3000', 'Lucerne': '6000', 'Uri': '6460',
+  'Schwyz': '6430', 'Obwald': '6060', 'Nidwald': '6370', 'Glaris': '8750',
+  'Zoug': '6300', 'Fribourg': '1700', 'Soleure': '4500', 'Bale-Ville': '4000',
+  'Bale-Campagne': '4410', 'Schaffhouse': '8200',
+  'Appenzell Rhodes-Exterieures': '9100', 'Appenzell Rhodes-Interieures': '9050',
+  'Saint-Gall': '9000', 'Grisons': '7000', 'Argovie': '5000', 'Thurgovie': '8500',
+  'Tessin': '6500', 'Vaud': '1000', 'Valais': '1950', 'Neuchatel': '2000',
+  'Geneve': '1200', 'Jura': '2800',
+};
+
+/**
+ * Returns the center ZIP for a canton (for geo-targeted AS24 searches).
+ * @param {string} canton
+ * @returns {string|null}
+ */
+export function getCantonCenterZip(canton) {
+  return CANTON_CENTER_ZIP[canton] || null;
 }
 
 // ── RSC payload parsing (DOM-dependent) ─────────────────────────────
@@ -652,6 +741,8 @@ export function extractTld(url) {
 
 /**
  * Builds an AutoScout24 search URL for similar vehicles.
+ * Supports all AS24 search filters: fuel, gear, power, mileage, location.
+ *
  * @param {string} makeKey - Lowercase make key (e.g. 'audi')
  * @param {string} modelKey - Lowercase model key (e.g. 'q5')
  * @param {number} year - Target year
@@ -659,10 +750,17 @@ export function extractTld(url) {
  * @param {object} [options]
  * @param {number} [options.yearSpread=1] - Year range (+/-)
  * @param {string} [options.fuel] - AS24 fuel key (e.g. 'diesel')
+ * @param {string} [options.gear] - 'A' or 'M'
+ * @param {number} [options.powerfrom] - Min power in PS
+ * @param {number} [options.powerto] - Max power in PS
+ * @param {number} [options.kmfrom] - Min mileage
+ * @param {number} [options.kmto] - Max mileage
+ * @param {string} [options.zip] - ZIP code for geo search
+ * @param {number} [options.radius] - Radius in km (requires zip)
  * @returns {string}
  */
 export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-  const { yearSpread = 1, fuel } = options;
+  const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius } = options;
   const base = `https://www.autoscout24.${tld}/lst/${makeKey}/${modelKey}`;
   const params = new URLSearchParams({
     fregfrom: String(year - yearSpread),
@@ -670,9 +768,15 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
     sort: 'standard',
     desc: '0',
     atype: 'C',
-    'ustate': 'N,U',
+    ustate: 'N,U',
   });
   if (fuel) params.set('fuel', fuel);
+  if (gear) params.set('gear', gear);
+  if (powerfrom) { params.set('powerfrom', String(powerfrom)); params.set('powertype', 'ps'); }
+  if (powerto) { params.set('powerto', String(powerto)); params.set('powertype', 'ps'); }
+  if (kmfrom) params.set('kmfrom', String(kmfrom));
+  if (kmto) params.set('kmto', String(kmto));
+  if (zip) { params.set('zip', String(zip)); params.set('zipr', String(radius || 50)); }
   return `${base}?${params}`;
 }
 
@@ -801,8 +905,14 @@ export class AutoScout24Extractor extends SiteExtractor {
 
   /**
    * Collects market prices from AS24 search results for the current vehicle.
-   * Fetches a search page, parses prices, converts CHF→EUR if needed,
-   * and submits to the backend /api/market-prices endpoint.
+   * Uses a 7-strategy cascade (precision 5→1) matching LBC parity:
+   *   1. ZIP+30km ±1yr, all filters (fuel+gear+hp+km)
+   *   2. Canton center+50km ±1yr, all filters
+   *   3. Canton center+50km ±2yrs, fuel+gear+hp (no km)
+   *   4. National ±1yr, fuel+gear+hp
+   *   5. National ±2yrs, fuel+gear
+   *   6. National ±2yrs, fuel only
+   *   7. National ±3yrs, no filters
    *
    * @param {object} progress - Progress tracker for UI updates
    * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
@@ -825,107 +935,225 @@ export class AutoScout24Extractor extends SiteExtractor {
     const year = parseInt(this._adData.year_model, 10);
     const fuelKey = this._rsc?.fuelType || null;
 
+    // Vehicle specs for search filters
+    const hp = parseInt(this._adData.power_din_hp, 10) || 0;
+    const km = parseInt(this._adData.mileage_km, 10) || 0;
+    const gearRaw = this._rsc?.transmissionType || '';
+    const gearCode = getAs24GearCode(gearRaw);
+    const powerParams = getAs24PowerParams(hp);
+    const kmParams = getAs24KmParams(km);
+    const hpRangeStr = getHpRangeString(hp);
+
     // Region = canton for CH, country name for others
     const zipcode = this._adData?.location?.zipcode;
     const canton = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
     const region = canton || countryName;
+    const cantonZip = canton ? getCantonCenterZip(canton) : null;
 
     if (progress) progress.update('job', 'done', `${this._adData.make} ${this._adData.model} ${year} (${region})`);
 
-    // Strategy 1: precise (same TLD, ±1 year, with fuel)
-    // Strategy 2: wider (same TLD, ±2 years, no fuel filter)
-    const strategies = [
-      { yearSpread: 1, fuel: fuelKey, precision: 4, label: 'précise' },
-      { yearSpread: 2, fuel: null, precision: 3, label: 'élargie' },
-    ];
+    // ── Build 7 strategies (cascade) ──────────────────────────────
+    const strategies = [];
 
-    let prices = [];
-    let usedPrecision = 3;
-
-    for (const strat of strategies) {
-      const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, {
-        yearSpread: strat.yearSpread,
-        fuel: strat.fuel,
+    // #1: Ad ZIP + 30km, ±1yr, all filters (fuel+gear+hp+km)
+    if (zipcode) {
+      strategies.push({
+        yearSpread: 1, fuel: fuelKey, gear: gearCode, ...powerParams, ...kmParams,
+        zip: zipcode, radius: 30, precision: 5, label: `ZIP ${zipcode} +30km`,
       });
+    }
 
-      if (progress) progress.update('collect', 'running', `Recherche ${strat.label}...`);
+    // #2: Canton center + 50km, ±1yr, all filters
+    if (cantonZip) {
+      strategies.push({
+        yearSpread: 1, fuel: fuelKey, gear: gearCode, ...powerParams, ...kmParams,
+        zip: cantonZip, radius: 50, precision: 4, label: `${canton} ±1an`,
+      });
+    }
+
+    // #3: Canton center + 50km, ±2yrs, fuel+gear+hp (no km)
+    if (cantonZip) {
+      strategies.push({
+        yearSpread: 2, fuel: fuelKey, gear: gearCode, ...powerParams,
+        zip: cantonZip, radius: 50, precision: 4, label: `${canton} ±2ans`,
+      });
+    }
+
+    // #4: National, ±1yr, fuel+gear+hp
+    strategies.push({
+      yearSpread: 1, fuel: fuelKey, gear: gearCode, ...powerParams,
+      precision: 3, label: 'National ±1an',
+    });
+
+    // #5: National, ±2yrs, fuel+gear
+    strategies.push({
+      yearSpread: 2, fuel: fuelKey, gear: gearCode,
+      precision: 3, label: 'National ±2ans',
+    });
+
+    // #6: National, ±2yrs, fuel only
+    strategies.push({
+      yearSpread: 2, fuel: fuelKey,
+      precision: 2, label: 'National fuel',
+    });
+
+    // #7: National, ±3yrs, no specific filters
+    strategies.push({
+      yearSpread: 3,
+      precision: 1, label: 'National large',
+    });
+
+    // ── Execute cascade ───────────────────────────────────────────
+    let prices = [];
+    let usedPrecision = null;
+    const searchLog = [];
+
+    if (progress) progress.update('collect', 'running');
+
+    for (let i = 0; i < strategies.length; i++) {
+      // Throttle between requests to avoid hammering
+      if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
+
+      const { precision, label, ...searchOpts } = strategies[i];
+      const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, searchOpts);
 
       try {
         const resp = await fetch(searchUrl, { credentials: 'same-origin' });
         if (!resp.ok) {
           console.warn(`[CoPilot] AS24 search HTTP ${resp.status}: ${searchUrl}`);
+          searchLog.push({
+            step: i + 1, precision, label, ads_found: 0,
+            url: searchUrl, was_selected: false, reason: `HTTP ${resp.status}`,
+          });
+          if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', `HTTP ${resp.status}`);
           continue;
         }
+
         const html = await resp.text();
         prices = parseSearchPrices(html);
-        usedPrecision = strat.precision;
+        const enough = prices.length >= MIN_PRICES;
 
-        if (prices.length >= MIN_PRICES) {
-          if (progress) progress.update('collect', 'done', `${prices.length} annonces trouvées`);
+        console.log(
+          '[CoPilot] AS24 strategie %d (precision=%d): %d prix | %s',
+          i + 1, precision, prices.length, searchUrl.substring(0, 150),
+        );
+
+        searchLog.push({
+          step: i + 1, precision, label,
+          ads_found: prices.length,
+          url: searchUrl,
+          was_selected: enough,
+          reason: enough
+            ? `${prices.length} >= ${MIN_PRICES}`
+            : `${prices.length} < ${MIN_PRICES}`,
+        });
+
+        if (progress) {
+          progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`,
+            enough ? 'done' : 'skip', `${prices.length} annonces`);
+        }
+
+        if (enough) {
+          usedPrecision = precision;
           break;
         }
       } catch (err) {
         console.error('[CoPilot] AS24 search error:', err);
+        searchLog.push({
+          step: i + 1, precision, label, ads_found: 0,
+          url: searchUrl, was_selected: false, reason: err.message,
+        });
+        if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', 'Erreur');
       }
     }
 
-    if (prices.length < MIN_PRICES) {
+    // ── Submit or report failure ──────────────────────────────────
+    if (prices.length >= MIN_PRICES) {
+      // Convert CHF to EUR if needed
+      let priceInts = prices.map((p) => p.price);
+      let priceDetails = prices;
+      if (currency === 'CHF') {
+        priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+        priceDetails = prices.map((p) => ({
+          ...p,
+          price: Math.round(p.price * CHF_TO_EUR),
+        }));
+      }
+
+      if (progress) {
+        progress.update('collect', 'done', `${priceInts.length} prix (précision ${usedPrecision})`);
+        progress.update('submit', 'running');
+      }
+
+      const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
+      const payload = {
+        make: this._adData.make,
+        model: this._adData.model,
+        year,
+        region,
+        prices: priceInts,
+        price_details: priceDetails,
+        fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
+        precision: usedPrecision,
+        country: countryCode,
+        hp_range: hpRangeStr,
+        gearbox: this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
+        search_log: searchLog,
+      };
+
+      try {
+        const resp = await this._fetch(marketUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (resp.ok) {
+          if (progress) {
+            progress.update('submit', 'done', `${priceInts.length} prix envoyés (${region})`);
+            progress.update('bonus', 'skip', 'Pas de jobs bonus');
+          }
+          return { submitted: true, isCurrentVehicle: true };
+        }
+
+        const errBody = await resp.json().catch(() => null);
+        console.warn('[CoPilot] AS24 market-prices POST failed:', resp.status, errBody);
+        if (progress) progress.update('submit', 'error', `Erreur serveur (${resp.status})`);
+      } catch (err) {
+        console.error('[CoPilot] AS24 market-prices POST error:', err);
+        if (progress) progress.update('submit', 'error', 'Erreur réseau');
+      }
+    } else {
+      // Not enough prices after all strategies
       if (progress) {
         progress.update('collect', 'warning', `${prices.length} annonces (min ${MIN_PRICES})`);
         progress.update('submit', 'skip', 'Pas assez de données');
-        progress.update('bonus', 'skip');
-      }
-      return { submitted: false, isCurrentVehicle: true };
-    }
-
-    // Convert CHF to EUR if needed (market prices must be EUR in backend)
-    let priceInts = prices.map((p) => p.price);
-    let priceDetails = prices;
-    if (currency === 'CHF') {
-      priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-      priceDetails = prices.map((p) => ({
-        ...p,
-        price: Math.round(p.price * CHF_TO_EUR),
-      }));
-    }
-
-    // Submit to backend
-    if (progress) progress.update('submit', 'running');
-    const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
-    const payload = {
-      make: this._adData.make,
-      model: this._adData.model,
-      year,
-      region,
-      prices: priceInts,
-      price_details: priceDetails,
-      fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
-      precision: usedPrecision,
-      country: countryCode,
-    };
-
-    try {
-      const resp = await this._fetch(marketUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (resp.ok) {
-        if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${region})`);
-        if (progress) progress.update('bonus', 'skip', 'Pas de jobs bonus');
-        return { submitted: true, isCurrentVehicle: true };
       }
 
-      const errBody = await resp.json().catch(() => null);
-      console.warn('[CoPilot] AS24 market-prices POST failed:', resp.status, errBody);
-      if (progress) progress.update('submit', 'error', `Erreur serveur (${resp.status})`);
-    } catch (err) {
-      console.error('[CoPilot] AS24 market-prices POST error:', err);
-      if (progress) progress.update('submit', 'error', 'Erreur réseau');
+      // Report failed search to server for diagnostics
+      try {
+        const failedUrl = this._apiUrl.replace('/analyze', '/market-prices/failed-search');
+        await this._fetch(failedUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            make: this._adData.make,
+            model: this._adData.model,
+            year,
+            region,
+            fuel: fuelKey || null,
+            hp_range: hpRangeStr,
+            country: countryCode,
+            search_log: searchLog,
+          }),
+        });
+        console.log('[CoPilot] AS24 failed search reported');
+      } catch {
+        // Ignore reporting errors
+      }
     }
 
     if (progress) progress.update('bonus', 'skip');
-    return { submitted: false, isCurrentVehicle: true };
+    return { submitted: prices.length >= MIN_PRICES, isCurrentVehicle: true };
   }
 }

@@ -1117,7 +1117,113 @@
     ch: "CHF"
   };
   var CHF_TO_EUR = 0.94;
-  var MIN_PRICES = 5;
+  var TLD_TO_COUNTRY_CODE = {
+    ch: "CH",
+    de: "DE",
+    fr: "FR",
+    it: "IT",
+    at: "AT",
+    be: "BE",
+    nl: "NL",
+    es: "ES"
+  };
+  var SWISS_ZIP_TO_CANTON = {
+    "10": "Vaud",
+    "11": "Vaud",
+    "12": "Geneve",
+    "13": "Vaud",
+    "14": "Vaud",
+    "15": "Vaud",
+    "16": "Fribourg",
+    "17": "Fribourg",
+    "18": "Vaud",
+    "19": "Valais",
+    "20": "Neuchatel",
+    "21": "Neuchatel",
+    "22": "Neuchatel",
+    "23": "Neuchatel",
+    "24": "Jura",
+    "25": "Berne",
+    "26": "Berne",
+    "27": "Jura",
+    "28": "Jura",
+    "29": "Jura",
+    "30": "Berne",
+    "31": "Berne",
+    "32": "Berne",
+    "33": "Berne",
+    "34": "Berne",
+    "35": "Berne",
+    "36": "Berne",
+    "37": "Berne",
+    "38": "Berne",
+    "39": "Valais",
+    "40": "Bale-Ville",
+    "41": "Bale-Campagne",
+    "42": "Bale-Campagne",
+    "43": "Argovie",
+    "44": "Bale-Campagne",
+    "45": "Soleure",
+    "46": "Soleure",
+    "47": "Soleure",
+    "48": "Argovie",
+    "49": "Berne",
+    "50": "Argovie",
+    "51": "Argovie",
+    "52": "Argovie",
+    "53": "Argovie",
+    "54": "Argovie",
+    "55": "Argovie",
+    "56": "Argovie",
+    "57": "Argovie",
+    "58": "Argovie",
+    "59": "Argovie",
+    "60": "Lucerne",
+    "61": "Lucerne",
+    "62": "Lucerne",
+    "63": "Zoug",
+    "64": "Schwyz",
+    "65": "Obwald",
+    "66": "Tessin",
+    "67": "Tessin",
+    "68": "Tessin",
+    "69": "Tessin",
+    "70": "Grisons",
+    "71": "Grisons",
+    "72": "Grisons",
+    "73": "Grisons",
+    "74": "Grisons",
+    "75": "Grisons",
+    "76": "Grisons",
+    "77": "Grisons",
+    "78": "Grisons",
+    "79": "Grisons",
+    "80": "Zurich",
+    "81": "Zurich",
+    "82": "Schaffhouse",
+    "83": "Zurich",
+    "84": "Zurich",
+    "85": "Thurgovie",
+    "86": "Zurich",
+    "87": "Saint-Gall",
+    "88": "Zurich",
+    "89": "Saint-Gall",
+    "90": "Saint-Gall",
+    "91": "Appenzell Rhodes-Exterieures",
+    "92": "Saint-Gall",
+    "93": "Saint-Gall",
+    "94": "Saint-Gall",
+    "95": "Thurgovie",
+    "96": "Saint-Gall",
+    "97": "Saint-Gall"
+  };
+  function getCantonFromZip(zipcode) {
+    const zip = String(zipcode || "").trim();
+    if (zip.length < 4) return null;
+    const prefix = zip.slice(0, 2);
+    return SWISS_ZIP_TO_CANTON[prefix] || null;
+  }
+  var MIN_PRICES = 10;
   var FUEL_MAP = {
     gasoline: "Essence",
     diesel: "Diesel",
@@ -1142,6 +1248,75 @@
   function mapTransmission(transmission) {
     const key = (transmission || "").toLowerCase();
     return TRANSMISSION_MAP[key] || transmission;
+  }
+  var AS24_GEAR_MAP = {
+    automatic: "A",
+    automatique: "A",
+    "semi-automatic": "A",
+    manual: "M",
+    manuelle: "M"
+  };
+  function getAs24GearCode(gearbox) {
+    return AS24_GEAR_MAP[(gearbox || "").toLowerCase()] || null;
+  }
+  function getAs24PowerParams(hp) {
+    if (!hp || hp <= 0) return {};
+    if (hp < 80) return { powerto: 90 };
+    if (hp < 110) return { powerfrom: 70, powerto: 120 };
+    if (hp < 140) return { powerfrom: 100, powerto: 150 };
+    if (hp < 180) return { powerfrom: 130, powerto: 190 };
+    if (hp < 250) return { powerfrom: 170, powerto: 260 };
+    if (hp < 350) return { powerfrom: 240, powerto: 360 };
+    return { powerfrom: 340 };
+  }
+  function getAs24KmParams(km) {
+    if (!km || km <= 0) return {};
+    if (km <= 1e4) return { kmto: 2e4 };
+    if (km <= 3e4) return { kmto: 5e4 };
+    if (km <= 6e4) return { kmfrom: 2e4, kmto: 8e4 };
+    if (km <= 12e4) return { kmfrom: 5e4, kmto: 15e4 };
+    return { kmfrom: 1e5 };
+  }
+  function getHpRangeString(hp) {
+    if (!hp || hp <= 0) return null;
+    if (hp < 80) return "min-90";
+    if (hp < 110) return "70-120";
+    if (hp < 140) return "100-150";
+    if (hp < 180) return "130-190";
+    if (hp < 250) return "170-260";
+    if (hp < 350) return "240-360";
+    return "340-max";
+  }
+  var CANTON_CENTER_ZIP = {
+    "Zurich": "8000",
+    "Berne": "3000",
+    "Lucerne": "6000",
+    "Uri": "6460",
+    "Schwyz": "6430",
+    "Obwald": "6060",
+    "Nidwald": "6370",
+    "Glaris": "8750",
+    "Zoug": "6300",
+    "Fribourg": "1700",
+    "Soleure": "4500",
+    "Bale-Ville": "4000",
+    "Bale-Campagne": "4410",
+    "Schaffhouse": "8200",
+    "Appenzell Rhodes-Exterieures": "9100",
+    "Appenzell Rhodes-Interieures": "9050",
+    "Saint-Gall": "9000",
+    "Grisons": "7000",
+    "Argovie": "5000",
+    "Thurgovie": "8500",
+    "Tessin": "6500",
+    "Vaud": "1000",
+    "Valais": "1950",
+    "Neuchatel": "2000",
+    "Geneve": "1200",
+    "Jura": "2800"
+  };
+  function getCantonCenterZip(canton) {
+    return CANTON_CENTER_ZIP[canton] || null;
   }
   function* extractJsonObjects(text) {
     let i = 0;
@@ -1372,6 +1547,10 @@
     const rating = seller.aggregateRating || {};
     const dealerRating = rating.ratingValue ?? null;
     const dealerReviewCount = rating.reviewCount ?? null;
+    const zipcode = sellerAddress.postalCode || null;
+    const tld = typeof window !== "undefined" ? extractTld(window.location.href) : null;
+    const countryCode = tld ? TLD_TO_COUNTRY_CODE[tld] || null : null;
+    const derivedRegion = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : null;
     if (rsc) {
       return {
         title: rsc.versionFullName || ld.name || null,
@@ -1389,11 +1568,12 @@
         color: rsc.bodyColor || ld.color || null,
         power_fiscal_cv: null,
         power_din_hp: rsc.horsePower ?? engine.enginePower?.value ?? null,
+        country: countryCode,
         location: {
           city: sellerAddress.addressLocality || null,
-          zipcode: sellerAddress.postalCode || null,
+          zipcode,
           department: null,
-          region: null,
+          region: derivedRegion,
           lat: null,
           lng: null
         },
@@ -1434,11 +1614,12 @@
       color: ld.color || null,
       power_fiscal_cv: null,
       power_din_hp: engine.enginePower?.value ?? null,
+      country: countryCode,
       location: {
         city: sellerAddress.addressLocality || null,
-        zipcode: sellerAddress.postalCode || null,
+        zipcode,
         department: null,
-        region: null,
+        region: derivedRegion,
         lat: null,
         lng: null
       },
@@ -1524,7 +1705,7 @@
     return match ? match[1] : "de";
   }
   function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-    const { yearSpread = 1, fuel } = options;
+    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius } = options;
     const base = `https://www.autoscout24.${tld}/lst/${makeKey}/${modelKey}`;
     const params = new URLSearchParams({
       fregfrom: String(year - yearSpread),
@@ -1532,9 +1713,24 @@
       sort: "standard",
       desc: "0",
       atype: "C",
-      "ustate": "N,U"
+      ustate: "N,U"
     });
     if (fuel) params.set("fuel", fuel);
+    if (gear) params.set("gear", gear);
+    if (powerfrom) {
+      params.set("powerfrom", String(powerfrom));
+      params.set("powertype", "ps");
+    }
+    if (powerto) {
+      params.set("powerto", String(powerto));
+      params.set("powertype", "ps");
+    }
+    if (kmfrom) params.set("kmfrom", String(kmfrom));
+    if (kmto) params.set("kmto", String(kmto));
+    if (zip) {
+      params.set("zip", String(zip));
+      params.set("zipr", String(radius || 50));
+    }
     return `${base}?${params}`;
   }
   function parseSearchPrices(html) {
@@ -1637,8 +1833,14 @@
     }
     /**
      * Collects market prices from AS24 search results for the current vehicle.
-     * Fetches a search page, parses prices, converts CHF→EUR if needed,
-     * and submits to the backend /api/market-prices endpoint.
+     * Uses a 7-strategy cascade (precision 5→1) matching LBC parity:
+     *   1. ZIP+30km ±1yr, all filters (fuel+gear+hp+km)
+     *   2. Canton center+50km ±1yr, all filters
+     *   3. Canton center+50km ±2yrs, fuel+gear+hp (no km)
+     *   4. National ±1yr, fuel+gear+hp
+     *   5. National ±2yrs, fuel+gear
+     *   6. National ±2yrs, fuel only
+     *   7. National ±3yrs, no filters
      *
      * @param {object} progress - Progress tracker for UI updates
      * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
@@ -1652,91 +1854,235 @@
         return { submitted: false, isCurrentVehicle: false };
       }
       const tld = extractTld(window.location.href);
-      const country = TLD_TO_COUNTRY[tld] || "Europe";
+      const countryName = TLD_TO_COUNTRY[tld] || "Europe";
+      const countryCode = TLD_TO_COUNTRY_CODE[tld] || "FR";
       const currency = TLD_TO_CURRENCY[tld] || "EUR";
       const makeKey = (this._rsc?.make?.key || this._adData.make).toLowerCase();
       const modelKey = (this._rsc?.model?.key || this._adData.model).toLowerCase();
       const year = parseInt(this._adData.year_model, 10);
       const fuelKey = this._rsc?.fuelType || null;
-      if (progress) progress.update("job", "done", `${this._adData.make} ${this._adData.model} ${year} (${country})`);
-      const strategies = [
-        { yearSpread: 1, fuel: fuelKey, precision: 4, label: "pr\xE9cise" },
-        { yearSpread: 2, fuel: null, precision: 3, label: "\xE9largie" }
-      ];
-      let prices = [];
-      let usedPrecision = 3;
-      for (const strat of strategies) {
-        const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, {
-          yearSpread: strat.yearSpread,
-          fuel: strat.fuel
+      const hp = parseInt(this._adData.power_din_hp, 10) || 0;
+      const km = parseInt(this._adData.mileage_km, 10) || 0;
+      const gearRaw = this._rsc?.transmissionType || "";
+      const gearCode = getAs24GearCode(gearRaw);
+      const powerParams = getAs24PowerParams(hp);
+      const kmParams = getAs24KmParams(km);
+      const hpRangeStr = getHpRangeString(hp);
+      const zipcode = this._adData?.location?.zipcode;
+      const canton = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : null;
+      const region = canton || countryName;
+      const cantonZip = canton ? getCantonCenterZip(canton) : null;
+      if (progress) progress.update("job", "done", `${this._adData.make} ${this._adData.model} ${year} (${region})`);
+      const strategies = [];
+      if (zipcode) {
+        strategies.push({
+          yearSpread: 1,
+          fuel: fuelKey,
+          gear: gearCode,
+          ...powerParams,
+          ...kmParams,
+          zip: zipcode,
+          radius: 30,
+          precision: 5,
+          label: `ZIP ${zipcode} +30km`
         });
-        if (progress) progress.update("collect", "running", `Recherche ${strat.label}...`);
+      }
+      if (cantonZip) {
+        strategies.push({
+          yearSpread: 1,
+          fuel: fuelKey,
+          gear: gearCode,
+          ...powerParams,
+          ...kmParams,
+          zip: cantonZip,
+          radius: 50,
+          precision: 4,
+          label: `${canton} \xB11an`
+        });
+      }
+      if (cantonZip) {
+        strategies.push({
+          yearSpread: 2,
+          fuel: fuelKey,
+          gear: gearCode,
+          ...powerParams,
+          zip: cantonZip,
+          radius: 50,
+          precision: 4,
+          label: `${canton} \xB12ans`
+        });
+      }
+      strategies.push({
+        yearSpread: 1,
+        fuel: fuelKey,
+        gear: gearCode,
+        ...powerParams,
+        precision: 3,
+        label: "National \xB11an"
+      });
+      strategies.push({
+        yearSpread: 2,
+        fuel: fuelKey,
+        gear: gearCode,
+        precision: 3,
+        label: "National \xB12ans"
+      });
+      strategies.push({
+        yearSpread: 2,
+        fuel: fuelKey,
+        precision: 2,
+        label: "National fuel"
+      });
+      strategies.push({
+        yearSpread: 3,
+        precision: 1,
+        label: "National large"
+      });
+      let prices = [];
+      let usedPrecision = null;
+      const searchLog = [];
+      if (progress) progress.update("collect", "running");
+      for (let i = 0; i < strategies.length; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
+        const { precision, label, ...searchOpts } = strategies[i];
+        const searchUrl = buildSearchUrl(makeKey, modelKey, year, tld, searchOpts);
         try {
           const resp = await fetch(searchUrl, { credentials: "same-origin" });
           if (!resp.ok) {
             console.warn(`[CoPilot] AS24 search HTTP ${resp.status}: ${searchUrl}`);
+            searchLog.push({
+              step: i + 1,
+              precision,
+              label,
+              ads_found: 0,
+              url: searchUrl,
+              was_selected: false,
+              reason: `HTTP ${resp.status}`
+            });
+            if (progress) progress.addSubStep?.("collect", `Strat\xE9gie ${i + 1} \xB7 ${label}`, "skip", `HTTP ${resp.status}`);
             continue;
           }
           const html = await resp.text();
           prices = parseSearchPrices(html);
-          usedPrecision = strat.precision;
-          if (prices.length >= MIN_PRICES) {
-            if (progress) progress.update("collect", "done", `${prices.length} annonces trouv\xE9es`);
+          const enough = prices.length >= MIN_PRICES;
+          console.log(
+            "[CoPilot] AS24 strategie %d (precision=%d): %d prix | %s",
+            i + 1,
+            precision,
+            prices.length,
+            searchUrl.substring(0, 150)
+          );
+          searchLog.push({
+            step: i + 1,
+            precision,
+            label,
+            ads_found: prices.length,
+            url: searchUrl,
+            was_selected: enough,
+            reason: enough ? `${prices.length} >= ${MIN_PRICES}` : `${prices.length} < ${MIN_PRICES}`
+          });
+          if (progress) {
+            progress.addSubStep?.(
+              "collect",
+              `Strat\xE9gie ${i + 1} \xB7 ${label}`,
+              enough ? "done" : "skip",
+              `${prices.length} annonces`
+            );
+          }
+          if (enough) {
+            usedPrecision = precision;
             break;
           }
         } catch (err) {
           console.error("[CoPilot] AS24 search error:", err);
+          searchLog.push({
+            step: i + 1,
+            precision,
+            label,
+            ads_found: 0,
+            url: searchUrl,
+            was_selected: false,
+            reason: err.message
+          });
+          if (progress) progress.addSubStep?.("collect", `Strat\xE9gie ${i + 1} \xB7 ${label}`, "skip", "Erreur");
         }
       }
-      if (prices.length < MIN_PRICES) {
+      if (prices.length >= MIN_PRICES) {
+        let priceInts = prices.map((p) => p.price);
+        let priceDetails = prices;
+        if (currency === "CHF") {
+          priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+          priceDetails = prices.map((p) => ({
+            ...p,
+            price: Math.round(p.price * CHF_TO_EUR)
+          }));
+        }
+        if (progress) {
+          progress.update("collect", "done", `${priceInts.length} prix (pr\xE9cision ${usedPrecision})`);
+          progress.update("submit", "running");
+        }
+        const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
+        const payload = {
+          make: this._adData.make,
+          model: this._adData.model,
+          year,
+          region,
+          prices: priceInts,
+          price_details: priceDetails,
+          fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
+          precision: usedPrecision,
+          country: countryCode,
+          hp_range: hpRangeStr,
+          gearbox: this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
+          search_log: searchLog
+        };
+        try {
+          const resp = await this._fetch(marketUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (resp.ok) {
+            if (progress) {
+              progress.update("submit", "done", `${priceInts.length} prix envoy\xE9s (${region})`);
+              progress.update("bonus", "skip", "Pas de jobs bonus");
+            }
+            return { submitted: true, isCurrentVehicle: true };
+          }
+          const errBody = await resp.json().catch(() => null);
+          console.warn("[CoPilot] AS24 market-prices POST failed:", resp.status, errBody);
+          if (progress) progress.update("submit", "error", `Erreur serveur (${resp.status})`);
+        } catch (err) {
+          console.error("[CoPilot] AS24 market-prices POST error:", err);
+          if (progress) progress.update("submit", "error", "Erreur r\xE9seau");
+        }
+      } else {
         if (progress) {
           progress.update("collect", "warning", `${prices.length} annonces (min ${MIN_PRICES})`);
           progress.update("submit", "skip", "Pas assez de donn\xE9es");
-          progress.update("bonus", "skip");
         }
-        return { submitted: false, isCurrentVehicle: true };
-      }
-      let priceInts = prices.map((p) => p.price);
-      let priceDetails = prices;
-      if (currency === "CHF") {
-        priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-        priceDetails = prices.map((p) => ({
-          ...p,
-          price: Math.round(p.price * CHF_TO_EUR)
-        }));
-      }
-      if (progress) progress.update("submit", "running");
-      const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
-      const payload = {
-        make: this._adData.make,
-        model: this._adData.model,
-        year,
-        region: country,
-        prices: priceInts,
-        price_details: priceDetails,
-        fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
-        precision: usedPrecision
-      };
-      try {
-        const resp = await this._fetch(marketUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (resp.ok) {
-          if (progress) progress.update("submit", "done", `${priceInts.length} prix envoy\xE9s (${country})`);
-          if (progress) progress.update("bonus", "skip", "Pas de jobs bonus");
-          return { submitted: true, isCurrentVehicle: true };
+        try {
+          const failedUrl = this._apiUrl.replace("/analyze", "/market-prices/failed-search");
+          await this._fetch(failedUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              make: this._adData.make,
+              model: this._adData.model,
+              year,
+              region,
+              fuel: fuelKey || null,
+              hp_range: hpRangeStr,
+              country: countryCode,
+              search_log: searchLog
+            })
+          });
+          console.log("[CoPilot] AS24 failed search reported");
+        } catch {
         }
-        const errBody = await resp.json().catch(() => null);
-        console.warn("[CoPilot] AS24 market-prices POST failed:", resp.status, errBody);
-        if (progress) progress.update("submit", "error", `Erreur serveur (${resp.status})`);
-      } catch (err) {
-        console.error("[CoPilot] AS24 market-prices POST error:", err);
-        if (progress) progress.update("submit", "error", "Erreur r\xE9seau");
       }
       if (progress) progress.update("bonus", "skip");
-      return { submitted: false, isCurrentVehicle: true };
+      return { submitted: prices.length >= MIN_PRICES, isCurrentVehicle: true };
     }
   };
 

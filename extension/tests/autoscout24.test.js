@@ -17,6 +17,12 @@ import {
   extractTld,
   buildSearchUrl,
   parseSearchPrices,
+  getAs24GearCode,
+  getAs24PowerParams,
+  getAs24KmParams,
+  getHpRangeString,
+  getCantonCenterZip,
+  getCantonFromZip,
   AS24_URL_PATTERNS,
   AutoScout24Extractor,
 } from '../extractors/autoscout24.js';
@@ -543,6 +549,52 @@ describe('buildSearchUrl', () => {
     expect(buildSearchUrl('vw', 'golf', 2022, 'it')).toContain('autoscout24.it');
     expect(buildSearchUrl('vw', 'golf', 2022, 'at')).toContain('autoscout24.at');
   });
+
+  it('includes gear param', () => {
+    const url = buildSearchUrl('bmw', '320', 2021, 'ch', { gear: 'A' });
+    expect(url).toContain('gear=A');
+  });
+
+  it('includes power params with powertype=ps', () => {
+    const url = buildSearchUrl('vw', 'golf', 2021, 'ch', { powerfrom: 170, powerto: 260 });
+    expect(url).toContain('powerfrom=170');
+    expect(url).toContain('powerto=260');
+    expect(url).toContain('powertype=ps');
+  });
+
+  it('includes km range params', () => {
+    const url = buildSearchUrl('audi', 'a3', 2020, 'de', { kmfrom: 20000, kmto: 80000 });
+    expect(url).toContain('kmfrom=20000');
+    expect(url).toContain('kmto=80000');
+  });
+
+  it('includes zip and radius for geo search', () => {
+    const url = buildSearchUrl('audi', 'q5', 2023, 'ch', { zip: '1200', radius: 30 });
+    expect(url).toContain('zip=1200');
+    expect(url).toContain('zipr=30');
+  });
+
+  it('includes all params together', () => {
+    const url = buildSearchUrl('vw', 'golf', 2021, 'ch', {
+      yearSpread: 1, fuel: 'gasoline', gear: 'M',
+      powerfrom: 100, powerto: 150, kmfrom: 20000, kmto: 80000,
+      zip: '8000', radius: 50,
+    });
+    expect(url).toContain('fuel=gasoline');
+    expect(url).toContain('gear=M');
+    expect(url).toContain('powerfrom=100');
+    expect(url).toContain('powerto=150');
+    expect(url).toContain('kmfrom=20000');
+    expect(url).toContain('kmto=80000');
+    expect(url).toContain('zip=8000');
+    expect(url).toContain('zipr=50');
+  });
+
+  it('omits empty params', () => {
+    const url = buildSearchUrl('bmw', '320', 2021, 'de', { fuel: null, gear: null });
+    expect(url).not.toContain('fuel=');
+    expect(url).not.toContain('gear=');
+  });
 });
 
 
@@ -629,5 +681,155 @@ describe('AutoScout24Extractor phone & login', () => {
     ext._adData = {};
     const phone = await ext.revealPhone();
     expect(phone).toBeNull();
+  });
+});
+
+
+// ── 15. getAs24GearCode ──────────────────────────────────────────────
+
+describe('getAs24GearCode', () => {
+  it('maps automatic to A', () => {
+    expect(getAs24GearCode('automatic')).toBe('A');
+    expect(getAs24GearCode('Automatique')).toBe('A');
+    expect(getAs24GearCode('semi-automatic')).toBe('A');
+  });
+
+  it('maps manual to M', () => {
+    expect(getAs24GearCode('manual')).toBe('M');
+    expect(getAs24GearCode('Manuelle')).toBe('M');
+  });
+
+  it('returns null for unknown', () => {
+    expect(getAs24GearCode('banana')).toBeNull();
+    expect(getAs24GearCode(null)).toBeNull();
+    expect(getAs24GearCode('')).toBeNull();
+  });
+});
+
+
+// ── 16. getAs24PowerParams ───────────────────────────────────────────
+
+describe('getAs24PowerParams', () => {
+  it('returns empty for no hp', () => {
+    expect(getAs24PowerParams(0)).toEqual({});
+    expect(getAs24PowerParams(null)).toEqual({});
+    expect(getAs24PowerParams(-10)).toEqual({});
+  });
+
+  it('returns {powerto: 90} for low hp', () => {
+    expect(getAs24PowerParams(75)).toEqual({ powerto: 90 });
+  });
+
+  it('returns correct range for mid hp', () => {
+    expect(getAs24PowerParams(100)).toEqual({ powerfrom: 70, powerto: 120 });
+    expect(getAs24PowerParams(136)).toEqual({ powerfrom: 100, powerto: 150 });
+  });
+
+  it('returns correct range for GTI hp (245)', () => {
+    expect(getAs24PowerParams(245)).toEqual({ powerfrom: 170, powerto: 260 });
+  });
+
+  it('returns {powerfrom: 340} for high hp', () => {
+    expect(getAs24PowerParams(400)).toEqual({ powerfrom: 340 });
+  });
+});
+
+
+// ── 17. getAs24KmParams ──────────────────────────────────────────────
+
+describe('getAs24KmParams', () => {
+  it('returns empty for no km', () => {
+    expect(getAs24KmParams(0)).toEqual({});
+    expect(getAs24KmParams(null)).toEqual({});
+  });
+
+  it('returns {kmto: 20000} for low km', () => {
+    expect(getAs24KmParams(5000)).toEqual({ kmto: 20000 });
+  });
+
+  it('returns correct range for 30k km', () => {
+    expect(getAs24KmParams(30000)).toEqual({ kmto: 50000 });
+  });
+
+  it('returns full range for mid km', () => {
+    expect(getAs24KmParams(50000)).toEqual({ kmfrom: 20000, kmto: 80000 });
+  });
+
+  it('returns {kmfrom: 100000} for high km', () => {
+    expect(getAs24KmParams(200000)).toEqual({ kmfrom: 100000 });
+  });
+});
+
+
+// ── 18. getHpRangeString ─────────────────────────────────────────────
+
+describe('getHpRangeString', () => {
+  it('returns null for no hp', () => {
+    expect(getHpRangeString(0)).toBeNull();
+    expect(getHpRangeString(null)).toBeNull();
+  });
+
+  it('returns min-90 for low hp', () => {
+    expect(getHpRangeString(75)).toBe('min-90');
+  });
+
+  it('returns 100-150 for 136hp', () => {
+    expect(getHpRangeString(136)).toBe('100-150');
+  });
+
+  it('returns 170-260 for GTI (245hp)', () => {
+    expect(getHpRangeString(245)).toBe('170-260');
+  });
+
+  it('returns 340-max for high hp', () => {
+    expect(getHpRangeString(400)).toBe('340-max');
+  });
+});
+
+
+// ── 19. getCantonCenterZip ───────────────────────────────────────────
+
+describe('getCantonCenterZip', () => {
+  it('returns 1200 for Geneve', () => {
+    expect(getCantonCenterZip('Geneve')).toBe('1200');
+  });
+
+  it('returns 8000 for Zurich', () => {
+    expect(getCantonCenterZip('Zurich')).toBe('8000');
+  });
+
+  it('returns 3000 for Berne', () => {
+    expect(getCantonCenterZip('Berne')).toBe('3000');
+  });
+
+  it('returns null for unknown canton', () => {
+    expect(getCantonCenterZip('Paris')).toBeNull();
+    expect(getCantonCenterZip(null)).toBeNull();
+  });
+});
+
+
+// ── 20. getCantonFromZip ─────────────────────────────────────────────
+
+describe('getCantonFromZip', () => {
+  it('returns Geneve for 1200', () => {
+    expect(getCantonFromZip('1200')).toBe('Geneve');
+  });
+
+  it('returns Zurich for 8000', () => {
+    expect(getCantonFromZip('8000')).toBe('Zurich');
+  });
+
+  it('returns Vaud for 1000', () => {
+    expect(getCantonFromZip('1000')).toBe('Vaud');
+  });
+
+  it('returns null for short zip', () => {
+    expect(getCantonFromZip('12')).toBeNull();
+  });
+
+  it('returns null for empty', () => {
+    expect(getCantonFromZip('')).toBeNull();
+    expect(getCantonFromZip(null)).toBeNull();
   });
 });
