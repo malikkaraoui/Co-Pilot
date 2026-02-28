@@ -992,6 +992,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}`
       + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
       + `&country=${encodeURIComponent(countryCode)}`
+      + `&site=as24&tld=${encodeURIComponent(tld)}`
       + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : '')
       + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : '')
       + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : '');
@@ -1282,8 +1283,8 @@ export class AutoScout24Extractor extends SiteExtractor {
       try {
         await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
 
-        const jobMakeKey = job.make.toLowerCase();
-        const jobModelKey = job.model.toLowerCase();
+        const jobMakeKey = job.slug_make || job.make.toLowerCase();
+        const jobModelKey = job.slug_model || job.model.toLowerCase();
         const jobYear = parseInt(job.year, 10);
         const cantonZip = getCantonCenterZip(job.region);
 

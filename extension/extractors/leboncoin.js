@@ -885,6 +885,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const jobUrl = _apiUrl.replace("/analyze", "/market-prices/next-job")
     + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}`
     + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
+    + `&site=lbc`
     + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "")
     + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "")
     + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
