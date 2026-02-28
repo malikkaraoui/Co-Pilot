@@ -174,6 +174,31 @@ describe('normalizeToAdData', () => {
     expect(ad.phone).toBe('+41628929454');
   });
 
+  it('counts images from JSON-LD when RSC is null', () => {
+    const ldWithImages = {
+      ...JSON_LD,
+      image: ['img1.jpg', 'img2.jpg', 'img3.jpg', 'img4.jpg', 'img5.jpg'],
+    };
+    const ad = normalizeToAdData(null, ldWithImages);
+    expect(ad.image_count).toBe(5);
+  });
+
+  it('extracts dealer_rating from JSON-LD when RSC is null', () => {
+    const ad = normalizeToAdData(null, JSON_LD);
+    expect(ad.dealer_rating).toBe(4.7);
+    expect(ad.dealer_review_count).toBe(151);
+  });
+
+  it('falls back to JSON-LD images when RSC images is empty', () => {
+    const rscNoImages = { ...RSC_VEHICLE, images: [] };
+    const ldWithImages = {
+      ...JSON_LD,
+      image: Array.from({ length: 23 }, (_, i) => `img${i}.jpg`),
+    };
+    const ad = normalizeToAdData(rscNoImages, ldWithImages);
+    expect(ad.image_count).toBe(23);
+  });
+
   it('handles minimal RSC data with null optional fields', () => {
     const minimal = {
       make: { name: 'BMW' },
@@ -269,7 +294,7 @@ describe('getExtractor', () => {
 // ── 7. parseRSCPayload with realistic DOM (T2) ─────────────────
 
 describe('parseRSCPayload', () => {
-  it('extracts vehicle from script tag containing nested JSON', () => {
+  it('extracts vehicle from raw JSON in script tag', () => {
     const vehicleJson = JSON.stringify({
       vehicleCategory: 'car',
       make: { name: 'AUDI' },
@@ -279,19 +304,79 @@ describe('parseRSCPayload', () => {
       warranty: { duration: 12, mileage: 20000 },
     });
     const html = `<html><head>
-      <script>self.__next_f.push([1,"${vehicleJson.replace(/"/g, '\\"')}"])</script>
-    </head><body></body></html>`;
-    // parseRSCPayload looks for the raw JSON in script content, not the escaped string
-    // So we need the JSON directly in the script text
-    const html2 = `<html><head>
       <script>var data = ${vehicleJson};</script>
     </head><body></body></html>`;
-    const dom = new JSDOM(html2);
+    const dom = new JSDOM(html);
     const result = parseRSCPayload(dom.window.document);
     expect(result).not.toBeNull();
     expect(result.make.name).toBe('AUDI');
     expect(result.model.name).toBe('Q5');
     expect(result.warranty.duration).toBe(12);
+  });
+
+  it('extracts vehicle from Next.js RSC Flight payload (self.__next_f.push)', () => {
+    const vehicle = {
+      vehicleCategory: 'car',
+      make: { name: 'ALFA ROMEO', key: 'alfa-romeo' },
+      model: { name: 'Giulia', key: 'giulia' },
+      price: 34500,
+      mileage: 45000,
+      firstRegistrationDate: '2020-06-01',
+      firstRegistrationYear: 2020,
+      fuelType: 'gasoline',
+    };
+    // In real AS24 pages, RSC Flight textContent has DOUBLE-escaped JSON:
+    // self.__next_f.push([1,"...{\\"key\\":\\"val\\"}..."])
+    // where \\" are two literal \ chars + " in the textContent
+    const rawJson = JSON.stringify(vehicle);
+    const doubleEscaped = rawJson.replace(/"/g, '\\\\"');
+    const scriptText = 'self.__next_f.push([1,"6:' + doubleEscaped + '"])';
+
+    // Build DOM programmatically to control exact textContent
+    const dom = new JSDOM('<html><head></head><body></body></html>');
+    const doc = dom.window.document;
+    const script = doc.createElement('script');
+    script.textContent = scriptText;
+    doc.head.appendChild(script);
+
+    const result = parseRSCPayload(doc);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('ALFA ROMEO');
+    expect(result.model.name).toBe('Giulia');
+    expect(result.price).toBe(34500);
+    expect(result.firstRegistrationYear).toBe(2020);
+  });
+
+  it('ignores i18n translation objects with make/model label keys', () => {
+    // AS24 pages have an i18n script with labels like {make: "Marque", model: "Modèle"}
+    // and vehicleCategory as an object (translations), NOT a string.
+    // The parser must skip these and find the real vehicle data.
+    const i18n = JSON.stringify({
+      make: 'Marque',
+      model: 'Modèle',
+      vehicleCategory: { car: 'Voitures', motorcycle: 'Motos' },
+      year: 'Année',
+    });
+    const real = JSON.stringify({
+      vehicleCategory: 'car',
+      make: { name: 'VW' },
+      model: { name: 'GOLF' },
+      price: 37890,
+      mileage: 24700,
+      firstRegistrationDate: '2024-11-04',
+      firstRegistrationYear: 2024,
+    });
+    // i18n script comes BEFORE the real data script (like on real AS24 pages)
+    const html = `<html><head>
+      <script>var labels = ${i18n};</script>
+      <script>var listing = ${real};</script>
+    </head><body></body></html>`;
+    const dom = new JSDOM(html);
+    const result = parseRSCPayload(dom.window.document);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('VW');
+    expect(result.model.name).toBe('GOLF');
+    expect(result.price).toBe(37890);
   });
 
   it('returns null when no vehicle data in scripts', () => {

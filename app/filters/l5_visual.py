@@ -79,10 +79,12 @@ class L5VisualFilter(BaseFilter):
         except (ValueError, TypeError):
             return None
 
+        country = (data.get("country") or "FR").upper()
         base_filters = [
             market_text_key_expr(MarketPrice.make) == market_text_key(make),
             market_text_key_expr(MarketPrice.model) == market_text_key(model),
             MarketPrice.sample_count >= min_samples,
+            func.coalesce(MarketPrice.country, "FR") == country,
         ]
 
         fuel = (data.get("fuel") or "").strip().lower() or None

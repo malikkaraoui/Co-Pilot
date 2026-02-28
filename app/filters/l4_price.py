@@ -87,7 +87,8 @@ class L4PriceFilter(BaseFilter):
         )
         min_samples = self._get_min_samples(data)
         details["lookup_min_samples"] = min_samples
-        market = get_market_stats(make, model, year, region, fuel=fuel)
+        country = (data.get("country") or "FR").upper()
+        market = get_market_stats(make, model, year, region, fuel=fuel, country=country)
         cascade_tried.append("market_price")
         if market and market.sample_count >= min_samples:
             # IQR Mean = moyenne des 50% centraux du marche (plus robuste que la mediane)

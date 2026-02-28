@@ -17,6 +17,7 @@ class MarketPrice(db.Model):
     year = db.Column(db.Integer, nullable=False)
     region = db.Column(db.String(80), nullable=False)
     fuel = db.Column(db.String(30), nullable=True)  # essence, diesel, electrique, hybride
+    country = db.Column(db.String(5), nullable=True, default="FR")  # ISO 2 lettres (FR, CH, DE...)
 
     price_min = db.Column(db.Integer)
     price_median = db.Column(db.Integer)
@@ -64,7 +65,8 @@ class MarketPrice(db.Model):
             "region",
             "fuel",
             "hp_range",
-            name="uq_market_price_vehicle_region_fuel_hp",
+            "country",
+            name="uq_market_price_vehicle_region_fuel_hp_country",
         ),
     )
 

@@ -8,11 +8,13 @@ from app.extensions import db
 
 @pytest.fixture()
 def client():
-    app = create_app()
-    app.config["TESTING"] = True
+    """Client isole -- le pipeline /api/analyze commit des Vehicle qui ne doivent
+    pas fuiter dans les autres tests de la suite (ex. test_import_csv)."""
+    app = create_app("testing")
     with app.app_context():
         db.create_all()
         yield app.test_client()
+        db.drop_all()
 
 
 def _autoscout_ad_data():

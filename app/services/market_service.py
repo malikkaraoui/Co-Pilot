@@ -263,6 +263,7 @@ def store_market_prices(
     fiscal_hp: int | None = None,
     lbc_estimate_low: int | None = None,
     lbc_estimate_high: int | None = None,
+    country: str | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -285,6 +286,7 @@ def store_market_prices(
     model = normalize_market_text(model)
     region = normalize_region(region) or normalize_market_text(region)
     fuel = normalize_market_text(fuel).lower() if fuel else None
+    country = (country or "FR").upper().strip()[:5]
 
     # Filtrage IQR des outliers + calcul IQR Mean
     iqr = _filter_outliers_iqr(prices)
@@ -360,6 +362,7 @@ def store_market_prices(
         market_text_key_expr(MarketPrice.model) == market_text_key(model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
+        func.coalesce(MarketPrice.country, "FR") == country,
     ]
     if fuel:
         filters.append(func.lower(MarketPrice.fuel) == fuel)
@@ -393,13 +396,16 @@ def store_market_prices(
         existing.model = model
         existing.region = region
         existing.fuel = fuel
+        existing.country = country
         for key, value in stats.items():
             setattr(existing, key, value)
         db.session.commit()
         logger.info(log_msg, "Updated", *log_args)
         return existing
 
-    mp = MarketPrice(make=make, model=model, year=year, region=region, fuel=fuel, **stats)
+    mp = MarketPrice(
+        make=make, model=model, year=year, region=region, fuel=fuel, country=country, **stats
+    )
     db.session.add(mp)
     db.session.commit()
     logger.info(log_msg, "Created", *log_args)
@@ -456,6 +462,7 @@ def get_market_stats(
     region: str,
     fuel: str | None = None,
     hp_range: str | None = None,
+    country: str | None = None,
 ) -> MarketPrice | None:
     """Recupere les stats marche pour un vehicule/region.
 
@@ -476,6 +483,7 @@ def get_market_stats(
         region: Region.
         fuel: Type de motorisation (ex. "diesel", "essence"). Optionnel.
         hp_range: Tranche de puissance DIN (ex. "120-150"). Optionnel.
+        country: Code pays ISO 2 lettres (ex. "FR", "CH"). Default "FR".
 
     Returns:
         L'instance MarketPrice si elle existe, None sinon.
@@ -485,11 +493,13 @@ def get_market_stats(
     region_key = market_text_key(normalize_region(region) or region)
     fuel_key = normalize_market_text(fuel).lower() if fuel else None
     hp_range_key = hp_range.strip().lower() if hp_range else None
+    country_key = (country or "FR").upper().strip()
 
     base_filters = [
         market_text_key_expr(MarketPrice.make) == make_key,
         market_text_key_expr(MarketPrice.model) == model_key,
         market_text_key_expr(MarketPrice.region) == region_key,
+        func.coalesce(MarketPrice.country, "FR") == country_key,
     ]
 
     # --- Helper: try a query with exact hp_range first, then fallback to hp_range=NULL,

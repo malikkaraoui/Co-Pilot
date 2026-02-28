@@ -39,6 +39,47 @@ POST_2016_REGIONS = [
     "Corse",
 ]
 
+SWISS_CANTONS = [
+    "Zurich",
+    "Berne",
+    "Lucerne",
+    "Uri",
+    "Schwyz",
+    "Obwald",
+    "Nidwald",
+    "Glaris",
+    "Zoug",
+    "Fribourg",
+    "Soleure",
+    "Bale-Ville",
+    "Bale-Campagne",
+    "Schaffhouse",
+    "Appenzell Rhodes-Exterieures",
+    "Appenzell Rhodes-Interieures",
+    "Saint-Gall",
+    "Grisons",
+    "Argovie",
+    "Thurgovie",
+    "Tessin",
+    "Vaud",
+    "Valais",
+    "Neuchatel",
+    "Geneve",
+    "Jura",
+]
+
+# Mapping pays → liste de regions pour l'expansion des jobs
+_COUNTRY_REGIONS: dict[str, list[str]] = {
+    "FR": POST_2016_REGIONS,
+    "CH": SWISS_CANTONS,
+}
+
+
+def _get_regions_for_country(country: str) -> list[str]:
+    """Retourne la liste de regions pour un pays (FR=regions, CH=cantons)."""
+    return _COUNTRY_REGIONS.get(country, POST_2016_REGIONS)
+
+
 FUEL_OPPOSITES = {"diesel": "essence", "essence": "diesel"}
 GEARBOX_OPPOSITES = {
     "manual": "automatique",
@@ -55,6 +96,7 @@ def _has_fresh_market_price(
     region: str,
     fuel: str | None,
     hp_range: str | None,
+    country: str = "FR",
 ) -> bool:
     """Verifie si un MarketPrice frais (< FRESHNESS_DAYS) existe deja."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
@@ -64,6 +106,7 @@ def _has_fresh_market_price(
         market_text_key_expr(MarketPrice.model) == market_text_key(model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
+        func.coalesce(MarketPrice.country, "FR") == country,
         MarketPrice.collected_at >= cutoff,
     ]
 
@@ -88,6 +131,7 @@ def _job_exists(
     fuel: str | None,
     gearbox: str | None,
     hp_range: str | None,
+    country: str = "FR",
 ) -> bool:
     """Verifie si un CollectionJob identique existe deja (actif OU failed recent).
 
@@ -127,6 +171,8 @@ def _job_exists(
         else:
             filters.append(col == val)  # already normalized in expand()
 
+    filters.append(func.coalesce(CollectionJob.country, "FR") == country)
+
     return db.session.query(CollectionJob.id).filter(*filters).first() is not None
 
 
@@ -138,6 +184,7 @@ def _find_old_failed_job(
     fuel: str | None,
     gearbox: str | None,
     hp_range: str | None,
+    country: str = "FR",
 ) -> CollectionJob | None:
     """Cherche un job failed ancien (> FRESHNESS_DAYS) pour le recycler."""
     failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
@@ -161,6 +208,8 @@ def _find_old_failed_job(
         else:
             filters.append(col == val)
 
+    filters.append(func.coalesce(CollectionJob.country, "FR") == country)
+
     return CollectionJob.query.filter(*filters).first()
 
 
@@ -174,20 +223,21 @@ def _try_create_job(
     hp_range: str | None,
     priority: int,
     source_vehicle: str,
+    country: str = "FR",
 ) -> CollectionJob | None:
     """Tente de creer un CollectionJob. Retourne None si doublon ou deja frais.
 
     Si un vieux job failed existe (> FRESHNESS_DAYS), le reinitialise
     au lieu d'en creer un nouveau (UniqueConstraint).
     """
-    if _has_fresh_market_price(make, model, year, region, fuel, hp_range):
+    if _has_fresh_market_price(make, model, year, region, fuel, hp_range, country=country):
         return None
 
-    if _job_exists(make, model, year, region, fuel, gearbox, hp_range):
+    if _job_exists(make, model, year, region, fuel, gearbox, hp_range, country=country):
         return None
 
     # Recycler un vieux job failed (la UniqueConstraint empeche un INSERT)
-    old = _find_old_failed_job(make, model, year, region, fuel, gearbox, hp_range)
+    old = _find_old_failed_job(make, model, year, region, fuel, gearbox, hp_range, country=country)
     if old:
         old.status = "pending"
         old.priority = priority
@@ -208,6 +258,7 @@ def _try_create_job(
         hp_range=hp_range,
         priority=priority,
         source_vehicle=source_vehicle,
+        country=country,
     )
 
     # Utilise un savepoint (nested transaction) pour que le rollback
@@ -231,14 +282,15 @@ def expand_collection_jobs(
     fuel: str | None = None,
     gearbox: str | None = None,
     hp_range: str | None = None,
+    country: str | None = None,
 ) -> list[CollectionJob]:
     """Expand un vehicule scanne en jobs de collecte (variantes x regions).
 
     Priorites :
-    - P1 : meme vehicule x 12 autres regions
-    - P2 : variante carburant (diesel/essence seulement) x 13 regions
-    - P3 : variante boite (si renseignee) x 13 regions
-    - P4 : annee +/-1 x region courante seulement (2 jobs, pas 26)
+    - P1 : meme vehicule x N-1 autres regions (13 FR, 26 cantons CH)
+    - P2 : variante carburant (diesel/essence seulement) x N regions
+    - P3 : variante boite (si renseignee) x N regions
+    - P4 : annee +/-1 x region courante seulement (2 jobs)
 
     Retourne uniquement les jobs nouvellement crees.
     """
@@ -246,6 +298,7 @@ def expand_collection_jobs(
     make = make.strip()
     model = model.strip()
     region = region.strip()
+    country = (country or "FR").upper().strip()
     if fuel:
         fuel = fuel.strip().lower()
     if gearbox:
@@ -274,8 +327,11 @@ def expand_collection_jobs(
 
     current_region_key = market_text_key(region)
 
-    # --- P1 : meme vehicule, 12 autres regions ---
-    for r in POST_2016_REGIONS:
+    # Selectionner la liste de regions selon le pays
+    all_regions = _get_regions_for_country(country)
+
+    # --- P1 : meme vehicule, N-1 autres regions ---
+    for r in all_regions:
         if market_text_key(r) == current_region_key:
             continue
         job = _try_create_job(
@@ -288,6 +344,7 @@ def expand_collection_jobs(
             hp_range,
             priority=1,
             source_vehicle=source_vehicle,
+            country=country,
         )
         if job:
             created.append(job)
@@ -296,7 +353,7 @@ def expand_collection_jobs(
     opposite_fuel = FUEL_OPPOSITES.get(fuel) if fuel else None
 
     if opposite_fuel:
-        for r in POST_2016_REGIONS:
+        for r in all_regions:
             job = _try_create_job(
                 make,
                 model,
@@ -307,6 +364,7 @@ def expand_collection_jobs(
                 None,
                 priority=2,
                 source_vehicle=source_vehicle,
+                country=country,
             )
             if job:
                 created.append(job)
@@ -315,7 +373,7 @@ def expand_collection_jobs(
     opposite_gearbox = GEARBOX_OPPOSITES.get(gearbox) if gearbox else None
 
     if opposite_gearbox:
-        for r in POST_2016_REGIONS:
+        for r in all_regions:
             job = _try_create_job(
                 make,
                 model,
@@ -326,14 +384,13 @@ def expand_collection_jobs(
                 hp_range,
                 priority=3,
                 source_vehicle=source_vehicle,
+                country=country,
             )
             if job:
                 created.append(job)
 
     # --- P4 : annee +/-1 x region courante seulement ---
-    # Limite a la region courante pour eviter l'explosion de la queue (2 au lieu de 26).
-    # Les autres regions pour les annees adjacentes seront generees quand un utilisateur
-    # scannera un vehicule de cette annee dans cette region.
+    # Limite a la region courante pour eviter l'explosion de la queue (2 jobs).
     for y in [year - 1, year + 1]:
         job = _try_create_job(
             make,
@@ -345,6 +402,7 @@ def expand_collection_jobs(
             hp_range,
             priority=4,
             source_vehicle=source_vehicle,
+            country=country,
         )
         if job:
             created.append(job)

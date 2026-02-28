@@ -18,6 +18,7 @@ class CollectionJob(db.Model):
     fuel = db.Column(db.String(30), nullable=True)
     gearbox = db.Column(db.String(20), nullable=True)
     hp_range = db.Column(db.String(20), nullable=True)
+    country = db.Column(db.String(5), nullable=True, default="FR")  # ISO 2 lettres (FR, CH, DE...)
 
     priority = db.Column(db.Integer, nullable=False, default=1, index=True)
     status = db.Column(
@@ -39,7 +40,8 @@ class CollectionJob(db.Model):
             "fuel",
             "gearbox",
             "hp_range",
-            name="uq_collection_job_key",
+            "country",
+            name="uq_collection_job_key_country",
         ),
     )
 

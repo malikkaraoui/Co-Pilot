@@ -111,6 +111,8 @@ class MarketPricesRequest(BaseModel):
     # Tokens LBC auto-appris depuis le DOM (accents corrects pour les URLs de recherche)
     site_brand_token: str | None = Field(default=None, max_length=120)
     site_model_token: str | None = Field(default=None, max_length=200)
+    # Code pays ISO 2 lettres (FR, CH, DE, AT, IT, BE, NL, ES). Default FR.
+    country: str | None = Field(default=None, max_length=5)
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -210,6 +212,7 @@ def submit_market_prices():
             fiscal_hp=req.fiscal_hp,
             lbc_estimate_low=req.lbc_estimate_low,
             lbc_estimate_high=req.lbc_estimate_high,
+            country=req.country,
         )
     except (ValueError, TypeError, OSError) as exc:
         logger.error("Failed to store market prices: %s", exc)
@@ -355,6 +358,7 @@ def next_market_job():
     fuel = request.args.get("fuel")
     gearbox = request.args.get("gearbox")
     hp_range = request.args.get("hp_range")
+    country = request.args.get("country") or "FR"
 
     if not all([make, model, region]):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
@@ -375,6 +379,7 @@ def next_market_job():
         fuel=fuel,
         gearbox=gearbox,
         hp_range=hp_range,
+        country=country,
     )
 
     # Comparaisons en naive UTC (SQLite ne conserve pas le tzinfo)
@@ -385,11 +390,13 @@ def next_market_job():
     # Priorite absolue au vehicule scanne : si l'extension fournit fuel/hp_range,
     # on exige cette variante exacte (sinon un record generique frais pourrait
     # masquer l'absence de donnees reellement utiles pour L4).
+    country_upper = country.upper().strip()
     current_filters = [
         market_text_key_expr(MarketPrice.make) == market_text_key(make),
         market_text_key_expr(MarketPrice.model) == market_text_key(model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
+        func.coalesce(MarketPrice.country, "FR") == country_upper,
     ]
     if fuel:
         fuel_key = normalize_market_text(fuel).lower()
@@ -436,7 +443,10 @@ def next_market_job():
             func.lower(MarketPrice.model).label("mp_model"),
             func.max(MarketPrice.collected_at).label("latest_at"),
         )
-        .filter(market_text_key_expr(MarketPrice.region) == market_text_key(region))
+        .filter(
+            market_text_key_expr(MarketPrice.region) == market_text_key(region),
+            func.coalesce(MarketPrice.country, "FR") == country_upper,
+        )
         .group_by(func.lower(MarketPrice.make), func.lower(MarketPrice.model))
         .subquery()
     )

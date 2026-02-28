@@ -43,6 +43,56 @@ const TLD_TO_CURRENCY = {
 // CHF → EUR rate (same as backend currency_service.py)
 const CHF_TO_EUR = 0.94;
 
+// TLD → ISO country code (for backend MarketPrice.country)
+const TLD_TO_COUNTRY_CODE = {
+  ch: 'CH', de: 'DE', fr: 'FR', it: 'IT',
+  at: 'AT', be: 'BE', nl: 'NL', es: 'ES',
+};
+
+// Swiss ZIP prefix (2 digits) → canton name (French, matching backend SWISS_CANTONS)
+const SWISS_ZIP_TO_CANTON = {
+  '10': 'Vaud', '11': 'Vaud', '12': 'Geneve', '13': 'Vaud',
+  '14': 'Vaud', '15': 'Vaud', '16': 'Fribourg', '17': 'Fribourg',
+  '18': 'Vaud', '19': 'Valais',
+  '20': 'Neuchatel', '21': 'Neuchatel', '22': 'Neuchatel', '23': 'Neuchatel',
+  '24': 'Jura', '25': 'Berne', '26': 'Berne', '27': 'Jura',
+  '28': 'Jura', '29': 'Jura',
+  '30': 'Berne', '31': 'Berne', '32': 'Berne', '33': 'Berne',
+  '34': 'Berne', '35': 'Berne', '36': 'Berne', '37': 'Berne',
+  '38': 'Berne', '39': 'Valais',
+  '40': 'Bale-Ville', '41': 'Bale-Campagne', '42': 'Bale-Campagne',
+  '43': 'Argovie', '44': 'Bale-Campagne', '45': 'Soleure', '46': 'Soleure',
+  '47': 'Soleure', '48': 'Argovie', '49': 'Berne',
+  '50': 'Argovie', '51': 'Argovie', '52': 'Argovie', '53': 'Argovie',
+  '54': 'Argovie', '55': 'Argovie', '56': 'Argovie', '57': 'Argovie',
+  '58': 'Argovie', '59': 'Argovie',
+  '60': 'Lucerne', '61': 'Lucerne', '62': 'Lucerne',
+  '63': 'Zoug', '64': 'Schwyz', '65': 'Obwald',
+  '66': 'Tessin', '67': 'Tessin', '68': 'Tessin', '69': 'Tessin',
+  '70': 'Grisons', '71': 'Grisons', '72': 'Grisons', '73': 'Grisons',
+  '74': 'Grisons', '75': 'Grisons', '76': 'Grisons', '77': 'Grisons',
+  '78': 'Grisons', '79': 'Grisons',
+  '80': 'Zurich', '81': 'Zurich', '82': 'Schaffhouse', '83': 'Zurich',
+  '84': 'Zurich', '85': 'Thurgovie', '86': 'Zurich', '87': 'Saint-Gall',
+  '88': 'Zurich', '89': 'Saint-Gall',
+  '90': 'Saint-Gall', '91': 'Appenzell Rhodes-Exterieures', '92': 'Saint-Gall',
+  '93': 'Saint-Gall', '94': 'Saint-Gall', '95': 'Thurgovie', '96': 'Saint-Gall',
+  '97': 'Saint-Gall',
+};
+
+/**
+ * Derives the Swiss canton from a postal code.
+ * Uses 2-digit prefix mapping (covers ~95% accuracy).
+ * @param {string|number} zipcode
+ * @returns {string|null} Canton name or null if not mapped
+ */
+export function getCantonFromZip(zipcode) {
+  const zip = String(zipcode || '').trim();
+  if (zip.length < 4) return null;
+  const prefix = zip.slice(0, 2);
+  return SWISS_ZIP_TO_CANTON[prefix] || null;
+}
+
 // Minimum prices to submit
 const MIN_PRICES = 5;
 
@@ -129,6 +179,175 @@ function* extractJsonObjects(text) {
 }
 
 /**
+ * Recursively finds a vehicle-like node in nested payloads.
+ * @param {unknown} input
+ * @param {number} depth
+ * @returns {object|null}
+ */
+function findVehicleNode(input, depth = 0) {
+  if (!input || depth > 12) return null;
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = findVehicleNode(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof input !== 'object') return null;
+
+  const obj = input;
+  const hasMake = !!(typeof obj.make === 'string' || obj.make?.name);
+  const hasModel = !!(typeof obj.model === 'string' || obj.model?.name);
+  // Require at least one real vehicle field to avoid matching i18n translation
+  // objects that also have make/model keys but as label strings like "Marque"/"Modèle".
+  // Real vehicle nodes always have vehicleCategory as a string ("car"), price as a number,
+  // or firstRegistrationDate as a string.
+  const isRealVehicle = (
+    typeof obj.vehicleCategory === 'string'
+    || typeof obj.price === 'number'
+    || typeof obj.firstRegistrationDate === 'string'
+    || typeof obj.mileage === 'number'
+  );
+  if (hasMake && hasModel && isRealVehicle) return obj;
+
+  for (const value of Object.values(obj)) {
+    const found = findVehicleNode(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function parseLooselyJsonLd(text) {
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/^<!--\s*/, '')
+    .replace(/\s*-->$/, '')
+    .trim();
+
+  if (!cleaned) return null;
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+
+function isVehicleLikeLdNode(node) {
+  if (!node || typeof node !== 'object') return false;
+
+  const type = String(node['@type'] || '').toLowerCase();
+  if (type === 'car') return true;
+
+  const hasMake = !!(node.brand?.name || node.brand);
+  const hasModel = !!node.model;
+  if (type === 'vehicle') return hasMake && hasModel;
+
+  const hasSignals = !!(node.offers || node.vehicleModelDate || node.mileageFromOdometer || node.vehicleEngine);
+  return hasMake && hasModel && hasSignals;
+}
+
+function findVehicleLikeLdNode(input, depth = 0) {
+  if (!input || depth > 12) return null;
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = findVehicleLikeLdNode(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof input !== 'object') return null;
+  if (isVehicleLikeLdNode(input)) return input;
+
+  if (Array.isArray(input['@graph'])) {
+    for (const item of input['@graph']) {
+      const found = findVehicleLikeLdNode(item, depth + 1);
+      if (found) return found;
+    }
+  }
+
+  for (const value of Object.values(input)) {
+    const found = findVehicleLikeLdNode(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function extractMakeModelFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const match = u.pathname.match(/\/d\/([^/]+)-(\d+)(?:\/|$)/i);
+    if (!match) return { make: null, model: null };
+
+    const slug = decodeURIComponent(match[1] || '');
+    const tokens = slug.split('-').filter(Boolean);
+    if (!tokens.length) return { make: null, model: null };
+
+    return {
+      make: tokens[0] ? tokens[0].toUpperCase() : null,
+      model: tokens[1] ? tokens[1].toUpperCase() : null,
+    };
+  } catch {
+    return { make: null, model: null };
+  }
+}
+
+function fallbackAdDataFromDom(doc, url) {
+  const h1 = doc.querySelector('h1')?.textContent?.trim() || null;
+  const title = h1 || doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || doc.title || null;
+  const priceMeta = doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content');
+  const price = priceMeta ? Number(String(priceMeta).replace(/[^\d.]/g, '')) : null;
+  const currency = doc.querySelector('meta[property="product:price:currency"]')?.getAttribute('content') || null;
+  const fromUrl = extractMakeModelFromUrl(url);
+
+  return {
+    title,
+    price_eur: Number.isFinite(price) ? price : null,
+    currency,
+    make: fromUrl.make,
+    model: fromUrl.model,
+    year_model: null,
+    mileage_km: null,
+    fuel: null,
+    gearbox: null,
+    doors: null,
+    seats: null,
+    first_registration: null,
+    color: null,
+    power_fiscal_cv: null,
+    power_din_hp: null,
+    location: {
+      city: null,
+      zipcode: null,
+      department: null,
+      region: null,
+      lat: null,
+      lng: null,
+    },
+    phone: null,
+    description: null,
+    owner_type: 'private',
+    owner_name: null,
+    siret: null,
+    raw_attributes: {},
+    image_count: 0,
+    has_phone: false,
+    has_urgent: false,
+    has_highlight: false,
+    has_boost: false,
+    publication_date: null,
+    days_online: null,
+    index_date: null,
+    days_since_refresh: null,
+    republished: false,
+    lbc_estimation: null,
+  };
+}
+
+/**
  * Parses the RSC (React Server Components) payload from the page.
  * Searches all script tags for JSON containing vehicle data.
  * Uses balanced brace extraction for robust nested JSON handling.
@@ -139,16 +358,28 @@ export function parseRSCPayload(doc) {
   const scripts = doc.querySelectorAll('script');
   for (const script of scripts) {
     const text = script.textContent || '';
-    if (!text.includes('"vehicleCategory"') && !text.includes('"firstRegistrationDate"')) {
+    // Pre-filter: check keywords without quotes to handle both raw JSON
+    // and RSC Flight format where quotes are escaped as \"
+    if (!text.includes('vehicleCategory') && !text.includes('firstRegistrationDate')) {
       continue;
     }
-    for (const candidate of extractJsonObjects(text)) {
+
+    // Next.js RSC Flight payloads wrap data in self.__next_f.push([1,"..."])
+    // where JSON quotes are double-escaped as \\" (or sometimes \") in textContent.
+    // Strip all backslashes preceding a quote so extractJsonObjects can properly
+    // track string boundaries and extract balanced JSON objects.
+    const searchText = text.includes('self.__next_f')
+      ? text.replace(/\\+"/g, '"')
+      : text;
+
+    for (const candidate of extractJsonObjects(searchText)) {
       if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
         continue;
       }
       try {
         const parsed = JSON.parse(candidate);
-        if (parsed.make && parsed.model) return parsed;
+        const vehicle = findVehicleNode(parsed);
+        if (vehicle) return vehicle;
       } catch {
         // Not valid JSON, try next candidate
       }
@@ -167,17 +398,10 @@ export function parseRSCPayload(doc) {
 export function parseJsonLd(doc) {
   const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
   for (const script of scripts) {
-    try {
-      const data = JSON.parse(script.textContent || '');
-      if (data['@type'] === 'Car') return data;
-      // Some pages wrap in @graph
-      if (Array.isArray(data['@graph'])) {
-        const car = data['@graph'].find((item) => item['@type'] === 'Car');
-        if (car) return car;
-      }
-    } catch {
-      // Malformed JSON-LD, skip
-    }
+    const data = parseLooselyJsonLd(script.textContent || '');
+    if (!data) continue;
+    const vehicle = findVehicleLikeLdNode(data);
+    if (vehicle) return vehicle;
   }
   return null;
 }
@@ -222,6 +446,17 @@ export function normalizeToAdData(rsc, jsonLd) {
     return ld.model || null;
   }
 
+  // Dealer rating from JSON-LD aggregateRating
+  const rating = seller.aggregateRating || {};
+  const dealerRating = rating.ratingValue ?? null;
+  const dealerReviewCount = rating.reviewCount ?? null;
+
+  // Derive region from ZIP for Swiss ads (canton = region equivalent)
+  const zipcode = sellerAddress.postalCode || null;
+  const tld = typeof window !== 'undefined' ? extractTld(window.location.href) : null;
+  const countryCode = tld ? (TLD_TO_COUNTRY_CODE[tld] || null) : null;
+  const derivedRegion = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
+
   // RSC-first extraction with JSON-LD fallback
   if (rsc) {
     return {
@@ -242,11 +477,12 @@ export function normalizeToAdData(rsc, jsonLd) {
       color: rsc.bodyColor || ld.color || null,
       power_fiscal_cv: null,
       power_din_hp: rsc.horsePower ?? engine.enginePower?.value ?? null,
+      country: countryCode,
       location: {
         city: sellerAddress.addressLocality || null,
-        zipcode: sellerAddress.postalCode || null,
+        zipcode,
         department: null,
-        region: null,
+        region: derivedRegion,
         lat: null,
         lng: null,
       },
@@ -255,8 +491,12 @@ export function normalizeToAdData(rsc, jsonLd) {
       owner_type: resolveOwnerType(),
       owner_name: seller.name || null,
       siret: null,
+      dealer_rating: dealerRating,
+      dealer_review_count: dealerReviewCount,
       raw_attributes: {},
-      image_count: Array.isArray(rsc.images) ? rsc.images.length : 0,
+      image_count: Array.isArray(rsc.images) && rsc.images.length > 0
+        ? rsc.images.length
+        : (Array.isArray(ld.image) ? ld.image.length : 0),
       has_phone: Boolean(seller.telephone),
       has_urgent: false,
       has_highlight: false,
@@ -287,11 +527,12 @@ export function normalizeToAdData(rsc, jsonLd) {
     color: ld.color || null,
     power_fiscal_cv: null,
     power_din_hp: engine.enginePower?.value ?? null,
+    country: countryCode,
     location: {
       city: sellerAddress.addressLocality || null,
-      zipcode: sellerAddress.postalCode || null,
+      zipcode,
       department: null,
-      region: null,
+      region: derivedRegion,
       lat: null,
       lng: null,
     },
@@ -300,8 +541,10 @@ export function normalizeToAdData(rsc, jsonLd) {
     owner_type: resolveOwnerType(),
     owner_name: seller.name || null,
     siret: null,
+    dealer_rating: dealerRating,
+    dealer_review_count: dealerReviewCount,
     raw_attributes: {},
-    image_count: 0,
+    image_count: Array.isArray(ld.image) ? ld.image.length : 0,
     has_phone: Boolean(seller.telephone),
     has_urgent: false,
     has_highlight: false,
@@ -492,7 +735,16 @@ export class AutoScout24Extractor extends SiteExtractor {
     this._rsc = parseRSCPayload(document);
     this._jsonLd = parseJsonLd(document);
 
-    if (!this._rsc && !this._jsonLd) return null;
+    if (!this._rsc && !this._jsonLd) {
+      this._adData = fallbackAdDataFromDom(document, window.location.href);
+      const hasSomeData = Boolean(this._adData.title || this._adData.make || this._adData.model);
+      if (!hasSomeData) return null;
+      return {
+        type: 'normalized',
+        source: 'autoscout24',
+        ad_data: this._adData,
+      };
+    }
 
     this._adData = normalizeToAdData(this._rsc, this._jsonLd);
 
@@ -565,14 +817,20 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     const tld = extractTld(window.location.href);
-    const country = TLD_TO_COUNTRY[tld] || 'Europe';
+    const countryName = TLD_TO_COUNTRY[tld] || 'Europe';
+    const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
     const currency = TLD_TO_CURRENCY[tld] || 'EUR';
     const makeKey = (this._rsc?.make?.key || this._adData.make).toLowerCase();
     const modelKey = (this._rsc?.model?.key || this._adData.model).toLowerCase();
     const year = parseInt(this._adData.year_model, 10);
     const fuelKey = this._rsc?.fuelType || null;
 
-    if (progress) progress.update('job', 'done', `${this._adData.make} ${this._adData.model} ${year} (${country})`);
+    // Region = canton for CH, country name for others
+    const zipcode = this._adData?.location?.zipcode;
+    const canton = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
+    const region = canton || countryName;
+
+    if (progress) progress.update('job', 'done', `${this._adData.make} ${this._adData.model} ${year} (${region})`);
 
     // Strategy 1: precise (same TLD, ±1 year, with fuel)
     // Strategy 2: wider (same TLD, ±2 years, no fuel filter)
@@ -638,11 +896,12 @@ export class AutoScout24Extractor extends SiteExtractor {
       make: this._adData.make,
       model: this._adData.model,
       year,
-      region: country,
+      region,
       prices: priceInts,
       price_details: priceDetails,
       fuel: this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
       precision: usedPrecision,
+      country: countryCode,
     };
 
     try {
@@ -653,7 +912,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       });
 
       if (resp.ok) {
-        if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${country})`);
+        if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${region})`);
         if (progress) progress.update('bonus', 'skip', 'Pas de jobs bonus');
         return { submitted: true, isCurrentVehicle: true };
       }
