@@ -47,8 +47,37 @@ def _lookup_site_tokens(make: str, model: str) -> dict:
     return result
 
 
-def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
+def _pick_and_serialize_bonus(
+    site: str = "lbc", country: str = "FR", tld: str = "", max_jobs: int = 3
+) -> list[dict]:
     """Pick pending jobs from the queue and serialize them for the API response."""
+    if site == "as24":
+        from app.services.collection_job_as24_service import pick_bonus_jobs_as24
+
+        picked = pick_bonus_jobs_as24(country=country, tld=tld, max_jobs=max_jobs)
+        result = []
+        for j in picked:
+            result.append(
+                {
+                    "make": j.make,
+                    "model": j.model,
+                    "year": j.year,
+                    "region": j.region,
+                    "fuel": j.fuel,
+                    "gearbox": j.gearbox,
+                    "hp_range": j.hp_range,
+                    "country": j.country,
+                    "tld": j.tld,
+                    "slug_make": j.slug_make,
+                    "slug_model": j.slug_model,
+                    "search_strategy": j.search_strategy,
+                    "currency": j.currency,
+                    "job_id": j.id,
+                }
+            )
+        return result
+
+    # LBC (default)
     picked = pick_bonus_jobs(max_jobs=max_jobs)
     result = []
     for j in picked:
@@ -362,6 +391,8 @@ def next_market_job():
     gearbox = request.args.get("gearbox")
     hp_range = request.args.get("hp_range")
     country = request.args.get("country") or "FR"
+    site = request.args.get("site", "lbc")  # "lbc" | "as24"
+    tld = request.args.get("tld", "")
 
     if not all([make, model, year, region]):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
@@ -410,7 +441,7 @@ def next_market_job():
     current = MarketPrice.query.filter(*current_filters).first()
 
     if not current or current.collected_at < cutoff:
-        bonus = _pick_and_serialize_bonus()
+        bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
         tokens = _lookup_site_tokens(make, model)
         logger.info(
             "next-job: vehicule courant %s %s %s a collecter (+%d bonus)",
@@ -497,7 +528,7 @@ def next_market_job():
             best_candidate = (c.brand, c.model, mid_year)
 
     if best_candidate:
-        bonus = _pick_and_serialize_bonus()
+        bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
         tokens = _lookup_site_tokens(best_candidate[0], best_candidate[1])
         logger.info(
             "next-job: redirection vers %s %s pour region %s (+%d bonus)",
@@ -526,7 +557,7 @@ def next_market_job():
         )
 
     # 3. Tout est a jour dans cette region
-    bonus = _pick_and_serialize_bonus()
+    bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
     logger.info("next-job: tout est a jour pour la region %s (+%d bonus)", region, len(bonus))
     return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": bonus}})
 
