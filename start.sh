@@ -122,20 +122,17 @@ with app.app_context():
             db.metadata.tables['market_prices'].create(db.engine)
             print('  ↻ market_prices recréée (migration contrainte country)')
 
-    # Migration collection_jobs : contrainte → 8 colonnes (+ country)
-    if 'collection_jobs' in inspector.get_table_names():
-        uqs = inspector.get_unique_constraints('collection_jobs')
-        expected_cj_cols = {'make', 'model', 'year', 'region', 'fuel', 'gearbox', 'hp_range', 'country'}
-        needs_cj_migration = any(
-            set(u['column_names']) != expected_cj_cols
-            for u in uqs
-            if 'uq_collection_job' in (u.get('name') or '')
-        )
-        if needs_cj_migration:
-            db.session.execute(text('DROP TABLE collection_jobs'))
-            db.session.commit()
-            db.metadata.tables['collection_jobs'].create(db.engine)
-            print('  ↻ collection_jobs recréée (migration contrainte country)')
+    # Migration collection_jobs → collection_jobs_lbc (renommage table)
+    tables = inspector.get_table_names()
+    if 'collection_jobs' in tables and 'collection_jobs_lbc' not in tables:
+        db.session.execute(text('ALTER TABLE collection_jobs RENAME TO collection_jobs_lbc'))
+        db.session.commit()
+        print('  ↻ collection_jobs renommée → collection_jobs_lbc')
+    elif 'collection_jobs' in tables and 'collection_jobs_lbc' in tables:
+        # Les deux existent : supprimer l'ancienne (les donnees sont dans la nouvelle)
+        db.session.execute(text('DROP TABLE collection_jobs'))
+        db.session.commit()
+        print('  ↻ collection_jobs supprimée (doublon avec collection_jobs_lbc)')
 
     for table in db.metadata.sorted_tables:
         if table.name not in inspector.get_table_names():

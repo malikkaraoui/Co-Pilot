@@ -1,14 +1,14 @@
-"""Modele CollectionJob -- file d'attente de collecte argus crowdsource."""
+"""Modele CollectionJobLBC -- file d'attente de collecte argus crowdsource (LeBonCoin)."""
 
 from datetime import datetime, timezone
 
 from app.extensions import db
 
 
-class CollectionJob(db.Model):
-    """Job de collecte de prix a executer par l'extension Chrome."""
+class CollectionJobLBC(db.Model):
+    """Job de collecte de prix a executer par l'extension Chrome sur LeBonCoin."""
 
-    __tablename__ = "collection_jobs"
+    __tablename__ = "collection_jobs_lbc"
 
     id = db.Column(db.Integer, primary_key=True)
     make = db.Column(db.String(80), nullable=False, index=True)
@@ -41,9 +41,15 @@ class CollectionJob(db.Model):
             "gearbox",
             "hp_range",
             "country",
-            name="uq_collection_job_key_country",
+            name="uq_collection_job_lbc_key",
         ),
     )
 
     def __repr__(self):
-        return f"<CollectionJob {self.make} {self.model} {self.year} {self.region} [{self.status}]>"
+        return (
+            f"<CollectionJobLBC {self.make} {self.model} {self.year} {self.region} [{self.status}]>"
+        )
+
+
+# Alias pour retrocompat pendant la migration
+CollectionJob = CollectionJobLBC
