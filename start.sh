@@ -76,6 +76,17 @@ if [ -f requirements-dev.txt ]; then
   fi
 fi
 
+# -- Build extension (évite source à jour / dist obsolète) -----
+if command -v npm &>/dev/null && [ -f package.json ] && [ -f extension/build.js ]; then
+  if npm run -s build:ext >/dev/null 2>&1; then
+    ok "Bundle extension reconstruit (extension/dist/content.bundle.js)"
+  else
+    warn "Échec build extension (npm run build:ext) — vérifie Node/npm"
+  fi
+else
+  warn "npm introuvable ou build.js absent — bundle extension non reconstruit"
+fi
+
 # -- 4. Reset (si demandé) ------------------------------------
 if [ "$RESET" = true ]; then
   step "4/6" "Reset de la base de données"

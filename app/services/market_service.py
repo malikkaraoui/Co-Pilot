@@ -25,16 +25,23 @@ IQR_MIN_KEEP = 3  # Seuil de securite IQR : ne pas descendre en-dessous
 IQR_MULTIPLIER = 1.5
 
 
-def get_min_sample_count(make: str, model: str) -> int:
+# Marches etrangers plus petits que la France — seuils divises par 2
+_SMALL_MARKET_COUNTRIES = {"CH", "BE", "LU", "AT", "NL", "IT", "ES", "DE"}
+
+
+def get_min_sample_count(make: str, model: str, country: str = "FR") -> int:
     """Seuil dynamique d'annonces pour l'argus selon le segment du vehicule.
 
     Les voitures de niche (sportives, supercars) ont tres peu d'annonces sur LBC.
     Appliquer le meme seuil de 20 qu'une Clio les exclut systematiquement.
 
-    Tiers :
+    Tiers (France) :
     - Standard (< 300 ch) : 20 annonces minimum
     - Niche sportive (300-420 ch) : 10 annonces
     - Ultra-niche (> 420 ch) : 5 annonces (pas de diesel a ce niveau)
+
+    Les marches etrangers (CH, BE, etc.) appliquent la moitie du seuil FR
+    (minimum 5) car leurs catalogues d'annonces sont plus restreints.
 
     Un override admin (Vehicle.argus_min_samples) a priorite absolue.
 
@@ -46,29 +53,32 @@ def get_min_sample_count(make: str, model: str) -> int:
 
     vehicle = find_vehicle(make, model)
     if not vehicle:
-        return MIN_SAMPLE_COUNT
-
-    # Override admin : priorite absolue
-    if vehicle.argus_min_samples is not None:
+        base = MIN_SAMPLE_COUNT
+    elif vehicle.argus_min_samples is not None:
+        # Override admin : priorite absolue (pas de reduction pays)
         return vehicle.argus_min_samples
-
-    # Lookup puissance max dans les specs
-    max_hp = (
-        db.session.query(func.max(VehicleSpec.power_hp))
-        .filter(
-            VehicleSpec.vehicle_id == vehicle.id,
-            VehicleSpec.power_hp.isnot(None),
+    else:
+        # Lookup puissance max dans les specs
+        max_hp = (
+            db.session.query(func.max(VehicleSpec.power_hp))
+            .filter(
+                VehicleSpec.vehicle_id == vehicle.id,
+                VehicleSpec.power_hp.isnot(None),
+            )
+            .scalar()
         )
-        .scalar()
-    )
+        if max_hp and max_hp > 420:
+            base = MIN_SAMPLE_ULTRA_NICHE  # 5
+        elif max_hp and max_hp > 300:
+            base = MIN_SAMPLE_NICHE  # 10
+        else:
+            base = MIN_SAMPLE_COUNT  # 20
 
-    if max_hp:
-        if max_hp > 420:
-            return MIN_SAMPLE_ULTRA_NICHE  # 5
-        if max_hp > 300:
-            return MIN_SAMPLE_NICHE  # 10
+    # Marches etrangers : seuil divise par 2 (min 5)
+    if country and country.upper() in _SMALL_MARKET_COUNTRIES:
+        return max(base // 2, MIN_SAMPLE_ABSOLUTE)
 
-    return MIN_SAMPLE_COUNT  # 20
+    return base
 
 
 def _strip_accents(text: str) -> str:

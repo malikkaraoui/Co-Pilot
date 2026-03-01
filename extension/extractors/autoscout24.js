@@ -915,14 +915,28 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
 
 /**
  * Parses AS24 search result page to extract vehicle prices.
- * Looks for listing data in script tags (RSC/Next.js chunks).
+ * Supports two formats:
+ *   1. RSC/Next.js chunks (AS24 GmbH: .de, .fr, .be, etc.) — regex on "price"/"mileage"
+ *   2. JSON-LD OfferCatalog (AS24 SMG: .ch) — structured schema.org data
  * @param {string} html - Raw HTML of search page
  * @returns {Array<{price: number, year: number|null, km: number|null, fuel: string|null}>}
  */
 export function parseSearchPrices(html) {
+  // Strategy 1: RSC regex (GmbH sites)
+  const results = _parseSearchPricesRSC(html);
+
+  // Strategy 2: JSON-LD fallback (SMG sites like .ch)
+  if (results.length === 0) {
+    const jsonLdResults = _parseSearchPricesJsonLd(html);
+    if (jsonLdResults.length > 0) return jsonLdResults;
+  }
+
+  return results;
+}
+
+/** RSC/Next.js regex strategy — works for AS24 GmbH (.de, .fr, .be). */
+function _parseSearchPricesRSC(html) {
   const results = [];
-  // AS24 search results embed listing JSON in script tags.
-  // Each listing has "price" and "mileage" keys.
   const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
   let match;
   while ((match = listingPattern.exec(html)) !== null) {
@@ -932,8 +946,84 @@ export function parseSearchPrices(html) {
       results.push({ price, year: null, km: mileage, fuel: null });
     }
   }
+  return _dedup(results);
+}
 
-  // Deduplicate by price+km (same listing can appear in multiple RSC chunks)
+/** JSON-LD OfferCatalog strategy — works for AS24 SMG (.ch). */
+function _parseSearchPricesJsonLd(html) {
+  const results = [];
+  const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let scriptMatch;
+  while ((scriptMatch = scriptPattern.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(scriptMatch[1]);
+      const items = _extractOfferCatalogItems(data);
+      for (const item of items) {
+        const price = _extractJsonLdPrice(item);
+        const km = _extractJsonLdMileage(item);
+        const fuel = _extractJsonLdFuel(item);
+        const year = _extractJsonLdYear(item);
+        if (price && price > 500 && price < 500000) {
+          results.push({ price, year, km, fuel });
+        }
+      }
+    } catch (_) {
+      // Malformed JSON-LD block, skip
+    }
+  }
+  return _dedup(results);
+}
+
+/** Navigate the JSON-LD graph to find OfferCatalog items. */
+function _extractOfferCatalogItems(data) {
+  if (data?.['@type'] === 'OfferCatalog' && Array.isArray(data.itemListElement)) {
+    return data.itemListElement;
+  }
+  const offers = data?.mainEntity?.offers || data?.offers;
+  if (offers?.['@type'] === 'OfferCatalog' && Array.isArray(offers.itemListElement)) {
+    return offers.itemListElement;
+  }
+  if (Array.isArray(data?.['@graph'])) {
+    for (const node of data['@graph']) {
+      const items = _extractOfferCatalogItems(node);
+      if (items.length > 0) return items;
+    }
+  }
+  return [];
+}
+
+function _extractJsonLdPrice(item) {
+  const price = item?.offers?.price ?? item?.price;
+  if (typeof price === 'number') return price;
+  if (typeof price === 'string') return parseInt(price, 10) || null;
+  return null;
+}
+
+function _extractJsonLdMileage(item) {
+  const car = item?.offers?.itemOffered || item;
+  const odometer = car?.mileageFromOdometer;
+  if (!odometer) return null;
+  const val = odometer?.value ?? odometer;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') return parseInt(val, 10) || null;
+  return null;
+}
+
+function _extractJsonLdFuel(item) {
+  const car = item?.offers?.itemOffered || item;
+  return car?.vehicleEngine?.fuelType || null;
+}
+
+function _extractJsonLdYear(item) {
+  const car = item?.offers?.itemOffered || item;
+  const date = car?.vehicleModelDate;
+  if (!date) return null;
+  const y = parseInt(String(date).slice(0, 4), 10);
+  return (y > 1900 && y < 2100) ? y : null;
+}
+
+/** Deduplicate by price+km. */
+function _dedup(results) {
   const seen = new Set();
   return results.filter((r) => {
     const key = `${r.price}-${r.km}`;

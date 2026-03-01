@@ -215,14 +215,16 @@ class TestL8ImportDetectionFilter:
             "fiscal" in s.lower() or "TVA" in s for s in result.details.get("signals", [])
         )
 
-    def test_ht_standalone_detected(self):
-        """'ht' isole (prix HT) doit declencher le signal fiscal."""
+    def test_ht_standalone_not_import_signal(self):
+        """'ht' (prix HT) est du pricing pro standard, pas un signal d'import."""
         data = {
             "description": "Prix ht negociable, vehicule professionnel.",
             "country": "FR",
         }
         result = self.filt.run(data)
-        assert any("fiscal" in s.lower() or "TVA" in s for s in result.details["signals"])
+        assert not any(
+            "fiscal" in s.lower() or "TVA" in s for s in result.details.get("signals", [])
+        )
 
     # ── Corrections faux positifs L8 ──────────────────────────────────
 

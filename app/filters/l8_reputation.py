@@ -93,13 +93,11 @@ _GERMAN_KEYWORDS = {
     "unfallfrei",
 }
 
-# Signaux fiscaux / TVA (import pro)
-# Note: "tva recuperable/deductible" RETIRES — c'est de la comptabilite pro, pas un signal d'import
+# Signaux fiscaux specifiques a l'import (malus, export, taxe CO2)
+# Note: "ht", "hors taxe", "hors tva", "tva recuperable/deductible" RETIRES
+# — c'est du pricing professionnel standard, pas un signal d'import.
 TAX_KEYWORDS = [
-    "hors taxe",
-    "ht",
     "exportation",
-    "hors tva",
     "malus payé",
     "malus paye",
     "malus ecologique",

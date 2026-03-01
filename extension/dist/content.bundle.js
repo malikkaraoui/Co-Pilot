@@ -1931,6 +1931,14 @@
     return `${base}?${params}`;
   }
   function parseSearchPrices(html) {
+    const results = _parseSearchPricesRSC(html);
+    if (results.length === 0) {
+      const jsonLdResults = _parseSearchPricesJsonLd(html);
+      if (jsonLdResults.length > 0) return jsonLdResults;
+    }
+    return results;
+  }
+  function _parseSearchPricesRSC(html) {
     const results = [];
     const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
     let match;
@@ -1941,6 +1949,73 @@
         results.push({ price, year: null, km: mileage, fuel: null });
       }
     }
+    return _dedup(results);
+  }
+  function _parseSearchPricesJsonLd(html) {
+    const results = [];
+    const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let scriptMatch;
+    while ((scriptMatch = scriptPattern.exec(html)) !== null) {
+      try {
+        const data = JSON.parse(scriptMatch[1]);
+        const items = _extractOfferCatalogItems(data);
+        for (const item of items) {
+          const price = _extractJsonLdPrice(item);
+          const km = _extractJsonLdMileage(item);
+          const fuel = _extractJsonLdFuel(item);
+          const year = _extractJsonLdYear(item);
+          if (price && price > 500 && price < 5e5) {
+            results.push({ price, year, km, fuel });
+          }
+        }
+      } catch (_) {
+      }
+    }
+    return _dedup(results);
+  }
+  function _extractOfferCatalogItems(data) {
+    if (data?.["@type"] === "OfferCatalog" && Array.isArray(data.itemListElement)) {
+      return data.itemListElement;
+    }
+    const offers = data?.mainEntity?.offers || data?.offers;
+    if (offers?.["@type"] === "OfferCatalog" && Array.isArray(offers.itemListElement)) {
+      return offers.itemListElement;
+    }
+    if (Array.isArray(data?.["@graph"])) {
+      for (const node of data["@graph"]) {
+        const items = _extractOfferCatalogItems(node);
+        if (items.length > 0) return items;
+      }
+    }
+    return [];
+  }
+  function _extractJsonLdPrice(item) {
+    const price = item?.offers?.price ?? item?.price;
+    if (typeof price === "number") return price;
+    if (typeof price === "string") return parseInt(price, 10) || null;
+    return null;
+  }
+  function _extractJsonLdMileage(item) {
+    const car = item?.offers?.itemOffered || item;
+    const odometer = car?.mileageFromOdometer;
+    if (!odometer) return null;
+    const val = odometer?.value ?? odometer;
+    if (typeof val === "number") return val;
+    if (typeof val === "string") return parseInt(val, 10) || null;
+    return null;
+  }
+  function _extractJsonLdFuel(item) {
+    const car = item?.offers?.itemOffered || item;
+    return car?.vehicleEngine?.fuelType || null;
+  }
+  function _extractJsonLdYear(item) {
+    const car = item?.offers?.itemOffered || item;
+    const date = car?.vehicleModelDate;
+    if (!date) return null;
+    const y = parseInt(String(date).slice(0, 4), 10);
+    return y > 1900 && y < 2100 ? y : null;
+  }
+  function _dedup(results) {
     const seen = /* @__PURE__ */ new Set();
     return results.filter((r) => {
       const key = `${r.price}-${r.km}`;

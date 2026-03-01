@@ -766,6 +766,106 @@ describe('parseSearchPrices', () => {
     const html = '<html><body>No results</body></html>';
     expect(parseSearchPrices(html)).toEqual([]);
   });
+
+  // ── JSON-LD OfferCatalog (AS24 SMG / .ch) ──
+
+  it('extracts prices from JSON-LD OfferCatalog (AS24.ch format)', () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{
+        "@type": "Organization",
+        "mainEntity": {
+          "@type": "WebPageElement",
+          "offers": {
+            "@type": "OfferCatalog",
+            "itemListElement": [
+              {
+                "@type": "Product",
+                "offers": {
+                  "@type": "Offer",
+                  "price": 53900,
+                  "priceCurrency": "CHF",
+                  "itemOffered": {
+                    "@type": "Car",
+                    "mileageFromOdometer": {"@type": "QuantitativeValue", "value": 19845},
+                    "vehicleEngine": {"fuelType": "Diesel"},
+                    "vehicleModelDate": "2018"
+                  }
+                }
+              },
+              {
+                "@type": "Product",
+                "offers": {
+                  "@type": "Offer",
+                  "price": 48500,
+                  "priceCurrency": "CHF",
+                  "itemOffered": {
+                    "@type": "Car",
+                    "mileageFromOdometer": {"@type": "QuantitativeValue", "value": 85000},
+                    "vehicleEngine": {"fuelType": "Diesel"},
+                    "vehicleModelDate": "2017"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }</script></head></html>`;
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(2);
+    expect(results[0]).toEqual({ price: 53900, year: 2018, km: 19845, fuel: 'Diesel' });
+    expect(results[1]).toEqual({ price: 48500, year: 2017, km: 85000, fuel: 'Diesel' });
+  });
+
+  it('JSON-LD: filters prices below 500 and above 500000', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "offers": {"price": 200, "itemOffered": {"mileageFromOdometer": {"value": 1000}}}},
+        {"@type": "Product", "offers": {"price": 600000, "itemOffered": {"mileageFromOdometer": {"value": 5000}}}},
+        {"@type": "Product", "offers": {"price": 30000, "itemOffered": {"mileageFromOdometer": {"value": 50000}}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(1);
+    expect(results[0].price).toBe(30000);
+  });
+
+  it('JSON-LD: deduplicates by price+km', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "offers": {"price": 25000, "itemOffered": {"mileageFromOdometer": {"value": 40000}}}},
+        {"@type": "Product", "offers": {"price": 25000, "itemOffered": {"mileageFromOdometer": {"value": 40000}}}},
+        {"@type": "Product", "offers": {"price": 26000, "itemOffered": {"mileageFromOdometer": {"value": 40000}}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(2);
+  });
+
+  it('JSON-LD: handles missing mileage and fuel gracefully', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "offers": {"price": 15000, "itemOffered": {}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual({ price: 15000, year: null, km: null, fuel: null });
+  });
+
+  it('prefers RSC results over JSON-LD when RSC has data', () => {
+    const html = `
+      <script>{"price":20000,"mileage":30000}</script>
+      <script type="application/ld+json">{"@type":"Organization","mainEntity":{"offers":{"@type":"OfferCatalog","itemListElement":[{"@type":"Product","offers":{"price":21000,"itemOffered":{"mileageFromOdometer":{"value":31000}}}}]}}}</script>
+    `;
+    const results = parseSearchPrices(html);
+    // RSC found 1 result, so JSON-LD is NOT used
+    expect(results).toHaveLength(1);
+    expect(results[0].price).toBe(20000);
+    expect(results[0].km).toBe(30000);
+  });
 });
 
 

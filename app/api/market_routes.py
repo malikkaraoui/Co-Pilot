@@ -218,8 +218,8 @@ def submit_market_prices():
     # Filtrer les prix aberrants (< 500 EUR probablement des erreurs)
     valid_prices = [p for p in req.prices if p >= 500]
 
-    # Seuil dynamique selon la puissance du vehicule (niche = moins d'annonces)
-    min_required = get_min_sample_count(req.make, req.model)
+    # Seuil dynamique selon la puissance du vehicule et le pays (niche / petit marche)
+    min_required = get_min_sample_count(req.make, req.model, country=req.country or "FR")
     if len(valid_prices) < min_required:
         return jsonify(
             {
