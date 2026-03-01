@@ -2159,7 +2159,9 @@
       if (progress) progress.update("job", "running");
       const fuelForJob = this._adData.fuel ? this._adData.fuel.toLowerCase() : "";
       const gearboxForJob = this._adData.gearbox ? this._adData.gearbox.toLowerCase() : "";
-      const jobUrl = this._apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&country=${encodeURIComponent(countryCode)}&site=as24&tld=${encodeURIComponent(tld)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : "");
+      const slugMakeForJob = toAs24Slug(this._adData.make);
+      const slugModelForJob = toAs24Slug(this._adData.model);
+      const jobUrl = this._apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&country=${encodeURIComponent(countryCode)}&site=as24&tld=${encodeURIComponent(tld)}&slug_make=${encodeURIComponent(slugMakeForJob)}&slug_model=${encodeURIComponent(slugModelForJob)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : "");
       let jobResp;
       try {
         console.log("[CoPilot] AS24 next-job \u2192", jobUrl);
@@ -2283,6 +2285,7 @@
         if ((parsed.makeSlug || parsed.modelSlug) && source) slugSource = source;
       }
       if (progress) progress.update("collect", "running");
+      const MAX_PRICES_CAP = 100;
       for (let i = 0; i < strategies.length; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
         const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
@@ -2298,26 +2301,40 @@
           }
           if (resp.url) rememberSlugs(resp.url, "as24_response_url");
           const html = await resp.text();
-          prices = parseSearchPrices(html);
+          const newPrices = parseSearchPrices(html);
+          const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+          const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+          prices = [...prices, ...unique];
           const enough = prices.length >= MIN_PRICES;
-          console.log("[CoPilot] AS24 strategie %d (precision=%d): %d prix | %s", i + 1, precision, prices.length, searchUrl.substring(0, 150));
+          console.log(
+            "[CoPilot] AS24 strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s",
+            i + 1,
+            precision,
+            newPrices.length,
+            unique.length,
+            prices.length,
+            searchUrl.substring(0, 120)
+          );
           searchLog.push({
             ...logBase,
-            ads_found: prices.length,
+            ads_found: newPrices.length,
             url: searchUrl,
-            was_selected: enough,
-            reason: enough ? `${prices.length} >= ${MIN_PRICES}` : `${prices.length} < ${MIN_PRICES}`
+            was_selected: enough && usedPrecision === null,
+            reason: enough ? `total ${prices.length} >= ${MIN_PRICES}` : `total ${prices.length} < ${MIN_PRICES}`
           });
           if (progress) {
             progress.addSubStep?.(
               "collect",
               `Strat\xE9gie ${i + 1} \xB7 ${label}`,
-              enough ? "done" : "skip",
-              `${prices.length} annonces`
+              unique.length > 0 ? "done" : "skip",
+              `${newPrices.length} annonces`
             );
           }
-          if (enough) {
+          if (enough && usedPrecision === null) {
             usedPrecision = precision;
+          }
+          if (prices.length >= MAX_PRICES_CAP) {
+            console.log("[CoPilot] AS24 cap %d atteint, arret", MAX_PRICES_CAP);
             break;
           }
         } catch (err) {
@@ -2538,7 +2555,7 @@
         await this._fetch(jobDoneUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ job_id: jobId, success })
+          body: JSON.stringify({ job_id: jobId, success, site: "as24" })
         });
       } catch {
       }

@@ -358,8 +358,9 @@ def mark_job_complete():
     """Callback de l'extension pour signaler qu'un job de collecte est termine.
 
     Body JSON :
-        { job_id: int, success: bool }
+        { job_id: int, success: bool, site: "lbc"|"as24" (default "lbc") }
     """
+    from app.services.collection_job_as24_service import mark_job_done_as24
     from app.services.collection_job_service import mark_job_done
 
     data = request.get_json(silent=True)
@@ -385,9 +386,17 @@ def mark_job_complete():
         ), 400
 
     success = data.get("success", True)
+    site = data.get("site", "lbc")
 
     try:
-        mark_job_done(job_id, success=success)
+        if site == "as24":
+            mark_job_done_as24(job_id, success=success)
+        else:
+            try:
+                mark_job_done(job_id, success=success)
+            except (ValueError, TypeError):
+                # Fallback : tenter la table AS24 si le job n'est pas dans LBC
+                mark_job_done_as24(job_id, success=success)
     except (ValueError, TypeError) as exc:
         return jsonify(
             {
@@ -453,16 +462,35 @@ def next_market_job():
     lookup_model = display_model(model)
 
     # Expand collection jobs pour ce vehicule (dedup gere les repetitions)
-    expand_collection_jobs(
-        make=make,
-        model=model,
-        year=year,
-        region=region,
-        fuel=fuel,
-        gearbox=gearbox,
-        hp_range=hp_range,
-        country=country,
-    )
+    if site == "as24":
+        from app.services.collection_job_as24_service import expand_collection_jobs_as24
+
+        slug_make = request.args.get("slug_make", "")
+        slug_model = request.args.get("slug_model", "")
+        expand_collection_jobs_as24(
+            make=make,
+            model=model,
+            year=year,
+            region=region,
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            country=country,
+            tld=tld,
+            slug_make=slug_make,
+            slug_model=slug_model,
+        )
+    else:
+        expand_collection_jobs(
+            make=make,
+            model=model,
+            year=year,
+            region=region,
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            country=country,
+        )
 
     # Comparaisons en naive UTC (SQLite ne conserve pas le tzinfo)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
