@@ -304,6 +304,14 @@ def expand_collection_jobs(
     if gearbox:
         gearbox = gearbox.strip().lower()
 
+    # LBC = France uniquement. Les jobs CH/DE/etc appartiennent a la table AS24.
+    if country != "FR":
+        logger.debug(
+            "expand_collection_jobs: skip non-FR country %s (use AS24 expand)",
+            country,
+        )
+        return []
+
     # Skip si ce vehicule est low-data (trop de fails recents)
     low_data = _get_low_data_vehicles(country)
     if (make.strip().lower(), model.strip().lower(), country) in low_data:
@@ -517,11 +525,12 @@ def _cancel_low_data_pending(low_data: set[tuple[str, str, str]]) -> int:
     return cancelled
 
 
-def pick_bonus_jobs(max_jobs: int = 3) -> list[CollectionJob]:
+def pick_bonus_jobs(max_jobs: int = 3, country: str = "FR") -> list[CollectionJob]:
     """Selectionne les N jobs pending les plus prioritaires et les assigne.
 
     Reclame d'abord les jobs stale (assigned > 30 min).
     Annule les jobs des vehicules low-data (>= LOW_DATA_FAIL_THRESHOLD fails recents).
+    Filtre par country pour eviter de mixer les jobs LBC (FR) et AS24 (CH).
     ORDER BY priority ASC (P1 d'abord), created_at ASC (FIFO).
     """
     _reclaim_stale_jobs()
@@ -530,9 +539,10 @@ def pick_bonus_jobs(max_jobs: int = 3) -> list[CollectionJob]:
     low_data = _get_low_data_vehicles(country=None)
     _cancel_low_data_pending(low_data)
 
-    query = CollectionJob.query.filter(CollectionJob.status == "pending").order_by(
-        CollectionJob.priority.asc(), CollectionJob.created_at.asc()
-    )
+    query = CollectionJob.query.filter(
+        CollectionJob.status == "pending",
+        func.coalesce(CollectionJob.country, "FR") == country.upper(),
+    ).order_by(CollectionJob.priority.asc(), CollectionJob.created_at.asc())
 
     jobs = query.limit(max_jobs).all()
 

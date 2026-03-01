@@ -1335,33 +1335,55 @@ class TestNextJobWithQueue:
         if data["data"]["collect"]:
             assert data["data"]["country"] == "CH"
 
-    def test_next_job_ch_uses_cantons(self, app, client):
-        """expand_collection_jobs with country=CH creates canton-based jobs."""
+    def test_next_job_ch_uses_cantons_via_as24(self, app, client):
+        """expand_collection_jobs_as24 with country=CH creates canton-based jobs in AS24 table."""
         self._clean_queue(app)
         with app.app_context():
-            from app.models.collection_job import CollectionJob
+            from app.models.collection_job_as24 import CollectionJobAS24
 
-            # Clear all existing jobs
-            CollectionJob.query.delete()
+            # Clear all existing AS24 jobs
+            CollectionJobAS24.query.delete()
             db.session.commit()
 
         resp = client.get(
             "/api/market-prices/next-job?make=Renault&model=Clio&year=2022"
-            "&region=Geneve&country=CH&fuel=essence"
+            "&region=Geneve&country=CH&fuel=essence&site=as24&tld=ch"
+            "&slug_make=renault&slug_model=clio"
         )
         data = resp.get_json()
         assert data["data"]["collect"] is True
 
         with app.app_context():
-            from app.models.collection_job import CollectionJob
+            from app.models.collection_job_as24 import CollectionJobAS24
 
-            ch_jobs = CollectionJob.query.filter_by(country="CH").all()
+            ch_jobs = CollectionJobAS24.query.filter_by(country="CH").all()
             # Should have created jobs for other cantons (P1)
             assert len(ch_jobs) >= 10  # 25 other cantons at minimum
             # Verify regions are Swiss cantons
             regions = {j.region for j in ch_jobs}
             assert "Zurich" in regions
             assert "Vaud" in regions
+
+    def test_next_job_ch_lbc_no_expansion(self, app, client):
+        """LBC expand with country=CH should NOT create jobs (LBC = France only)."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            CollectionJob.query.delete()
+            db.session.commit()
+
+        # Call with site=lbc (default) and country=CH
+        client.get(
+            "/api/market-prices/next-job?make=Renault&model=Clio&year=2022"
+            "&region=Geneve&country=CH&fuel=essence"
+        )
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            ch_jobs = CollectionJob.query.filter_by(country="CH").all()
+            assert len(ch_jobs) == 0  # No CH jobs in LBC table
 
 
 class TestNextJobYearValidation:

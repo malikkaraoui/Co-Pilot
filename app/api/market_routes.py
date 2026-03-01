@@ -81,8 +81,8 @@ def _pick_and_serialize_bonus(
             )
         return result
 
-    # LBC (default)
-    picked = pick_bonus_jobs(max_jobs=max_jobs)
+    # LBC (default) — filter by country to avoid serving CH jobs to FR extension
+    picked = pick_bonus_jobs(max_jobs=max_jobs, country=country)
     result = []
     for j in picked:
         entry = {
