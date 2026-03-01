@@ -147,6 +147,9 @@ class MarketPricesRequest(BaseModel):
     # Tokens LBC auto-appris depuis le DOM (accents corrects pour les URLs de recherche)
     site_brand_token: str | None = Field(default=None, max_length=120)
     site_model_token: str | None = Field(default=None, max_length=200)
+    # Slugs AS24 auto-appris depuis les URLs de recherche reelles
+    as24_slug_make: str | None = Field(default=None, max_length=120)
+    as24_slug_model: str | None = Field(default=None, max_length=200)
     # Code pays ISO 2 lettres (FR, CH, DE, AT, IT, BE, NL, ES). Default FR.
     country: str | None = Field(default=None, max_length=5)
 
@@ -267,6 +270,10 @@ def submit_market_prices():
     if req.site_brand_token or req.site_model_token:
         _persist_site_tokens(req.make, req.model, req.site_brand_token, req.site_model_token)
 
+    # Auto-apprentissage AS24 : slugs canoniques vus dans les URLs de recherche.
+    if req.as24_slug_make or req.as24_slug_model:
+        _persist_as24_slugs(req.make, req.model, req.as24_slug_make, req.as24_slug_model)
+
     return jsonify(
         {
             "success": True,
@@ -313,6 +320,35 @@ def _persist_site_tokens(
             model,
             brand_token,
             model_token,
+        )
+
+
+def _persist_as24_slugs(
+    make: str, model: str, slug_make: str | None, slug_model: str | None
+) -> None:
+    """Persiste les slugs AS24 canoniques sur le Vehicle correspondant."""
+    from app.services.vehicle_lookup import find_vehicle
+
+    vehicle = find_vehicle(make, model)
+    if not vehicle:
+        return
+
+    updated = False
+    if slug_make and vehicle.as24_slug_make != slug_make:
+        vehicle.as24_slug_make = slug_make
+        updated = True
+    if slug_model and vehicle.as24_slug_model != slug_model:
+        vehicle.as24_slug_model = slug_model
+        updated = True
+
+    if updated:
+        db.session.commit()
+        logger.info(
+            "Auto-learned AS24 slugs for %s %s: make=%s model=%s",
+            make,
+            model,
+            slug_make,
+            slug_model,
         )
 
 
@@ -621,8 +657,22 @@ def report_failed_search():
         sqla_func.lower(FailedSearch.model) == model_name.strip().lower(),
     ).count()
 
-    token_source = data.get("token_source")
-    severity = FailedSearch.compute_severity(occurrence_count + 1, token_source)
+    # Compat LBC + AS24:
+    # - LBC legacy: brand_token_used/model_token_used/token_source
+    # - AS24: slug_make_used/slug_model_used/slug_source + site/tld
+    site = (data.get("site") or "").strip().lower()
+    brand_token_used = data.get("brand_token_used") or data.get("slug_make_used")
+    model_token_used = data.get("model_token_used") or data.get("slug_model_used")
+    token_source = data.get("token_source") or data.get("slug_source")
+
+    if not token_source and site == "as24":
+        token_source = "as24_generated_url"
+
+    severity_source = token_source
+    if token_source and "fallback" in token_source.lower():
+        severity_source = "fallback"
+
+    severity = FailedSearch.compute_severity(occurrence_count + 1, severity_source)
 
     entry = FailedSearch(
         make=make,
@@ -632,8 +682,8 @@ def report_failed_search():
         fuel=data.get("fuel"),
         hp_range=data.get("hp_range"),
         country=data.get("country", "FR"),
-        brand_token_used=data.get("brand_token_used"),
-        model_token_used=data.get("model_token_used"),
+        brand_token_used=brand_token_used,
+        model_token_used=model_token_used,
         token_source=token_source,
         search_log=json_mod.dumps(search_log) if search_log else None,
         total_ads_found=total_ads,

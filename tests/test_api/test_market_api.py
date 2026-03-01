@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from app.extensions import db
+from app.models.failed_search import FailedSearch
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
 
@@ -574,6 +575,42 @@ class TestSiteTokenAutoLearning:
         )
         assert resp.status_code == 200  # POST reussit quand meme
 
+    def test_submit_with_as24_slugs_persists_to_vehicle(self, app, client):
+        """POST avec as24_slug_* persiste les slugs canoniques sur Vehicle."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugTest", model="ModeleAS24").first()
+            if not v:
+                v = Vehicle(brand="SlugTest", model="ModeleAS24", year_start=2019, year_end=2026)
+                db.session.add(v)
+                db.session.commit()
+
+            v.as24_slug_make = None
+            v.as24_slug_model = None
+            db.session.commit()
+
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "SlugTest",
+                    "model": "ModeleAS24",
+                    "year": 2022,
+                    "region": "Ile-de-France",
+                    "prices": prices_20,
+                    "as24_slug_make": "slugtest",
+                    "as24_slug_model": "modeleas24",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugTest", model="ModeleAS24").first()
+            assert v.as24_slug_make == "slugtest"
+            assert v.as24_slug_model == "modeleas24"
+
     def test_next_job_returns_tokens(self, app, client):
         """GET next-job inclut les tokens LBC si le vehicule en a."""
         with app.app_context():
@@ -708,6 +745,60 @@ class TestSearchLogTransparency:
             details = mp.get_calculation_details()
             # search_steps est None (pas envoye) -- pas d'erreur
             assert details.get("search_steps") is None
+
+
+class TestFailedSearchApi:
+    """Tests pour POST /api/market-prices/failed-search."""
+
+    def test_failed_search_maps_as24_slug_fields(self, app, client):
+        """Le payload AS24 (slug_* + slug_source) est bien mappe sur les champs diagnostics."""
+        payload = {
+            "make": "Mercedes-Benz",
+            "model": "A 35 AMG",
+            "year": 2020,
+            "region": "Geneve",
+            "country": "CH",
+            "site": "as24",
+            "tld": "ch",
+            "slug_make_used": "mercedes-benz",
+            "slug_model_used": "a-35-amg",
+            "slug_source": "as24_response_url",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 4,
+                    "location_type": "canton",
+                    "year_spread": 1,
+                    "filters_applied": ["fuel"],
+                    "ads_found": 0,
+                    "url": "https://www.autoscout24.ch/fr/s/mo-a-35-amg/mk-mercedes-benz",
+                    "was_selected": False,
+                    "reason": "HTTP 404",
+                }
+            ],
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        with app.app_context():
+            row = (
+                FailedSearch.query.filter_by(
+                    make="Mercedes-Benz", model="A 35 AMG", region="Geneve"
+                )
+                .order_by(FailedSearch.id.desc())
+                .first()
+            )
+            assert row is not None
+            assert row.brand_token_used == "mercedes-benz"
+            assert row.model_token_used == "a-35-amg"
+            assert row.token_source == "as24_response_url"
 
 
 class TestBonusJobs:

@@ -810,6 +810,42 @@ export function toAs24Slug(name) {
 }
 
 /**
+ * Extrait les slugs make/model depuis une URL de recherche AS24.
+ * Utile pour auto-apprendre les slugs canoniques après redirection.
+ *
+ * @param {string} url
+ * @param {string|null} [tldHint]
+ * @returns {{makeSlug: string|null, modelSlug: string|null}}
+ */
+export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
+  try {
+    const u = new URL(url);
+    const hostMatch = u.hostname.match(/autoscout24\.(\w+)$/i);
+    const tld = (tldHint || (hostMatch ? hostMatch[1] : '') || '').toLowerCase();
+    const path = decodeURIComponent(u.pathname || '');
+
+    if (SMG_TLDS.has(tld)) {
+      // .ch (SMG): /fr/s/mo-{model}/mk-{make} ou /fr/s/mk-{make}
+      const smg = path.match(/\/s\/(?:mo-([^/]+)\/)?mk-([^/?#]+)/i);
+      if (!smg) return { makeSlug: null, modelSlug: null };
+      const modelSlug = smg[1] ? toAs24Slug(smg[1]) : null;
+      const makeSlug = smg[2] ? toAs24Slug(smg[2]) : null;
+      return { makeSlug, modelSlug };
+    }
+
+    // GmbH: /lst/{make}/{model} (avec prefixe langue optionnel)
+    const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, '');
+    const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
+    if (!gmbh) return { makeSlug: null, modelSlug: null };
+    const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;
+    const modelSlug = gmbh[2] ? toAs24Slug(gmbh[2]) : null;
+    return { makeSlug, modelSlug };
+  } catch {
+    return { makeSlug: null, modelSlug: null };
+  }
+}
+
+/**
  * Builds an AutoScout24 search URL for similar vehicles.
  * Handles two distinct platforms:
  * - .ch (Swiss Marketplace Group): /fr/s/mk-{make} or /fr/s/mo-{model}/mk-{make}
@@ -1186,6 +1222,16 @@ export class AutoScout24Extractor extends SiteExtractor {
     let prices = [];
     let usedPrecision = null;
     const searchLog = [];
+    let learnedSlugMake = null;
+    let learnedSlugModel = null;
+    let slugSource = null;
+
+    function rememberSlugs(url, source) {
+      const parsed = extractAs24SlugsFromSearchUrl(url, tld);
+      if (parsed.makeSlug) learnedSlugMake = parsed.makeSlug;
+      if (parsed.modelSlug) learnedSlugModel = parsed.modelSlug;
+      if ((parsed.makeSlug || parsed.modelSlug) && source) slugSource = source;
+    }
 
     if (progress) progress.update('collect', 'running');
 
@@ -1195,6 +1241,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
       const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
       const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
+      rememberSlugs(searchUrl, 'as24_generated_url');
 
       try {
         const resp = await fetch(searchUrl, { credentials: 'same-origin' });
@@ -1203,6 +1250,9 @@ export class AutoScout24Extractor extends SiteExtractor {
           if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', `HTTP ${resp.status}`);
           continue;
         }
+
+        // URL canonique finale après redirects éventuels (source plus fiable)
+        if (resp.url) rememberSlugs(resp.url, 'as24_response_url');
 
         const html = await resp.text();
         prices = parseSearchPrices(html);
@@ -1259,6 +1309,8 @@ export class AutoScout24Extractor extends SiteExtractor {
         hp_range: isCurrentVehicle ? hpRangeStr : null,
         gearbox: isCurrentVehicle && this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
         search_log: searchLog,
+        as24_slug_make: learnedSlugMake || targetMakeKey,
+        as24_slug_model: learnedSlugModel || (!searchLog.some((s) => (s.reason || '').startsWith('HTTP 404')) ? targetModelKey : null),
       };
 
       try {
@@ -1294,6 +1346,11 @@ export class AutoScout24Extractor extends SiteExtractor {
             fuel: isCurrentVehicle ? (fuelKey || null) : null,
             hp_range: isCurrentVehicle ? hpRangeStr : null,
             country: countryCode, search_log: searchLog,
+            site: 'as24',
+            tld,
+            slug_make_used: learnedSlugMake || targetMakeKey,
+            slug_model_used: learnedSlugModel || targetModelKey,
+            slug_source: slugSource || 'as24_generated_url',
           }),
         });
       } catch { /* ignore */ }
@@ -1370,6 +1427,7 @@ export class AutoScout24Extractor extends SiteExtractor {
 
         const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
         const resp = await fetch(searchUrl, { credentials: 'same-origin' });
+        const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
 
         if (!resp.ok) {
           await this._reportJobDone(jobDoneUrl, job.job_id, false);
@@ -1396,6 +1454,8 @@ export class AutoScout24Extractor extends SiteExtractor {
             region: job.region, prices: priceInts, price_details: priceDetails,
             fuel: job.fuel || null, hp_range: job.hp_range || null,
             precision: bonusPrecision, country: countryCode,
+            as24_slug_make: learned.makeSlug || jobMakeKey,
+            as24_slug_model: learned.modelSlug || (searchOpts.brandOnly ? null : jobModelKey),
             search_log: [{
               step: 1, precision: bonusPrecision,
               location_type: cantonZip ? 'canton' : 'national',

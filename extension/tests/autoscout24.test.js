@@ -18,6 +18,7 @@ import {
   extractLang,
   buildSearchUrl,
   toAs24Slug,
+  extractAs24SlugsFromSearchUrl,
   parseSearchPrices,
   getAs24GearCode,
   getAs24PowerParams,
@@ -662,6 +663,37 @@ describe('buildSearchUrl', () => {
   it('slugifies make/model with spaces', () => {
     const url = buildSearchUrl('Mercedes-Benz', 'A 35 AMG', 2019, 'de');
     expect(url).toContain('/lst/mercedes-benz/a-35-amg');
+  });
+});
+
+
+// ── 12a. extractAs24SlugsFromSearchUrl ─────────────────────────────
+
+describe('extractAs24SlugsFromSearchUrl', () => {
+  it('extracts make/model on .ch SMG URLs', () => {
+    const parsed = extractAs24SlugsFromSearchUrl(
+      'https://www.autoscout24.ch/fr/s/mo-a-35-amg/mk-mercedes-benz?fregfrom=2018'
+    );
+    expect(parsed).toEqual({ makeSlug: 'mercedes-benz', modelSlug: 'a-35-amg' });
+  });
+
+  it('extracts make only on brand-only .ch URL', () => {
+    const parsed = extractAs24SlugsFromSearchUrl(
+      'https://www.autoscout24.ch/fr/s/mk-mercedes-benz?fregfrom=2018'
+    );
+    expect(parsed).toEqual({ makeSlug: 'mercedes-benz', modelSlug: null });
+  });
+
+  it('extracts make/model on GmbH /lst URLs with lang prefix', () => {
+    const parsed = extractAs24SlugsFromSearchUrl(
+      'https://www.autoscout24.de/de/lst/bmw/320?fregfrom=2020'
+    );
+    expect(parsed).toEqual({ makeSlug: 'bmw', modelSlug: '320' });
+  });
+
+  it('returns null slugs for unsupported URL', () => {
+    const parsed = extractAs24SlugsFromSearchUrl('https://www.example.com/search?q=car');
+    expect(parsed).toEqual({ makeSlug: null, modelSlug: null });
   });
 });
 
