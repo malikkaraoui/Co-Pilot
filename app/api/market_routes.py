@@ -115,7 +115,7 @@ class SearchStep(BaseModel):
     """Un pas de la cascade de recherche argus."""
 
     step: int = Field(ge=1, le=15)
-    precision: int = Field(ge=1, le=5)
+    precision: int = Field(ge=0, le=5)
     location_type: str = Field(max_length=20)
     year_spread: int = Field(ge=1, le=5)
     filters_applied: list[str] = Field(default_factory=list)
