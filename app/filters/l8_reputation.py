@@ -16,10 +16,21 @@ IMPORT_KEYWORDS_FR = [
     "importee",
     "importation",
     "etranger",
+    "étranger",
     "étrangère",
     "etrangere",
     "provenance",
     "en provenance",
+    # Douane / procedure d'import
+    "dédouané",
+    "dedouane",
+    "dédouanement",
+    "dedouanement",
+    "quitus fiscal",
+    # Technique (specifique import)
+    "compteur en miles",
+    "volant a droite",
+    "volant à droite",
 ]
 
 # Pays source d'import frequents
@@ -55,9 +66,11 @@ _COUNTRY_LOCAL_NAMES: dict[str, set[str]] = {
     "ES": {"espagne"},
 }
 
-# Keywords multi-langues (descriptions copiees-collees de sites etrangers)
-IMPORT_KEYWORDS_FOREIGN = [
-    # Allemand
+# ── Keywords multi-langues par langue ────────────────────────────────
+# Vocabulaire automobile courant par langue.
+# Ces mots sont NORMAUX sur les sites du pays d'origine → exclus via _COUNTRY_LOCAL_KEYWORDS.
+
+_FOREIGN_KW_DE: set[str] = {
     "unfallwagen",
     "fahrzeug",
     "kilometerstand",
@@ -66,31 +79,76 @@ IMPORT_KEYWORDS_FOREIGN = [
     "schaltgetriebe",
     "erstbesitzer",
     "unfallfrei",
-    # Espagnol
+    "erstzulassung",
+    "hubraum",
+    "getriebe",
+    "kraftstoff",
+    "vorbesitzer",
+    "scheckheftgepflegt",
+    "hauptuntersuchung",
+}
+
+_FOREIGN_KW_ES: set[str] = {
     "vehículo",
     "vehiculo",
     "kilómetros",
     "kilometros",
-    # Italien
+    "cambio manual",
+    "gasolina",
+    "propietario",
+    "matriculación",
+    "matriculacion",
+}
+
+_FOREIGN_KW_IT: set[str] = {
     "veicolo",
     "chilometri",
     "cambio automatico",
-    # Anglais (annonces internationales)
+    "cambio manuale",
+    "benzina",
+    "proprietario",
+    "immatricolazione",
+    "primo proprietario",
+    "km certificati",
+}
+
+_FOREIGN_KW_EN: set[str] = {
     "left hand drive",
     "lhd",
     "imported from",
+}
+
+# Keywords d'import specifiques par langue -- TOUJOURS detectes, meme sur le site du pays
+# (dire "importiert" sur mobile.de reste un signal d'import)
+_IMPORT_SPECIFIC_FOREIGN: list[str] = [
+    # Allemand
+    "einfuhr",
+    "importiert",
+    "verzollt",
+    # Espagnol
+    "importado",
+    "aduana",
+    # Italien
+    "importato",
+    "dogana",
 ]
 
-# Sous-ensemble allemand (normal sur sites CH/DE/AT)
-_GERMAN_KEYWORDS = {
-    "unfallwagen",
-    "fahrzeug",
-    "kilometerstand",
-    "gebraucht",
-    "automatik",
-    "schaltgetriebe",
-    "erstbesitzer",
-    "unfallfrei",
+# Liste complete assemblees (utilisee par le filtre)
+IMPORT_KEYWORDS_FOREIGN: list[str] = (
+    list(_FOREIGN_KW_DE)
+    + list(_FOREIGN_KW_ES)
+    + list(_FOREIGN_KW_IT)
+    + list(_FOREIGN_KW_EN)
+    + _IMPORT_SPECIFIC_FOREIGN
+)
+
+# Pays → set de keywords "normaux" localement (exclus de la detection de langue etrangere)
+_COUNTRY_LOCAL_KEYWORDS: dict[str, set[str]] = {
+    "CH": _FOREIGN_KW_DE,
+    "DE": _FOREIGN_KW_DE,
+    "AT": _FOREIGN_KW_DE,
+    "ES": _FOREIGN_KW_ES,
+    "IT": _FOREIGN_KW_IT,
 }
 
 # Signaux fiscaux specifiques a l'import (malus, export, taxe CO2)
@@ -187,19 +245,17 @@ class L8ImportDetectionFilter(BaseFilter):
             strong_signals.append(f"Pays d'origine mentionné ({', '.join(found_countries[:3])})")
 
         # Signal 3 : Texte en langue etrangere (copier-coller de site etranger)
-        # Sur les sites CH/DE/AT, l'allemand est normal -- ne pas flagger
-        if country in ("CH", "DE", "AT"):
-            foreign_keywords = [kw for kw in IMPORT_KEYWORDS_FOREIGN if kw not in _GERMAN_KEYWORDS]
-        else:
-            foreign_keywords = IMPORT_KEYWORDS_FOREIGN
+        # Exclure le vocabulaire normal pour le pays du site (ex: allemand sur .ch/.de/.at)
+        local_keywords = _COUNTRY_LOCAL_KEYWORDS.get(country, set())
+        foreign_keywords = [kw for kw in IMPORT_KEYWORDS_FOREIGN if kw not in local_keywords]
         found_foreign = [kw for kw in foreign_keywords if kw in text]
         if found_foreign:
             strong_signals.append(
                 f"Texte en langue étrangère détecté ({', '.join(found_foreign[:3])})"
             )
 
-        # Signal 4 : Signaux fiscaux (malus, TVA, export)
-        # Word boundary pour les tokens courts (ex: "ht") pour eviter les faux positifs
+        # Signal 4 : Signaux fiscaux (malus, export, taxe CO2)
+        # Word boundary pour les tokens courts pour eviter les faux positifs
         found_tax = [
             kw
             for kw in TAX_KEYWORDS

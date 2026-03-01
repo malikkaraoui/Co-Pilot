@@ -336,3 +336,96 @@ class TestL8ImportDetectionFilter:
         }
         result = self.filt.run(data)
         assert not any("suspecte" in s.lower() for s in result.details["signals"])
+
+    # ── Nouveaux keywords FR (douane, technique) ─────────────────────
+
+    def test_dedouane_detected(self):
+        """'dédouané' est un signal d'import fort."""
+        data = {"description": "Vehicule dédouané, papiers en regle.", "country": "FR"}
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert any("import" in s.lower() for s in result.details["signals"])
+
+    def test_quitus_fiscal_detected(self):
+        """'quitus fiscal' est un signal d'import fort."""
+        data = {"description": "Quitus fiscal obtenu.", "country": "FR"}
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert any("import" in s.lower() for s in result.details["signals"])
+
+    def test_compteur_en_miles_detected(self):
+        """'compteur en miles' signale un import UK/US."""
+        data = {"description": "Attention compteur en miles.", "country": "FR"}
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert any("import" in s.lower() for s in result.details["signals"])
+
+    def test_volant_a_droite_detected(self):
+        """'volant à droite' signale un import UK."""
+        data = {"description": "Volant à droite, conduite anglaise.", "country": "FR"}
+        result = self.filt.run(data)
+        assert result.status == "warning"
+
+    # ── Keywords multi-langues enrichis ──────────────────────────────
+
+    def test_spanish_text_flagged_on_fr(self):
+        """Texte espagnol sur .fr = signal d'import."""
+        data = {
+            "description": "Vehículo en buen estado, propietario unico.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert any("langue" in s.lower() for s in result.details["signals"])
+
+    def test_spanish_text_normal_on_es(self):
+        """Texte espagnol sur .es ne doit PAS declencher 'langue etrangere'."""
+        data = {
+            "description": "Vehículo en buen estado, propietario unico.",
+            "country": "ES",
+        }
+        result = self.filt.run(data)
+        assert not any("langue" in s.lower() for s in result.details.get("signals", []))
+
+    def test_italian_text_flagged_on_fr(self):
+        """Texte italien sur .fr = signal d'import."""
+        data = {
+            "description": "Veicolo in ottime condizioni, primo proprietario.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert any("langue" in s.lower() for s in result.details["signals"])
+
+    def test_italian_text_normal_on_it(self):
+        """Texte italien sur .it ne doit PAS declencher 'langue etrangere'."""
+        data = {
+            "description": "Veicolo in ottime condizioni, primo proprietario.",
+            "country": "IT",
+        }
+        result = self.filt.run(data)
+        assert not any("langue" in s.lower() for s in result.details.get("signals", []))
+
+    # ── Import-specific par langue (toujours detectes) ───────────────
+
+    def test_importiert_detected_on_de(self):
+        """'importiert' est un signal d'import meme sur .de."""
+        data = {"description": "Fahrzeug importiert aus Japan.", "country": "DE"}
+        result = self.filt.run(data)
+        assert any("langue" in s.lower() for s in result.details["signals"])
+
+    def test_importado_detected_on_es(self):
+        """'importado' est un signal d'import meme sur .es."""
+        data = {"description": "Vehiculo importado de Alemania.", "country": "ES"}
+        result = self.filt.run(data)
+        assert any("langue" in s.lower() for s in result.details["signals"])
+
+    def test_dogana_detected_on_it(self):
+        """'dogana' est un signal d'import meme sur .it."""
+        data = {"description": "Veicolo sdoganato, dogana completata.", "country": "IT"}
+        result = self.filt.run(data)
+        assert any("langue" in s.lower() for s in result.details["signals"])
+
+    def test_einfuhr_detected_on_fr(self):
+        """'einfuhr' (import allemand) detecte sur .fr."""
+        data = {"description": "Einfuhr aus Deutschland.", "country": "FR"}
+        result = self.filt.run(data)
+        assert any("langue" in s.lower() for s in result.details["signals"])
