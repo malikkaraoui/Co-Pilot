@@ -17,6 +17,7 @@ import {
   extractTld,
   extractLang,
   buildSearchUrl,
+  toAs24Slug,
   parseSearchPrices,
   getAs24GearCode,
   getAs24PowerParams,
@@ -527,12 +528,44 @@ describe('extractTld', () => {
 });
 
 
+// ── 11b. toAs24Slug ──────────────────────────────────────────────────
+
+describe('toAs24Slug', () => {
+  it('lowercases and replaces spaces with hyphens', () => {
+    expect(toAs24Slug('A 35 AMG')).toBe('a-35-amg');
+  });
+
+  it('handles already slugified input', () => {
+    expect(toAs24Slug('mercedes-benz')).toBe('mercedes-benz');
+  });
+
+  it('removes special characters', () => {
+    expect(toAs24Slug('Série 3')).toBe('srie-3');
+  });
+
+  it('handles empty/null input', () => {
+    expect(toAs24Slug('')).toBe('');
+    expect(toAs24Slug(null)).toBe('');
+  });
+
+  it('collapses multiple spaces', () => {
+    expect(toAs24Slug('Classe  A')).toBe('classe-a');
+  });
+});
+
 // ── 12. buildSearchUrl ──────────────────────────────────────────────
 
 describe('buildSearchUrl', () => {
-  it('builds basic search URL', () => {
+  it('builds basic search URL for .ch (SMG format)', () => {
     const url = buildSearchUrl('audi', 'q5', 2023, 'ch');
-    expect(url).toContain('autoscout24.ch/lst/audi/q5');
+    expect(url).toContain('autoscout24.ch/fr/s/mo-q5/mk-audi');
+    expect(url).toContain('fregfrom=2022');
+    expect(url).toContain('fregto=2024');
+  });
+
+  it('builds basic search URL for .de (GmbH format)', () => {
+    const url = buildSearchUrl('audi', 'q5', 2023, 'de');
+    expect(url).toContain('autoscout24.de/lst/audi/q5');
     expect(url).toContain('fregfrom=2022');
     expect(url).toContain('fregto=2024');
   });
@@ -599,20 +632,36 @@ describe('buildSearchUrl', () => {
     expect(url).not.toContain('gear=');
   });
 
-  it('includes lang prefix in URL when provided', () => {
+  it('uses SMG /s/mo-/mk- format for .ch with lang', () => {
     const url = buildSearchUrl('vw', 'tiguan', 2016, 'ch', { lang: 'fr' });
-    expect(url).toContain('autoscout24.ch/fr/lst/vw/tiguan');
+    expect(url).toContain('autoscout24.ch/fr/s/mo-tiguan/mk-vw');
   });
 
-  it('includes lang prefix for de language', () => {
+  it('uses SMG /s/ format for .ch with de lang', () => {
     const url = buildSearchUrl('audi', 'q5', 2023, 'ch', { lang: 'de' });
-    expect(url).toContain('autoscout24.ch/de/lst/audi/q5');
+    expect(url).toContain('autoscout24.ch/de/s/mo-q5/mk-audi');
   });
 
-  it('omits lang prefix when lang is null', () => {
+  it('uses /lst/ format for .de without lang prefix', () => {
     const url = buildSearchUrl('vw', 'golf', 2022, 'de', { lang: null });
     expect(url).toContain('autoscout24.de/lst/vw/golf');
     expect(url).not.toMatch(/autoscout24\.de\/\w+\/lst/);
+  });
+
+  it('defaults to /fr/ for .ch when no lang provided', () => {
+    const url = buildSearchUrl('bmw', 'x3', 2020, 'ch');
+    expect(url).toContain('autoscout24.ch/fr/s/mo-x3/mk-bmw');
+  });
+
+  it('supports brandOnly option (no model in path)', () => {
+    const url = buildSearchUrl('mercedes-benz', 'a-35-amg', 2019, 'de', { brandOnly: true });
+    expect(url).toContain('autoscout24.de/lst/mercedes-benz?');
+    expect(url).not.toContain('a-35-amg');
+  });
+
+  it('slugifies make/model with spaces', () => {
+    const url = buildSearchUrl('Mercedes-Benz', 'A 35 AMG', 2019, 'de');
+    expect(url).toContain('/lst/mercedes-benz/a-35-amg');
   });
 });
 

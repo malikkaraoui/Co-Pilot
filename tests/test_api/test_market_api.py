@@ -366,6 +366,44 @@ class TestNextMarketJob:
             assert data["data"]["vehicle"]["model"] == "Classe C"
             assert data["data"].get("redirect") is not True
 
+    def test_current_vehicle_lookup_uses_canonical_aliases(self, app, client):
+        """next-job doit reconnaitre un MarketPrice frais via aliases make/model.
+
+        Regression DS: en base on peut avoir make/model canonicalises (DS / 7),
+        alors que l'extension envoie le brut (Ds / Ds 7).
+        """
+        with app.app_context():
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            mp = MarketPrice(
+                make="DS",
+                model="7",
+                year=2021,
+                region="Grand Est",
+                fuel="diesel",
+                price_min=18000,
+                price_median=22000,
+                price_mean=22300,
+                price_max=28000,
+                price_std=2500.0,
+                sample_count=25,
+                collected_at=now,
+                refresh_after=now + timedelta(hours=24),
+            )
+            db.session.add(mp)
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job"
+            "?make=Ds&model=Ds%207&year=2021&region=Grand+Est&fuel=diesel"
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+
+        # Le vehicule courant ne doit PAS etre redemande comme stale.
+        # S'il y a collecte, elle doit etre une redirection vers un autre vehicule.
+        if data["data"]["collect"] is True:
+            assert data["data"].get("redirect") is True
+
     def test_redirects_to_partial_vehicle_first(self, app, client):
         """Vehicles with enrichment_status=partial should be prioritized for redirect."""
         with app.app_context():

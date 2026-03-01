@@ -792,17 +792,36 @@ export function extractLang(url) {
   return match ? match[1] : null;
 }
 
+// TLDs using the Swiss Marketplace Group platform (different URL structure)
+const SMG_TLDS = new Set(['ch']);
+
+/**
+ * Converts a make/model name to a URL slug for AS24 search paths.
+ * "a 35 amg" → "a-35-amg", "mercedes-benz" → "mercedes-benz"
+ * @param {string} name
+ * @returns {string}
+ */
+export function toAs24Slug(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '');
+}
+
 /**
  * Builds an AutoScout24 search URL for similar vehicles.
- * Supports all AS24 search filters: fuel, gear, power, mileage, location.
+ * Handles two distinct platforms:
+ * - .ch (Swiss Marketplace Group): /fr/s/mk-{make} or /fr/s/mo-{model}/mk-{make}
+ * - .de/.fr/.be/etc (AS24 GmbH): /lst/{make} or /lst/{make}/{model}
  *
- * @param {string} makeKey - Lowercase make key (e.g. 'audi')
- * @param {string} modelKey - Lowercase model key (e.g. 'q5')
+ * @param {string} makeKey - Make slug (e.g. 'mercedes-benz')
+ * @param {string} modelKey - Model slug (e.g. 'a-35-amg'), or empty for brand-only
  * @param {number} year - Target year
  * @param {string} tld - TLD (e.g. 'ch', 'de')
  * @param {object} [options]
  * @param {number} [options.yearSpread=1] - Year range (+/-)
- * @param {string} [options.fuel] - AS24 fuel key (e.g. 'diesel')
+ * @param {string} [options.fuel] - AS24 fuel code (e.g. 'D', 'B')
  * @param {string} [options.gear] - 'A' or 'M'
  * @param {number} [options.powerfrom] - Min power in PS
  * @param {number} [options.powerto] - Max power in PS
@@ -811,12 +830,35 @@ export function extractLang(url) {
  * @param {string} [options.zip] - ZIP code for geo search
  * @param {number} [options.radius] - Radius in km (requires zip)
  * @param {string} [options.lang] - Language prefix (e.g. 'fr', 'de')
+ * @param {boolean} [options.brandOnly] - Force brand-only search (no model in path)
  * @returns {string}
  */
 export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-  const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang } = options;
-  const langSegment = lang ? `/${lang}` : '';
-  const base = `https://www.autoscout24.${tld}${langSegment}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
+  const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang, brandOnly } = options;
+
+  const makeSlug = toAs24Slug(makeKey);
+  const modelSlug = brandOnly ? '' : toAs24Slug(modelKey);
+
+  let base;
+
+  if (SMG_TLDS.has(tld)) {
+    // Swiss Marketplace Group: /fr/s/mo-{model}/mk-{make} or /fr/s/mk-{make}
+    const langPrefix = lang ? `/${lang}` : '/fr';
+    if (modelSlug) {
+      base = `https://www.autoscout24.${tld}${langPrefix}/s/mo-${modelSlug}/mk-${makeSlug}`;
+    } else {
+      base = `https://www.autoscout24.${tld}${langPrefix}/s/mk-${makeSlug}`;
+    }
+  } else {
+    // AutoScout24 GmbH: /{lang?}/lst/{make}/{model}
+    const langSegment = lang ? `/${lang}` : '';
+    if (modelSlug) {
+      base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}/${modelSlug}`;
+    } else {
+      base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}`;
+    }
+  }
+
   const params = new URLSearchParams({
     fregfrom: String(year - yearSpread),
     fregto: String(year + yearSpread),
@@ -1077,8 +1119,9 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    const targetMakeKey = target.make.toLowerCase();
-    const targetModelKey = target.model.toLowerCase();
+    // Use AS24 slugs from Vehicle table when available, else slugify the name
+    const targetMakeKey = target.as24_slug_make || toAs24Slug(target.make);
+    const targetModelKey = target.as24_slug_model || toAs24Slug(target.model);
     const targetYear = parseInt(target.year, 10);
     const targetLabel = `${target.make} ${target.model} ${targetYear}`;
 
@@ -1124,6 +1167,8 @@ export class AutoScout24Extractor extends SiteExtractor {
       const opts5 = { yearSpread: 2, fuel: fuelCode };
       strategies.push({ ...opts5, precision: 2, label: 'National fuel', location_type: 'national', filters_applied: _filtersApplied(opts5) });
       strategies.push({ yearSpread: 3, precision: 1, label: 'National large', location_type: 'national', filters_applied: [] });
+      // Fallback brand-only: si le slug modele donne 404, au moins la marque marchera
+      strategies.push({ yearSpread: 2, fuel: fuelCode, brandOnly: true, precision: 0, label: 'Marque seule + fuel', location_type: 'national', filters_applied: fuelCode ? ['fuel'] : [] });
     } else {
       // Simplified cascade for redirect (vehicle specs unknown)
       if (targetCantonZip) {
@@ -1134,6 +1179,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
       strategies.push({ yearSpread: 1, precision: 2, label: 'National ±1an', location_type: 'national', filters_applied: [] });
       strategies.push({ yearSpread: 2, precision: 1, label: 'National ±2ans', location_type: 'national', filters_applied: [] });
+      strategies.push({ yearSpread: 2, brandOnly: true, precision: 0, label: 'Marque seule', location_type: 'national', filters_applied: [] });
     }
 
     // ── 5. Execute cascade ────────────────────────────────────────
@@ -1298,8 +1344,8 @@ export class AutoScout24Extractor extends SiteExtractor {
       try {
         await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
 
-        const jobMakeKey = job.slug_make || job.make.toLowerCase();
-        const jobModelKey = job.slug_model || job.model.toLowerCase();
+        const jobMakeKey = job.slug_make || toAs24Slug(job.make);
+        const jobModelKey = job.slug_model || toAs24Slug(job.model);
         const jobYear = parseInt(job.year, 10);
         const cantonZip = getCantonCenterZip(job.region);
 

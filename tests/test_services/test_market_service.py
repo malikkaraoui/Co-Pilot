@@ -517,6 +517,58 @@ class TestUnicodeRegionLookup:
             assert result is not None, "get_market_stats doit trouver même si l'accent diffère"
 
 
+class TestVehicleAliasNormalization:
+    """Tests que les alias vehicle_lookup sont appliques au store et lookup.
+
+    Bug reel : LBC envoie model="Ds 7" qui est stocke tel quel.
+    L'extraction Python normalise en "7" via MODEL_ALIASES.
+    Resultat : L4 cherche "7" mais le store contient "ds 7" → mismatch.
+    """
+
+    def test_ds7_store_normalizes_model(self, app):
+        """store_market_prices normalise 'Ds 7' → '7' via display_model."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="Ds",
+                model="Ds 7",
+                year=2025,
+                region="Grand Est",
+                prices=[45000, 48000, 50000, 53000, 55000],
+                fuel="diesel",
+            )
+            assert mp.model == "7", f"Expected model='7', got '{mp.model}'"
+            assert mp.make == "DS", f"Expected make='DS', got '{mp.make}'"
+
+    def test_ds7_lookup_after_raw_store(self, app):
+        """get_market_stats('DS', '7') retrouve les prix stockes en 'Ds'/'Ds 7'."""
+        with app.app_context():
+            store_market_prices(
+                make="Ds",
+                model="Ds 7",
+                year=2025,
+                region="Grand Est",
+                prices=[45000, 48000, 50000, 53000, 55000],
+                fuel="diesel",
+            )
+            result = get_market_stats("DS", "7", 2025, "Grand Est", fuel="diesel")
+            assert result is not None, (
+                "L4 doit trouver les prix DS 7 meme si stockes via noms bruts LBC"
+            )
+            assert result.sample_count == 5
+
+    def test_vw_alias_store_normalizes(self, app):
+        """store_market_prices normalise 'VW' → 'Volkswagen'."""
+        with app.app_context():
+            mp = store_market_prices(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Ile-de-France",
+                prices=[18000, 19000, 20000, 21000, 22000],
+            )
+            assert mp.make == "Volkswagen", f"Expected 'Volkswagen', got '{mp.make}'"
+
+
 class TestFilterOutliersIQR:
     """Tests du filtrage IQR des outliers."""
 

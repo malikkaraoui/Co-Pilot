@@ -34,7 +34,7 @@ _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
 
 def _lookup_site_tokens(make: str, model: str) -> dict:
-    """Retourne les tokens LBC stockes pour un vehicule (ou dict vide)."""
+    """Retourne les tokens LBC et slugs AS24 stockes pour un vehicule (ou dict vide)."""
     from app.services.vehicle_lookup import find_vehicle
 
     vehicle = find_vehicle(make, model)
@@ -44,6 +44,10 @@ def _lookup_site_tokens(make: str, model: str) -> dict:
             result["site_brand_token"] = vehicle.site_brand_token
         if vehicle.site_model_token:
             result["site_model_token"] = vehicle.site_model_token
+        if vehicle.as24_slug_make:
+            result["as24_slug_make"] = vehicle.as24_slug_make
+        if vehicle.as24_slug_model:
+            result["as24_slug_model"] = vehicle.as24_slug_model
     return result
 
 
@@ -404,6 +408,14 @@ def next_market_job():
     if not (1990 <= year <= 2030):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
+    # Canonicaliser make/model pour les comparaisons DB (meme aliases que store/get).
+    # IMPORTANT: on conserve make/model bruts pour la reponse API vers l'extension,
+    # afin de ne pas casser la construction d'URL cote navigateur.
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    lookup_make = display_brand(make)
+    lookup_model = display_model(model)
+
     # Expand collection jobs pour ce vehicule (dedup gere les repetitions)
     expand_collection_jobs(
         make=make,
@@ -426,8 +438,8 @@ def next_market_job():
     # masquer l'absence de donnees reellement utiles pour L4).
     country_upper = country.upper().strip()
     current_filters = [
-        market_text_key_expr(MarketPrice.make) == market_text_key(make),
-        market_text_key_expr(MarketPrice.model) == market_text_key(model),
+        market_text_key_expr(MarketPrice.make) == market_text_key(lookup_make),
+        market_text_key_expr(MarketPrice.model) == market_text_key(lookup_model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
         func.coalesce(MarketPrice.country, "FR") == country_upper,

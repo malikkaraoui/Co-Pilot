@@ -282,8 +282,13 @@ def store_market_prices(
     Returns:
         L'instance MarketPrice creee ou mise a jour.
     """
-    make = normalize_market_text(make)
-    model = normalize_market_text(model)
+    # Normalisation canonique via vehicle_lookup (meme aliases que l'extraction).
+    # Sans ca, LBC envoie "Ds 7" que market_text_key normalise en "ds 7",
+    # mais l'extraction Python normalise en "7" via MODEL_ALIASES → mismatch L4.
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    make = display_brand(make) if make else normalize_market_text(make)
+    model = display_model(model) if model else normalize_market_text(model)
     region = normalize_region(region) or normalize_market_text(region)
     fuel = normalize_market_text(fuel).lower() if fuel else None
     country = (country or "FR").upper().strip()[:5]
@@ -488,6 +493,13 @@ def get_market_stats(
     Returns:
         L'instance MarketPrice si elle existe, None sinon.
     """
+    # Normalisation canonique via vehicle_lookup (meme aliases que l'extraction
+    # et que store_market_prices) pour eviter les mismatch "Ds 7" vs "7".
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    make = display_brand(make) if make else make
+    model = display_model(model) if model else model
+
     make_key = market_text_key(make)
     model_key = market_text_key(model)
     region_key = market_text_key(normalize_region(region) or region)

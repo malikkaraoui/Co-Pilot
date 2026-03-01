@@ -47,3 +47,5 @@ extension.zip
 
 # Ruff
 .ruff_cache/
+.playwright-mcp/
+*.jpeg

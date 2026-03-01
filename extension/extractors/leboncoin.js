@@ -214,11 +214,30 @@ export function extractLbcTokensFromDom() {
     const link = document.querySelector('a[href*="u_car_model"]');
     if (!link) return result;
     const url = new URL(link.href, location.origin);
-    const path = decodeURIComponent(url.pathname + url.search + url.hash);
-    const brandMatch = path.match(/u_car_brand:([^+&]+)/);
-    const modelMatch = path.match(/u_car_model:([^+&]+)/);
-    if (brandMatch) result.brandToken = brandMatch[1].trim();
-    if (modelMatch) result.modelToken = modelMatch[1].trim();
+    const raw = decodeURIComponent(url.pathname + url.search + url.hash);
+
+    // Format courant observe dans le href LBC :
+    //   u_car_brand:BMW+u_car_model:BMW_Serie+3+u_car_fuel:1
+    // Le '+' peut etre un separateur de paires ET un espace encode dans la valeur.
+    // On capture donc jusqu'au prochain "+<mot>:" (nouveau token) ou fin.
+    const extractToken = (key) => {
+      const re = new RegExp(`${key}:(.+?)(?:\\+\\w+:|&|$)`);
+      const m = raw.match(re);
+      return m ? m[1].replace(/\+/g, ' ').trim() : null;
+    };
+
+    result.brandToken = extractToken('u_car_brand');
+    result.modelToken = extractToken('u_car_model');
+
+    // Fallback query-string standard (u_car_model=...), si present.
+    if (!result.brandToken) {
+      const qBrand = url.searchParams.get('u_car_brand');
+      if (qBrand) result.brandToken = qBrand.trim();
+    }
+    if (!result.modelToken) {
+      const qModel = url.searchParams.get('u_car_model');
+      if (qModel) result.modelToken = qModel.trim();
+    }
   } catch (e) {
     console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
   }
@@ -1041,31 +1060,41 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   let prices = [];
   let collectedPrecision = null;
   const searchLog = [];
+  const MAX_PRICES_CAP = 100; // Stop collecting when we have enough for robust stats
   if (progress) progress.update("collect", "running");
   try {
     for (let i = 0; i < strategies.length; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
 
       const strategy = strategies[i];
-      let searchUrl = coreUrl + strategy.filters;
+      const baseCoreUrl = strategy.coreUrl || coreUrl;
+      let searchUrl = baseCoreUrl + strategy.filters;
       if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
       if (targetYear >= 1990) {
         searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
       }
 
-      const locLabel = (strategy.loc === geoParam && geoParam) ? "Géo (" + (location?.city || "local") + " 30km)"
+      const locLabel = strategy.isTextFallback ? "Text search (fallback)"
+        : (strategy.loc === geoParam && geoParam) ? "Géo (" + (location?.city || "local") + " 30km)"
         : (strategy.loc === regionParam && regionParam) ? "Région (" + targetRegion + ")"
         : "National";
       const strategyLabel = "Stratégie " + (i + 1) + " \u00b7 " + locLabel + " \u00b1" + strategy.yearSpread + "an";
 
-      prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+      const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+
+      // Accumulate prices across strategies (dedup by price+km to avoid duplicates)
+      const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+      const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+      prices = [...prices, ...unique];
+
       const enoughPrices = prices.length >= MIN_PRICES_FOR_ARGUS;
-      console.log("[CoPilot] strategie %d (precision=%d): %d prix trouvés | %s",
-        i + 1, strategy.precision, prices.length, searchUrl.substring(0, 150));
+      console.log("[CoPilot] strategie %d (precision=%d): %d nouveaux prix (%d uniques), total=%d | %s",
+        i + 1, strategy.precision, newPrices.length, unique.length, prices.length, searchUrl.substring(0, 150));
 
       if (progress) {
-        const stepStatus = enoughPrices ? "done" : "skip";
-        const stepDetail = prices.length + " annonces" + (enoughPrices ? " \u2713 seuil atteint" : "");
+        const stepStatus = unique.length > 0 ? "done" : "skip";
+        const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")"
+          + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "");
         progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
       }
 
@@ -1083,17 +1112,25 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
           ...(strategy.filters.includes("horse_power_din=") ? ["hp"] : []),
           ...(strategy.filters.includes("mileage=") ? ["km"] : []),
         ],
-        ads_found: prices.length,
+        ads_found: newPrices.length,
+        unique_added: unique.length,
+        total_accumulated: prices.length,
         url: searchUrl,
         was_selected: enoughPrices,
         reason: enoughPrices
-          ? `${prices.length} annonces >= ${MIN_PRICES_FOR_ARGUS} minimum`
-          : `${prices.length} annonces < ${MIN_PRICES_FOR_ARGUS} minimum`,
+          ? `total ${prices.length} annonces >= ${MIN_PRICES_FOR_ARGUS} minimum`
+          : `total ${prices.length} annonces < ${MIN_PRICES_FOR_ARGUS} minimum`,
       });
 
-      if (enoughPrices) {
+      // Record precision of the FIRST strategy that reaches the threshold
+      if (enoughPrices && collectedPrecision === null) {
         collectedPrecision = strategy.precision;
-        console.log("[CoPilot] assez de prix (%d >= %d), precision=%d", prices.length, MIN_PRICES_FOR_ARGUS, collectedPrecision);
+        console.log("[CoPilot] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
+      }
+
+      // Cap: stop if we have plenty of data (avoid excessive network requests)
+      if (prices.length >= MAX_PRICES_CAP) {
+        console.log("[CoPilot] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
         break;
       }
     }
