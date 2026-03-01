@@ -536,6 +536,26 @@ export function parseJsonLd(doc) {
   return null;
 }
 
+/**
+ * SPA guard helper: find a JSON-LD vehicle node matching the expected make.
+ * When AS24 SPA navigation leaves stale scripts in the DOM, multiple JSON-LD
+ * blocks may coexist. This picks the one whose brand matches the URL.
+ */
+function _findJsonLdByMake(doc, expectedMake) {
+  const target = (expectedMake || '').toLowerCase();
+  if (!target) return null;
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    const data = parseLooselyJsonLd(script.textContent || '');
+    if (!data) continue;
+    const vehicle = findVehicleLikeLdNode(data);
+    if (!vehicle) continue;
+    const brand = (vehicle.brand?.name || '').toLowerCase();
+    if (brand === target) return vehicle;
+  }
+  return null;
+}
+
 // ── Normalize to ad_data ────────────────────────────────────────────
 
 /**
@@ -1153,6 +1173,39 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     this._adData = normalizeToAdData(this._rsc, this._jsonLd);
+
+    // SPA guard: AS24 is a React SPA. When navigating between listings,
+    // stale RSC/JSON-LD <script> tags from the previous page may still be
+    // in the DOM. Cross-validate extracted make/model against the URL slug.
+    const urlHint = extractMakeModelFromUrl(window.location.href);
+    if (urlHint.make && this._adData.make) {
+      const extractedMake = (this._adData.make || '').toLowerCase();
+      const urlMake = (urlHint.make || '').toLowerCase();
+      if (extractedMake && urlMake && extractedMake !== urlMake) {
+        console.warn(
+          '[CoPilot] AS24 SPA stale data: extracted make=%s but URL says make=%s',
+          this._adData.make, urlHint.make
+        );
+        // Try to find a JSON-LD node matching the URL's make
+        const freshLd = _findJsonLdByMake(document, urlHint.make);
+        if (freshLd) {
+          console.log('[CoPilot] Found fresh JSON-LD for %s, using it', urlHint.make);
+          this._rsc = null;
+          this._jsonLd = freshLd;
+          this._adData = normalizeToAdData(null, freshLd);
+        } else {
+          console.log('[CoPilot] No matching JSON-LD, falling back to DOM');
+          this._rsc = null;
+          this._jsonLd = null;
+          this._adData = fallbackAdDataFromDom(document, window.location.href);
+        }
+        return {
+          type: 'normalized',
+          source: 'autoscout24',
+          ad_data: this._adData,
+        };
+      }
+    }
 
     return {
       type: 'normalized',
