@@ -1719,11 +1719,12 @@
     const tld = typeof window !== "undefined" ? extractTld(window.location.href) : null;
     const countryCode = tld ? TLD_TO_COUNTRY_CODE[tld] || null : null;
     const derivedRegion = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : null;
+    const resolvedCurrency = offers.priceCurrency || (tld ? TLD_TO_CURRENCY[tld] || null : null) || null;
     if (rsc) {
       return {
         title: rsc.versionFullName || ld.name || null,
         price_eur: rsc.price ?? offers.price ?? null,
-        currency: offers.priceCurrency || null,
+        currency: resolvedCurrency,
         make: resolveMake(),
         model: resolveModel(),
         year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || null,
@@ -1769,7 +1770,7 @@
     return {
       title: ld.name || null,
       price_eur: offers.price ?? null,
-      currency: offers.priceCurrency || null,
+      currency: resolvedCurrency,
       make: ld.brand?.name || null,
       model: ld.model || null,
       year_model: ld.vehicleModelDate || null,

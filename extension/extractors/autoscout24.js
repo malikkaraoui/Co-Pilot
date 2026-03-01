@@ -613,12 +613,17 @@ export function normalizeToAdData(rsc, jsonLd) {
   const countryCode = tld ? (TLD_TO_COUNTRY_CODE[tld] || null) : null;
   const derivedRegion = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
 
+  // Currency: prefer JSON-LD offers, fallback to TLD-based (AS24.ch Car node lacks offers)
+  const resolvedCurrency = offers.priceCurrency
+    || (tld ? (TLD_TO_CURRENCY[tld] || null) : null)
+    || null;
+
   // RSC-first extraction with JSON-LD fallback
   if (rsc) {
     return {
       title: rsc.versionFullName || ld.name || null,
       price_eur: rsc.price ?? offers.price ?? null,
-      currency: offers.priceCurrency || null,
+      currency: resolvedCurrency,
       make: resolveMake(),
       model: resolveModel(),
       year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || null,
@@ -670,7 +675,7 @@ export function normalizeToAdData(rsc, jsonLd) {
   return {
     title: ld.name || null,
     price_eur: offers.price ?? null,
-    currency: offers.priceCurrency || null,
+    currency: resolvedCurrency,
     make: ld.brand?.name || null,
     model: ld.model || null,
     year_model: ld.vehicleModelDate || null,
