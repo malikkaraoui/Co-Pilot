@@ -19,7 +19,7 @@ import {
   buildSearchUrl,
   toAs24Slug,
   extractAs24SlugsFromSearchUrl,
-  parseSearchPrices,
+  parseSearchPrices, brandMatchesAs24,
   getAs24GearCode,
   getAs24PowerParams,
   getAs24KmParams,
@@ -882,6 +882,77 @@ describe('parseSearchPrices', () => {
     expect(results).toHaveLength(1);
     expect(results[0].price).toBe(20000);
     expect(results[0].km).toBe(30000);
+  });
+  it('JSON-LD brand safety: rejette les annonces d\'autres marques', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "url": "https://as24.ch/d/peugeot-3008-111",
+         "brand": {"@type": "Brand", "name": "Peugeot"},
+         "offers": {"price": 18000, "itemOffered": {}}},
+        {"@type": "Product", "url": "https://as24.ch/d/vw-tiguan-222",
+         "brand": {"@type": "Brand", "name": "Volkswagen"},
+         "offers": {"price": 22000, "itemOffered": {}}},
+        {"@type": "Product", "url": "https://as24.ch/d/peugeot-308-333",
+         "brand": {"@type": "Brand", "name": "Peugeot"},
+         "offers": {"price": 15000, "itemOffered": {}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html, 'Peugeot');
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => [18000, 15000].includes(r.price))).toBe(true);
+  });
+
+  it('JSON-LD brand safety: garde tout si targetMake est null', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "url": "https://as24.ch/d/peugeot-3008-111",
+         "brand": {"@type": "Brand", "name": "Peugeot"},
+         "offers": {"price": 18000, "itemOffered": {}}},
+        {"@type": "Product", "url": "https://as24.ch/d/vw-tiguan-222",
+         "brand": {"@type": "Brand", "name": "Volkswagen"},
+         "offers": {"price": 22000, "itemOffered": {}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html, null);
+    expect(results).toHaveLength(2);
+  });
+
+  it('JSON-LD brand safety: garde les items sans brand (graceful fallback)', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "url": "https://as24.ch/d/unknown-111",
+         "offers": {"price": 16000, "itemOffered": {}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html, 'Peugeot');
+    expect(results).toHaveLength(1);
+  });
+});
+
+
+// ── 13b. brandMatchesAs24 ───────────────────────────────────────────
+
+describe('brandMatchesAs24', () => {
+  it('match exact case-insensitive', () => {
+    expect(brandMatchesAs24('Peugeot', 'PEUGEOT')).toBe(true);
+  });
+
+  it('retourne true si null/vide', () => {
+    expect(brandMatchesAs24(null, 'Peugeot')).toBe(true);
+    expect(brandMatchesAs24('Peugeot', null)).toBe(true);
+  });
+
+  it('VW ↔ Volkswagen', () => {
+    expect(brandMatchesAs24('VW', 'Volkswagen')).toBe(true);
+    expect(brandMatchesAs24('Volkswagen', 'VW')).toBe(true);
+  });
+
+  it('rejette les marques differentes', () => {
+    expect(brandMatchesAs24('Volkswagen', 'Peugeot')).toBe(false);
+    expect(brandMatchesAs24('BMW', 'Audi')).toBe(false);
   });
 });
 

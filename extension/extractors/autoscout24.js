@@ -944,21 +944,51 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
   return `${base}?${params}`;
 }
 
+/** Normalise un nom de marque pour comparaison (minuscule, sans accent, sans tiret). */
+function _normalizeBrand(brand) {
+  if (!brand) return '';
+  return brand.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_]/g, ' ')
+    .trim();
+}
+
+/** Verifie si la marque d'une annonce correspond a la marque cible. */
+export function brandMatchesAs24(adBrand, targetMake) {
+  if (!adBrand || !targetMake) return true;
+  const a = _normalizeBrand(adBrand);
+  const t = _normalizeBrand(targetMake);
+  if (!a || !t) return true;
+  if (a === t) return true;
+  if ((a === 'vw' && t === 'volkswagen') || (a === 'volkswagen' && t === 'vw')) return true;
+  if (a.startsWith('mercedes') && t.startsWith('mercedes')) return true;
+  if (a.includes(t) || t.includes(a)) return true;
+  return false;
+}
+
+/** Extrait le nom de marque depuis un item JSON-LD Product. */
+function _extractJsonLdBrand(item) {
+  return item?.brand?.name
+    || item?.offers?.itemOffered?.brand?.name
+    || null;
+}
+
 /**
  * Parses AS24 search result page to extract vehicle prices.
  * Supports two formats:
  *   1. RSC/Next.js chunks (AS24 GmbH: .de, .fr, .be, etc.) — regex on "price"/"mileage"
  *   2. JSON-LD OfferCatalog (AS24 SMG: .ch) — structured schema.org data
  * @param {string} html - Raw HTML of search page
+ * @param {string|null} targetMake - Marque cible pour filtrer les annonces sponsorisees
  * @returns {Array<{price: number, year: number|null, km: number|null, fuel: string|null}>}
  */
-export function parseSearchPrices(html) {
-  // Strategy 1: RSC regex (GmbH sites)
+export function parseSearchPrices(html, targetMake = null) {
+  // Strategy 1: RSC regex (GmbH sites) — no brand data available in regex
   const results = _parseSearchPricesRSC(html);
 
   // Strategy 2: JSON-LD fallback (SMG sites like .ch)
   if (results.length === 0) {
-    const jsonLdResults = _parseSearchPricesJsonLd(html);
+    const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
     if (jsonLdResults.length > 0) return jsonLdResults;
   }
 
@@ -980,8 +1010,9 @@ function _parseSearchPricesRSC(html) {
   return _dedup(results);
 }
 
-/** JSON-LD OfferCatalog strategy — works for AS24 SMG (.ch). */
-function _parseSearchPricesJsonLd(html) {
+/** JSON-LD OfferCatalog strategy — works for AS24 SMG (.ch).
+ *  Si targetMake est fourni, filtre les annonces dont la marque ne correspond pas. */
+function _parseSearchPricesJsonLd(html, targetMake = null) {
   const results = [];
   const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let scriptMatch;
@@ -996,6 +1027,13 @@ function _parseSearchPricesJsonLd(html) {
         const year = _extractJsonLdYear(item);
         const uid = _extractJsonLdUid(item);
         if (price && price > 500 && price < 500000) {
+          if (targetMake) {
+            const adBrand = _extractJsonLdBrand(item);
+            if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+              console.debug('[CoPilot] AS24 brand safety: rejet %s (cible: %s)', adBrand, targetMake);
+              continue;
+            }
+          }
           results.push({ price, year, km, fuel, _uid: uid });
         }
       }
@@ -1392,7 +1430,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         if (resp.url) rememberSlugs(resp.url, 'as24_response_url');
 
         const html = await resp.text();
-        const newPrices = parseSearchPrices(html);
+        const newPrices = parseSearchPrices(html, target.make);
 
         // Accumulation cumulative (comme LBC) avec dedup par price+km
         const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
@@ -1591,7 +1629,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         }
 
         const html = await resp.text();
-        const prices = parseSearchPrices(html);
+        const prices = parseSearchPrices(html, job.make);
 
         console.log('[CoPilot] AS24 bonus %s %s %d %s: %d prix', job.make, job.model, jobYear, job.region, prices.length);
 

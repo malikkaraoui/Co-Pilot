@@ -510,7 +510,30 @@
     }
     return filters;
   }
-  function filterAndMapSearchAds(ads, targetYear, yearSpread) {
+  function _normalizeBrand(brand) {
+    if (!brand) return "";
+    return brand.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-_]/g, " ").trim();
+  }
+  function brandMatches(adBrand, targetMake) {
+    if (!adBrand || !targetMake) return true;
+    const a = _normalizeBrand(adBrand);
+    const t = _normalizeBrand(targetMake);
+    if (!a || !t) return true;
+    if (a === t) return true;
+    if (a === "vw" && t === "volkswagen" || a === "volkswagen" && t === "vw") return true;
+    if (a.startsWith("mercedes") && t.startsWith("mercedes")) return true;
+    if (a.includes(t) || t.includes(a)) return true;
+    return false;
+  }
+  function _extractAdBrand(ad) {
+    const attrs = Array.isArray(ad?.attributes) ? ad.attributes : [];
+    const brandAttr = attrs.find((a) => {
+      const key = (a?.key || "").toLowerCase();
+      return key === "u_car_brand" || key === "brand" || key === "marque";
+    });
+    return brandAttr?.value_label || brandAttr?.value || null;
+  }
+  function filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake = null) {
     return ads.filter((ad) => {
       const rawPrice = Array.isArray(ad?.price) ? ad.price[0] : ad?.price;
       const priceInt = typeof rawPrice === "number" ? rawPrice : parseInt(String(rawPrice || "0").replace(/[^\d]/g, ""), 10);
@@ -518,6 +541,13 @@
       if (targetYear >= 1990) {
         const adYear = getAdYear(ad);
         if (adYear && Math.abs(adYear - targetYear) > yearSpread) return false;
+      }
+      if (targetMake) {
+        const adBrand = _extractAdBrand(ad);
+        if (adBrand && !brandMatches(adBrand, targetMake)) {
+          console.debug("[CoPilot] brand safety: rejet %s (cible: %s)", adBrand, targetMake);
+          return false;
+        }
       }
       return true;
     }).map((ad) => getAdDetails(ad));
@@ -575,13 +605,13 @@
     const pp = data?.props?.pageProps || {};
     return pp?.searchData?.ads || pp?.initialProps?.searchData?.ads || pp?.ads || pp?.adSearch?.ads || [];
   }
-  async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
+  async function fetchSearchPrices(searchUrl, targetYear, yearSpread, targetMake = null) {
     let ads = null;
     try {
       ads = await fetchSearchPricesViaApi(searchUrl);
       if (ads && ads.length > 0) {
         console.log("[CoPilot] fetchSearchPrices (API): %d ads bruts", ads.length);
-        return filterAndMapSearchAds(ads, targetYear, yearSpread);
+        return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
       }
     } catch (err) {
       console.debug("[CoPilot] API finder indisponible:", err.message);
@@ -590,7 +620,7 @@
       ads = await fetchSearchPricesViaHtml(searchUrl);
       if (ads && ads.length > 0) {
         console.log("[CoPilot] fetchSearchPrices (HTML): %d ads bruts", ads.length);
-        return filterAndMapSearchAds(ads, targetYear, yearSpread);
+        return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
       }
       console.log("[CoPilot] fetchSearchPrices: 0 ads (API + HTML)");
     } catch (err) {
@@ -675,7 +705,7 @@
         let searchUrl = jobCoreUrl + filters + `&locations=${locParam}`;
         const jobYear = parseInt(job.year, 10);
         if (jobYear >= 1990) searchUrl += `&regdate=${jobYear - 1}-${jobYear + 1}`;
-        const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1);
+        const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
         console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
         if (progress) {
           const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
@@ -955,7 +985,7 @@
         }
         const locLabel = strategy.isTextFallback ? "Text search (fallback)" : strategy.loc === geoParam && geoParam ? "G\xE9o (" + (location2?.city || "local") + " 30km)" : strategy.loc === regionParam && regionParam ? "R\xE9gion (" + targetRegion + ")" : "National";
         const strategyLabel = "Strat\xE9gie " + (i + 1) + " \xB7 " + locLabel + " \xB1" + strategy.yearSpread + "an";
-        const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+        const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread, target.make);
         const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
         const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
         prices = [...prices, ...unique];
@@ -1022,7 +1052,7 @@
           }
           const dualLocType = ds.loc ? "region" : "national";
           const dualLabel = `Strat\xE9gie ${strategies.length + d + 1} \xB7 Dual ${secondaryBrand} (${dualLocType})`;
-          const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread);
+          const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread, secondaryBrand);
           const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
           const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
           prices = [...prices, ...unique];
@@ -1950,10 +1980,28 @@
     }
     return `${base}?${params}`;
   }
-  function parseSearchPrices(html) {
+  function _normalizeBrand2(brand) {
+    if (!brand) return "";
+    return brand.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-_]/g, " ").trim();
+  }
+  function brandMatchesAs24(adBrand, targetMake) {
+    if (!adBrand || !targetMake) return true;
+    const a = _normalizeBrand2(adBrand);
+    const t = _normalizeBrand2(targetMake);
+    if (!a || !t) return true;
+    if (a === t) return true;
+    if (a === "vw" && t === "volkswagen" || a === "volkswagen" && t === "vw") return true;
+    if (a.startsWith("mercedes") && t.startsWith("mercedes")) return true;
+    if (a.includes(t) || t.includes(a)) return true;
+    return false;
+  }
+  function _extractJsonLdBrand(item) {
+    return item?.brand?.name || item?.offers?.itemOffered?.brand?.name || null;
+  }
+  function parseSearchPrices(html, targetMake = null) {
     const results = _parseSearchPricesRSC(html);
     if (results.length === 0) {
-      const jsonLdResults = _parseSearchPricesJsonLd(html);
+      const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
       if (jsonLdResults.length > 0) return jsonLdResults;
     }
     return results;
@@ -1971,7 +2019,7 @@
     }
     return _dedup(results);
   }
-  function _parseSearchPricesJsonLd(html) {
+  function _parseSearchPricesJsonLd(html, targetMake = null) {
     const results = [];
     const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
     let scriptMatch;
@@ -1986,6 +2034,13 @@
           const year = _extractJsonLdYear(item);
           const uid = _extractJsonLdUid(item);
           if (price && price > 500 && price < 5e5) {
+            if (targetMake) {
+              const adBrand = _extractJsonLdBrand(item);
+              if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+                console.debug("[CoPilot] AS24 brand safety: rejet %s (cible: %s)", adBrand, targetMake);
+                continue;
+              }
+            }
             results.push({ price, year, km, fuel, _uid: uid });
           }
         }
@@ -2309,7 +2364,7 @@
           }
           if (resp.url) rememberSlugs(resp.url, "as24_response_url");
           const html = await resp.text();
-          const newPrices = parseSearchPrices(html);
+          const newPrices = parseSearchPrices(html, target.make);
           const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
           const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
           prices = [...prices, ...unique];
@@ -2493,7 +2548,7 @@
             continue;
           }
           const html = await resp.text();
-          const prices = parseSearchPrices(html);
+          const prices = parseSearchPrices(html, job.make);
           console.log("[CoPilot] AS24 bonus %s %s %d %s: %d prix", job.make, job.model, jobYear, job.region, prices.length);
           if (prices.length >= MIN_BONUS_PRICES) {
             let priceInts = prices.map((p) => p.price);

@@ -590,8 +590,41 @@ export function buildApiFilters(searchUrl) {
   return filters;
 }
 
-/** Filtre et mappe les ads bruts en tableau de {price, year, km, fuel}. */
-export function filterAndMapSearchAds(ads, targetYear, yearSpread) {
+/** Normalise un nom de marque pour comparaison (minuscule, sans accent, sans tiret). */
+function _normalizeBrand(brand) {
+  if (!brand) return '';
+  return brand.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_]/g, ' ')
+    .trim();
+}
+
+/** Verifie si la marque d'une annonce correspond a la marque cible. */
+export function brandMatches(adBrand, targetMake) {
+  if (!adBrand || !targetMake) return true;
+  const a = _normalizeBrand(adBrand);
+  const t = _normalizeBrand(targetMake);
+  if (!a || !t) return true;
+  if (a === t) return true;
+  if ((a === 'vw' && t === 'volkswagen') || (a === 'volkswagen' && t === 'vw')) return true;
+  if (a.startsWith('mercedes') && t.startsWith('mercedes')) return true;
+  if (a.includes(t) || t.includes(a)) return true;
+  return false;
+}
+
+/** Extrait le nom de marque depuis les attributs d'une annonce LBC. */
+function _extractAdBrand(ad) {
+  const attrs = Array.isArray(ad?.attributes) ? ad.attributes : [];
+  const brandAttr = attrs.find((a) => {
+    const key = (a?.key || '').toLowerCase();
+    return key === 'u_car_brand' || key === 'brand' || key === 'marque';
+  });
+  return brandAttr?.value_label || brandAttr?.value || null;
+}
+
+/** Filtre et mappe les ads bruts en tableau de {price, year, km, fuel}.
+ *  Si targetMake est fourni, rejette les annonces sponsorisees d'autres marques. */
+export function filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake = null) {
   return ads
     .filter((ad) => {
       const rawPrice = Array.isArray(ad?.price) ? ad.price[0] : ad?.price;
@@ -602,6 +635,13 @@ export function filterAndMapSearchAds(ads, targetYear, yearSpread) {
       if (targetYear >= 1990) {
         const adYear = getAdYear(ad);
         if (adYear && Math.abs(adYear - targetYear) > yearSpread) return false;
+      }
+      if (targetMake) {
+        const adBrand = _extractAdBrand(ad);
+        if (adBrand && !brandMatches(adBrand, targetMake)) {
+          console.debug('[CoPilot] brand safety: rejet %s (cible: %s)', adBrand, targetMake);
+          return false;
+        }
       }
       return true;
     })
@@ -677,8 +717,9 @@ export async function fetchSearchPricesViaHtml(searchUrl) {
       || [];
 }
 
-/** Fetch une page de recherche LBC et extrait les prix valides. */
-export async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
+/** Fetch une page de recherche LBC et extrait les prix valides.
+ *  Si targetMake est fourni, filtre les annonces sponsorisees d'autres marques. */
+export async function fetchSearchPrices(searchUrl, targetYear, yearSpread, targetMake = null) {
   let ads = null;
 
   // 1. API LBC finder/search (methode principale depuis que LBC est CSR)
@@ -686,7 +727,7 @@ export async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
     ads = await fetchSearchPricesViaApi(searchUrl);
     if (ads && ads.length > 0) {
       console.log("[CoPilot] fetchSearchPrices (API): %d ads bruts", ads.length);
-      return filterAndMapSearchAds(ads, targetYear, yearSpread);
+      return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
     }
   } catch (err) {
     console.debug("[CoPilot] API finder indisponible:", err.message);
@@ -697,7 +738,7 @@ export async function fetchSearchPrices(searchUrl, targetYear, yearSpread) {
     ads = await fetchSearchPricesViaHtml(searchUrl);
     if (ads && ads.length > 0) {
       console.log("[CoPilot] fetchSearchPrices (HTML): %d ads bruts", ads.length);
-      return filterAndMapSearchAds(ads, targetYear, yearSpread);
+      return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
     }
     console.log("[CoPilot] fetchSearchPrices: 0 ads (API + HTML)");
   } catch (err) {
@@ -803,7 +844,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
       const jobYear = parseInt(job.year, 10);
       if (jobYear >= 1990) searchUrl += `&regdate=${jobYear - 1}-${jobYear + 1}`;
 
-      const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1);
+      const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
       console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
 
       if (progress) {
@@ -1115,7 +1156,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         : "National";
       const strategyLabel = "Stratégie " + (i + 1) + " \u00b7 " + locLabel + " \u00b1" + strategy.yearSpread + "an";
 
-      const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+      const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread, target.make);
 
       // Accumulate prices across strategies (dedup by price+km to avoid duplicates)
       const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
@@ -1198,7 +1239,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         const dualLocType = ds.loc ? "region" : "national";
         const dualLabel = `Stratégie ${strategies.length + d + 1} · Dual ${secondaryBrand} (${dualLocType})`;
 
-        const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread);
+        const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread, secondaryBrand);
         const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
         const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
         prices = [...prices, ...unique];

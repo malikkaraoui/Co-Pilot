@@ -19,7 +19,7 @@ import {
   fetchSearchPricesViaHtml,
   buildApiFilters,
   parseRange,
-  filterAndMapSearchAds,
+  filterAndMapSearchAds, brandMatches,
   extractMileageFromNextData,
   isStaleData,
   isAdPage,
@@ -1804,6 +1804,108 @@ describe('filterAndMapSearchAds', () => {
     // adYear = null → pas de filtre annee applique
     const result = filterAndMapSearchAds(ads, 2021, 1);
     expect(result).toHaveLength(1);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 10b. brandMatches : matching de marque pour filtrer les pubs
+// ═══════════════════════════════════════════════════════════════════
+
+describe('brandMatches', () => {
+  it('match exact (case-insensitive)', () => {
+    expect(brandMatches('Peugeot', 'PEUGEOT')).toBe(true);
+    expect(brandMatches('BMW', 'bmw')).toBe(true);
+  });
+
+  it('retourne true si adBrand ou targetMake est null/vide', () => {
+    expect(brandMatches(null, 'Peugeot')).toBe(true);
+    expect(brandMatches('Peugeot', null)).toBe(true);
+    expect(brandMatches('', 'Peugeot')).toBe(true);
+    expect(brandMatches(null, null)).toBe(true);
+  });
+
+  it('VW ↔ Volkswagen', () => {
+    expect(brandMatches('VW', 'Volkswagen')).toBe(true);
+    expect(brandMatches('Volkswagen', 'VW')).toBe(true);
+  });
+
+  it('Mercedes-Benz variants', () => {
+    expect(brandMatches('Mercedes-Benz', 'MERCEDES')).toBe(true);
+    expect(brandMatches('MERCEDES', 'Mercedes-Benz')).toBe(true);
+  });
+
+  it('Alfa Romeo containment', () => {
+    expect(brandMatches('Alfa Romeo', 'Alfa')).toBe(true);
+    expect(brandMatches('Alfa', 'Alfa Romeo')).toBe(true);
+  });
+
+  it('rejette les marques differentes', () => {
+    expect(brandMatches('Volkswagen', 'Peugeot')).toBe(false);
+    expect(brandMatches('BMW', 'Audi')).toBe(false);
+    expect(brandMatches('Renault', 'Toyota')).toBe(false);
+  });
+
+  it('gere les accents (Citroën → Citroen)', () => {
+    expect(brandMatches('Citroën', 'Citroen')).toBe(true);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 10c. filterAndMapSearchAds brand safety : filtre annonces sponsorisees
+// ═══════════════════════════════════════════════════════════════════
+
+describe('filterAndMapSearchAds brand safety', () => {
+  function makeLbcAdWithBrand({ price = 18000, year = 2021, km = 50000, fuel = 'Diesel', brand = 'Peugeot' } = {}) {
+    return {
+      price: [price],
+      attributes: [
+        { key: 'regdate', value: String(year) },
+        { key: 'mileage', value: String(km) },
+        { key: 'fuel', value_label: fuel },
+        { key: 'u_car_brand', value: brand, value_label: brand },
+      ],
+    };
+  }
+
+  it('garde les annonces de la bonne marque', () => {
+    const ads = [
+      makeLbcAdWithBrand({ brand: 'Peugeot', price: 18000 }),
+      makeLbcAdWithBrand({ brand: 'PEUGEOT', price: 19000 }),
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1, 'Peugeot');
+    expect(result).toHaveLength(2);
+  });
+
+  it('rejette les annonces sponsorisees d\'autres marques', () => {
+    const ads = [
+      makeLbcAdWithBrand({ brand: 'Volkswagen', price: 20000 }), // sponsorisee
+      makeLbcAdWithBrand({ brand: 'BMW', price: 22000 }),        // sponsorisee
+      makeLbcAdWithBrand({ brand: 'Peugeot', price: 18000 }),    // OK
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1, 'Peugeot');
+    expect(result).toHaveLength(1);
+    expect(result[0].price).toBe(18000);
+  });
+
+  it('garde les annonces sans attribut marque (graceful fallback)', () => {
+    const ads = [{
+      price: [15000],
+      attributes: [{ key: 'regdate', value: '2021' }],
+      // pas de u_car_brand
+    }];
+    const result = filterAndMapSearchAds(ads, 2021, 1, 'Peugeot');
+    expect(result).toHaveLength(1);
+  });
+
+  it('ne filtre pas quand targetMake est null', () => {
+    const ads = [
+      makeLbcAdWithBrand({ brand: 'Volkswagen', price: 20000 }),
+      makeLbcAdWithBrand({ brand: 'Peugeot', price: 18000 }),
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1, null);
+    expect(result).toHaveLength(2);
   });
 });
 

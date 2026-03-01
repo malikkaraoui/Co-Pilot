@@ -19,7 +19,7 @@ import {
   isUserLoggedIn, revealPhoneNumber, isStaleData, isAdPageLBC,
   maybeCollectMarketPrices, LBC_REGIONS, LBC_FUEL_CODES, LBC_GEARBOX_CODES,
   getMileageRange, getHorsePowerRange, COLLECT_COOLDOWN_MS,
-  toLbcBrandToken, LBC_BRAND_ALIASES, getAdDetails, executeBonusJobs, reportJobDone,
+  toLbcBrandToken, LBC_BRAND_ALIASES, brandMatches, getAdDetails, executeBonusJobs, reportJobDone,
   GENERIC_MODELS, EXCLUDED_CATEGORIES,
 } from './extractors/leboncoin.js';
 
@@ -1013,6 +1013,6 @@ export {
   isUserLoggedIn, revealPhoneNumber, isStaleData,
   maybeCollectMarketPrices, LBC_REGIONS, LBC_FUEL_CODES, LBC_GEARBOX_CODES,
   getMileageRange, getHorsePowerRange, COLLECT_COOLDOWN_MS,
-  toLbcBrandToken, LBC_BRAND_ALIASES,
+  toLbcBrandToken, LBC_BRAND_ALIASES, brandMatches,
   getAdDetails, executeBonusJobs, reportJobDone,
 };
