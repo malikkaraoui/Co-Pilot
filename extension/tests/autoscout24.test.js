@@ -843,6 +843,23 @@ describe('parseSearchPrices', () => {
     expect(results).toHaveLength(2);
   });
 
+  it('JSON-LD: keeps same-price items with different URLs (uid-based dedup)', () => {
+    const html = `<html><head><script type="application/ld+json">{
+      "@type": "Organization",
+      "mainEntity": {"offers": {"@type": "OfferCatalog", "itemListElement": [
+        {"@type": "Product", "url": "https://as24.ch/d/car-a-111", "offers": {"price": 33900, "itemOffered": {}}},
+        {"@type": "Product", "url": "https://as24.ch/d/car-b-222", "offers": {"price": 33900, "itemOffered": {}}},
+        {"@type": "Product", "url": "https://as24.ch/d/car-c-333", "offers": {"price": 33900, "itemOffered": {}}}
+      ]}}
+    }</script></head></html>`;
+    const results = parseSearchPrices(html);
+    // Same price + null km, but different URLs → all 3 kept
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.price === 33900)).toBe(true);
+    // _uid should NOT leak into public results
+    expect(results[0]._uid).toBeUndefined();
+  });
+
   it('JSON-LD: handles missing mileage and fuel gracefully', () => {
     const html = `<html><head><script type="application/ld+json">{
       "@type": "Organization",

@@ -994,8 +994,9 @@ function _parseSearchPricesJsonLd(html) {
         const km = _extractJsonLdMileage(item);
         const fuel = _extractJsonLdFuel(item);
         const year = _extractJsonLdYear(item);
+        const uid = _extractJsonLdUid(item);
         if (price && price > 500 && price < 500000) {
-          results.push({ price, year, km, fuel });
+          results.push({ price, year, km, fuel, _uid: uid });
         }
       }
     } catch (_) {
@@ -1053,15 +1054,24 @@ function _extractJsonLdYear(item) {
   return (y > 1900 && y < 2100) ? y : null;
 }
 
-/** Deduplicate by price+km. */
+/** Extract a unique identifier (listing ID from URL) for dedup. */
+function _extractJsonLdUid(item) {
+  const url = item?.url || item?.offers?.url;
+  if (!url) return null;
+  // Extract numeric listing ID from AS24 URLs like /d/peugeot-3008-...-20230757
+  const m = url.match(/(\d{6,})(?:[/?#]|$)/);
+  return m ? m[1] : url;
+}
+
+/** Deduplicate: prefer _uid (listing ID), fallback to price+km. Strip _uid from output. */
 function _dedup(results) {
   const seen = new Set();
   return results.filter((r) => {
-    const key = `${r.price}-${r.km}`;
+    const key = r._uid || `${r.price}-${r.km}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  });
+  }).map(({ _uid, ...rest }) => rest);
 }
 
 // ── AutoScout24Extractor class ──────────────────────────────────────

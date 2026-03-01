@@ -1984,8 +1984,9 @@
           const km = _extractJsonLdMileage(item);
           const fuel = _extractJsonLdFuel(item);
           const year = _extractJsonLdYear(item);
+          const uid = _extractJsonLdUid(item);
           if (price && price > 500 && price < 5e5) {
-            results.push({ price, year, km, fuel });
+            results.push({ price, year, km, fuel, _uid: uid });
           }
         }
       } catch (_) {
@@ -2035,14 +2036,20 @@
     const y = parseInt(String(date).slice(0, 4), 10);
     return y > 1900 && y < 2100 ? y : null;
   }
+  function _extractJsonLdUid(item) {
+    const url = item?.url || item?.offers?.url;
+    if (!url) return null;
+    const m = url.match(/(\d{6,})(?:[/?#]|$)/);
+    return m ? m[1] : url;
+  }
   function _dedup(results) {
     const seen = /* @__PURE__ */ new Set();
     return results.filter((r) => {
-      const key = `${r.price}-${r.km}`;
+      const key = r._uid || `${r.price}-${r.km}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    });
+    }).map(({ _uid, ...rest }) => rest);
   }
   var AutoScout24Extractor = class extends SiteExtractor {
     static SITE_ID = "autoscout24";
