@@ -156,11 +156,14 @@
   var LBC_FUEL_CODES = {
     "essence": 1,
     "diesel": 2,
+    "gpl": 3,
     "electrique": 4,
     "\xE9lectrique": 4,
+    "autre": 5,
     "hybride": 6,
-    "hybride rechargeable": 7,
-    "gpl": 3,
+    "gnv": 7,
+    "gaz naturel": 7,
+    "hybride rechargeable": 8,
     "\xE9lectrique & essence": 6,
     "electrique & essence": 6,
     "\xE9lectrique & diesel": 6,
@@ -756,7 +759,7 @@
     if (progress) progress.update("job", "running");
     const fuelForJob = (fuel || "").toLowerCase();
     const gearboxForJob = (gearbox || "").toLowerCase();
-    const jobUrl = _apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
+    const jobUrl = _apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&site=lbc` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
     let jobResp;
     try {
       console.log("[CoPilot] next-job \u2192", jobUrl);
@@ -1737,9 +1740,14 @@
     const match = url.match(/autoscout24\.(\w+)/);
     return match ? match[1] : "de";
   }
+  function extractLang(url) {
+    const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
+    return match ? match[1] : null;
+  }
   function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius } = options;
-    const base = `https://www.autoscout24.${tld}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
+    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang } = options;
+    const langSegment = lang ? `/${lang}` : "";
+    const base = `https://www.autoscout24.${tld}${langSegment}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
     const params = new URLSearchParams({
       fregfrom: String(year - yearSpread),
       fregto: String(year + yearSpread),
@@ -1884,6 +1892,7 @@
         return { submitted: false, isCurrentVehicle: false };
       }
       const tld = extractTld(window.location.href);
+      const lang = extractLang(window.location.href);
       const countryName = TLD_TO_COUNTRY[tld] || "Europe";
       const countryCode = TLD_TO_COUNTRY_CODE[tld] || "FR";
       const currency = TLD_TO_CURRENCY[tld] || "EUR";
@@ -1900,7 +1909,7 @@
       if (progress) progress.update("job", "running");
       const fuelForJob = this._adData.fuel ? this._adData.fuel.toLowerCase() : "";
       const gearboxForJob = this._adData.gearbox ? this._adData.gearbox.toLowerCase() : "";
-      const jobUrl = this._apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&country=${encodeURIComponent(countryCode)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : "");
+      const jobUrl = this._apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&country=${encodeURIComponent(countryCode)}&site=as24&tld=${encodeURIComponent(tld)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : "");
       let jobResp;
       try {
         console.log("[CoPilot] AS24 next-job \u2192", jobUrl);
@@ -1932,7 +1941,7 @@
           progress.update("collect", "skip", "V\xE9hicule d\xE9j\xE0 \xE0 jour");
           progress.update("submit", "skip");
         }
-        await this._executeBonusJobs(queuedJobs, tld, progress);
+        await this._executeBonusJobs(queuedJobs, tld, progress, lang);
         return { submitted: false, isCurrentVehicle: false };
       }
       const target = jobResp.data.vehicle;
@@ -1949,7 +1958,7 @@
             progress.update("submit", "skip");
           }
           if (bonusJobs.length > 0) {
-            await this._executeBonusJobs(bonusJobs, tld, progress);
+            await this._executeBonusJobs(bonusJobs, tld, progress, lang);
           } else if (progress) {
             progress.update("bonus", "skip");
           }
@@ -2016,7 +2025,7 @@
       for (let i = 0; i < strategies.length; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
         const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
-        const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, searchOpts);
+        const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
         const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
         try {
           const resp = await fetch(searchUrl, { credentials: "same-origin" });
@@ -2122,7 +2131,7 @@
         }
       }
       if (bonusJobs.length > 0) {
-        await this._executeBonusJobs(bonusJobs, tld, progress);
+        await this._executeBonusJobs(bonusJobs, tld, progress, lang);
       } else if (progress) {
         progress.update("bonus", "skip", "Pas de jobs bonus");
       }
@@ -2140,7 +2149,7 @@
      * @param {string} tld - Current site TLD (ch, de, etc.)
      * @param {object} progress - Progress tracker
      */
-    async _executeBonusJobs(bonusJobs, tld, progress) {
+    async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
       const MIN_BONUS_PRICES = 5;
       const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
       const jobDoneUrl = this._apiUrl.replace("/analyze", "/market-prices/job-done");
@@ -2156,8 +2165,8 @@
         }
         try {
           await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
-          const jobMakeKey = job.make.toLowerCase();
-          const jobModelKey = job.model.toLowerCase();
+          const jobMakeKey = job.slug_make || job.make.toLowerCase();
+          const jobModelKey = job.slug_model || job.model.toLowerCase();
           const jobYear = parseInt(job.year, 10);
           const cantonZip = getCantonCenterZip(job.region);
           const searchOpts = { yearSpread: 1 };
@@ -2177,7 +2186,7 @@
             searchOpts.zip = cantonZip;
             searchOpts.radius = 50;
           }
-          const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, searchOpts);
+          const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
           const resp = await fetch(searchUrl, { credentials: "same-origin" });
           if (!resp.ok) {
             await this._reportJobDone(jobDoneUrl, job.job_id, false);
@@ -2274,7 +2283,7 @@
   }
 
   // extension/content.js
-  var API_URL = typeof __API_URL__ !== "undefined" ? __API_URL__ : "http://localhost:5001/api/analyze";
+  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
   var lastScanId = null;
   var ERROR_MESSAGES = [
     "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
@@ -2385,6 +2394,8 @@
         return "#ef4444";
       case "skip":
         return "#9ca3af";
+      case "neutral":
+        return "#94a3b8";
       default:
         return "#6b7280";
     }
@@ -2399,6 +2410,8 @@
         return "\u2717";
       case "skip":
         return "\u2014";
+      case "neutral":
+        return "\u25CB";
       default:
         return "?";
     }
@@ -2432,8 +2445,10 @@
   };
   function buildRadarSVG(filters, overallScore) {
     if (!filters || !filters.length) return "";
+    const activeFilters = filters.filter((f) => f.status !== "neutral");
+    if (!activeFilters.length) return "";
     const cx = 160, cy = 145, R = 100;
-    const n = filters.length;
+    const n = activeFilters.length;
     const angleStep = 2 * Math.PI / n;
     const startAngle = -Math.PI / 2;
     const mainColor = overallScore >= 70 ? "#22c55e" : overallScore >= 45 ? "#f59e0b" : "#ef4444";
@@ -2458,7 +2473,7 @@
     }
     const dataPts = [];
     for (let i = 0; i < n; i++) {
-      const p = pt(i, R * filters[i].score);
+      const p = pt(i, R * activeFilters[i].score);
       dataPts.push(`${p.x},${p.y}`);
     }
     const dataStr = dataPts.join(" ");
@@ -2466,7 +2481,7 @@
     let labelsSVG = "";
     const labelPad = 18;
     for (let i = 0; i < n; i++) {
-      const f = filters[i];
+      const f = activeFilters[i];
       const score = f.score;
       const dp = pt(i, R * score);
       let dotColor = "#22c55e";
@@ -2515,7 +2530,7 @@
           <div class="copilot-filter-header">
             <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
             <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
-            <span class="copilot-filter-score" style="color:${color}">${Math.round(f.score * 100)}%</span>
+            <span class="copilot-filter-score" style="color:${color}">${f.status === "neutral" ? "N/A" : Math.round(f.score * 100) + "%"}</span>
           </div>
           ${priceBarHTML || `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`}
           ${detailsHTML}
@@ -3058,7 +3073,7 @@
       '    <div class="copilot-progress-phase">',
       '      <div class="copilot-progress-phase-title">2. Collecte prix march\xE9</div>',
       '      <div class="copilot-step" id="copilot-step-job" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Demande au serveur : quel v\xE9hicule collecter ?</div></div>',
-      '      <div class="copilot-step" id="copilot-step-collect" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte des prix (cascade LeBonCoin)</div></div>',
+      '      <div class="copilot-step" id="copilot-step-collect" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte des prix (cascade recherche)</div></div>',
       '      <div class="copilot-step" id="copilot-step-submit" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Envoi des prix au serveur</div></div>',
       '      <div class="copilot-step" id="copilot-step-bonus" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte bonus multi-r\xE9gion</div></div>',
       "    </div>",
