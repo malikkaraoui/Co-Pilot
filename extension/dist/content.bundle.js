@@ -1668,6 +1668,25 @@
     }
     return null;
   }
+  function _daysOnline(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    return Math.max(Math.floor((Date.now() - d.getTime()) / 864e5), 0);
+  }
+  function _daysSinceRefresh(createdStr, modifiedStr) {
+    if (!createdStr || !modifiedStr) return null;
+    const modified = new Date(modifiedStr);
+    if (Number.isNaN(modified.getTime())) return null;
+    return Math.max(Math.floor((Date.now() - modified.getTime()) / 864e5), 0);
+  }
+  function _isRepublished(createdStr, modifiedStr) {
+    if (!createdStr || !modifiedStr) return false;
+    const created = new Date(createdStr);
+    const modified = new Date(modifiedStr);
+    if (Number.isNaN(created.getTime()) || Number.isNaN(modified.getTime())) return false;
+    return Math.abs(modified.getTime() - created.getTime()) > 864e5;
+  }
   function normalizeToAdData(rsc, jsonLd) {
     const ld = jsonLd || {};
     const offers = ld.offers || {};
@@ -1740,10 +1759,10 @@
         has_highlight: false,
         has_boost: false,
         publication_date: rsc.createdDate || null,
-        days_online: null,
+        days_online: _daysOnline(rsc.createdDate),
         index_date: rsc.lastModifiedDate || null,
-        days_since_refresh: null,
-        republished: false,
+        days_since_refresh: _daysSinceRefresh(rsc.createdDate, rsc.lastModifiedDate),
+        republished: _isRepublished(rsc.createdDate, rsc.lastModifiedDate),
         lbc_estimation: null
       };
     }
@@ -2772,14 +2791,14 @@
   `;
   }
   var SIMULATED_FILTERS = ["L4", "L5"];
-  function buildFiltersList(filters) {
+  function buildFiltersList(filters, vehicle) {
     if (!filters || !filters.length) return "";
     return filters.map((f) => {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id);
       const isL4 = f.filter_id === "L4";
-      const priceBarHTML = isL4 && f.details ? buildPriceBarHTML(f.details) : "";
+      const priceBarHTML = isL4 && f.details ? buildPriceBarHTML(f.details, vehicle) : "";
       const detailsHTML = isL4 ? "" : f.details ? buildDetailsHTML(f.details) : "";
       const simulatedBadge = !isL4 && SIMULATED_FILTERS.includes(f.filter_id) ? '<span class="copilot-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
       return `
@@ -2865,42 +2884,48 @@
     }
     return escapeHTML(value);
   }
-  function buildPriceBarHTML(details) {
+  function buildPriceBarHTML(details, vehicle) {
     const priceAnnonce = details.price_annonce;
     const priceRef = details.price_reference;
     if (!priceAnnonce || !priceRef) return "";
     const deltaEur = details.delta_eur || priceAnnonce - priceRef;
     const deltaPct = details.delta_pct != null ? details.delta_pct : Math.round((priceAnnonce - priceRef) / priceRef * 100);
-    const absDelta = Math.abs(deltaEur);
+    const isLocal = vehicle?.currency && vehicle.currency !== "EUR";
+    const eurToLocal = isLocal && vehicle.price_original && vehicle.price ? vehicle.price_original / vehicle.price : 1;
+    const sym = isLocal ? vehicle.currency : "\u20AC";
+    const displayDelta = Math.round(Math.abs(deltaEur) * eurToLocal);
+    const displayAnnonce = Math.round(priceAnnonce * eurToLocal);
+    const displayRef = Math.round(priceRef * eurToLocal);
     const absPct = Math.abs(Math.round(deltaPct));
+    const fmtD = displayDelta.toLocaleString("fr-FR");
     let verdictClass, verdictEmoji, line1, line2;
     if (absPct <= 10) {
       verdictClass = deltaPct < 0 ? "verdict-below" : "verdict-fair";
       verdictEmoji = deltaPct < 0 ? "\u{1F7E2}" : "\u2705";
-      line1 = deltaPct < 0 ? `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\xE9` : "Prix juste";
+      line1 = deltaPct < 0 ? `${fmtD} ${sym} en dessous du march\xE9` : "Prix juste";
       line2 = deltaPct < 0 ? `Bon prix \u2014 ${absPct}% moins cher que le march\xE9` : `Dans la fourchette du march\xE9 (${deltaPct > 0 ? "+" : ""}${Math.round(deltaPct)}%)`;
     } else if (absPct <= 25) {
       if (deltaPct < 0) {
         verdictClass = "verdict-below";
         verdictEmoji = "\u{1F7E2}";
-        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\xE9`;
+        line1 = `${fmtD} ${sym} en dessous du march\xE9`;
         line2 = `Bon prix \u2014 ${absPct}% moins cher que le march\xE9`;
       } else {
         verdictClass = "verdict-above-warning";
         verdictEmoji = "\u{1F7E0}";
-        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC au-dessus du march\xE9`;
+        line1 = `${fmtD} ${sym} au-dessus du march\xE9`;
         line2 = `Prix \xE9lev\xE9 \u2014 ${absPct}% plus cher que le march\xE9`;
       }
     } else {
       if (deltaPct < 0) {
         verdictClass = "verdict-below";
         verdictEmoji = "\u{1F7E2}";
-        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\xE9`;
+        line1 = `${fmtD} ${sym} en dessous du march\xE9`;
         line2 = `Tr\xE8s bon prix \u2014 ${absPct}% moins cher que le march\xE9`;
       } else {
         verdictClass = "verdict-above-fail";
         verdictEmoji = "\u{1F534}";
-        line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC au-dessus du march\xE9`;
+        line1 = `${fmtD} ${sym} au-dessus du march\xE9`;
         line2 = `Trop cher \u2014 ${absPct}% plus cher que le march\xE9`;
       }
     }
@@ -2908,18 +2933,18 @@
     const fillOpacities = { "verdict-below": "rgba(22,163,74,0.15)", "verdict-fair": "rgba(22,163,74,0.15)", "verdict-above-warning": "rgba(234,88,12,0.2)", "verdict-above-fail": "rgba(220,38,38,0.2)" };
     const color = statusColors[verdictClass] || "#16a34a";
     const fillBg = fillOpacities[verdictClass] || "rgba(22,163,74,0.15)";
-    const minP = Math.min(priceAnnonce, priceRef);
-    const maxP = Math.max(priceAnnonce, priceRef);
+    const minP = Math.min(displayAnnonce, displayRef);
+    const maxP = Math.max(displayAnnonce, displayRef);
     const gap = maxP - minP || maxP * 0.1;
     const scaleMin = Math.max(0, minP - gap * 0.8);
     const scaleMax = maxP + gap * 0.8;
     const range = scaleMax - scaleMin;
     const pct = (p) => (p - scaleMin) / range * 100;
-    const annoncePct = pct(priceAnnonce);
-    const argusPct = pct(priceRef);
+    const annoncePct = pct(displayAnnonce);
+    const argusPct = pct(displayRef);
     const fillLeft = Math.min(annoncePct, argusPct);
     const fillWidth = Math.abs(annoncePct - argusPct);
-    const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " \u20AC";
+    const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " " + escapeHTML(sym);
     return `
     <div class="copilot-price-bar-container">
       <div class="copilot-price-verdict ${escapeHTML(verdictClass)}">
@@ -2935,11 +2960,11 @@
         <div class="copilot-price-market-ref" style="left:${argusPct}%">
           <div class="copilot-price-market-line"></div>
           <div class="copilot-price-market-label">March\xE9</div>
-          <div class="copilot-price-market-price">${fmtP(priceRef)}</div>
+          <div class="copilot-price-market-price">${fmtP(displayRef)}</div>
         </div>
         <div class="copilot-price-car" style="left:${annoncePct}%">
           <span class="copilot-price-car-emoji">\u{1F697}</span>
-          <div class="copilot-price-car-price" style="color:${color}">${fmtP(priceAnnonce)}</div>
+          <div class="copilot-price-car-price" style="color:${color}">${fmtP(displayAnnonce)}</div>
         </div>
       </div>
       <div class="copilot-price-bar-spacer"></div>
@@ -3055,7 +3080,7 @@
       </div>
       <div class="copilot-popup-filters">
         <h3 class="copilot-section-title">D\xE9tails de l'analyse</h3>
-        ${buildFiltersList(filters)}
+        ${buildFiltersList(filters, vehicle)}
       </div>
       ${bonusHTML}
       ${buildPremiumSection()}

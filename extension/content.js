@@ -309,7 +309,7 @@ function buildRadarSVG(filters, overallScore) {
 
 const SIMULATED_FILTERS = ["L4", "L5"];
 
-function buildFiltersList(filters) {
+function buildFiltersList(filters, vehicle) {
   if (!filters || !filters.length) return "";
   return filters
     .map((f) => {
@@ -317,7 +317,7 @@ function buildFiltersList(filters) {
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id);
       const isL4 = f.filter_id === "L4";
-      const priceBarHTML = isL4 && f.details ? buildPriceBarHTML(f.details) : "";
+      const priceBarHTML = isL4 && f.details ? buildPriceBarHTML(f.details, vehicle) : "";
       const detailsHTML = isL4 ? "" : (f.details ? buildDetailsHTML(f.details) : "");
       const simulatedBadge = !isL4 && SIMULATED_FILTERS.includes(f.filter_id)
         ? '<span class="copilot-badge-simulated">Données simulées</span>'
@@ -389,7 +389,7 @@ function formatDetailValue(value) {
   return escapeHTML(value);
 }
 
-function buildPriceBarHTML(details) {
+function buildPriceBarHTML(details, vehicle) {
   const priceAnnonce = details.price_annonce;
   const priceRef = details.price_reference;
   if (!priceAnnonce || !priceRef) return "";
@@ -398,15 +398,25 @@ function buildPriceBarHTML(details) {
   const deltaPct = details.delta_pct != null
     ? details.delta_pct
     : Math.round(((priceAnnonce - priceRef) / priceRef) * 100);
-  const absDelta = Math.abs(deltaEur);
+
+  // Devise locale : reconvertir les montants EUR en devise d'origine pour l'affichage
+  const isLocal = vehicle?.currency && vehicle.currency !== "EUR";
+  const eurToLocal = isLocal && vehicle.price_original && vehicle.price
+    ? vehicle.price_original / vehicle.price : 1;
+  const sym = isLocal ? vehicle.currency : "\u20AC";
+  const displayDelta = Math.round(Math.abs(deltaEur) * eurToLocal);
+  const displayAnnonce = Math.round(priceAnnonce * eurToLocal);
+  const displayRef = Math.round(priceRef * eurToLocal);
+
   const absPct = Math.abs(Math.round(deltaPct));
+  const fmtD = displayDelta.toLocaleString("fr-FR");
 
   let verdictClass, verdictEmoji, line1, line2;
   if (absPct <= 10) {
     verdictClass = deltaPct < 0 ? "verdict-below" : "verdict-fair";
     verdictEmoji = deltaPct < 0 ? "\uD83D\uDFE2" : "\u2705";
     line1 = deltaPct < 0
-      ? `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\u00E9`
+      ? `${fmtD} ${sym} en dessous du march\u00E9`
       : "Prix juste";
     line2 = deltaPct < 0
       ? `Bon prix \u2014 ${absPct}% moins cher que le march\u00E9`
@@ -415,24 +425,24 @@ function buildPriceBarHTML(details) {
     if (deltaPct < 0) {
       verdictClass = "verdict-below";
       verdictEmoji = "\uD83D\uDFE2";
-      line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\u00E9`;
+      line1 = `${fmtD} ${sym} en dessous du march\u00E9`;
       line2 = `Bon prix \u2014 ${absPct}% moins cher que le march\u00E9`;
     } else {
       verdictClass = "verdict-above-warning";
       verdictEmoji = "\uD83D\uDFE0";
-      line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC au-dessus du march\u00E9`;
+      line1 = `${fmtD} ${sym} au-dessus du march\u00E9`;
       line2 = `Prix \u00E9lev\u00E9 \u2014 ${absPct}% plus cher que le march\u00E9`;
     }
   } else {
     if (deltaPct < 0) {
       verdictClass = "verdict-below";
       verdictEmoji = "\uD83D\uDFE2";
-      line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC en dessous du march\u00E9`;
+      line1 = `${fmtD} ${sym} en dessous du march\u00E9`;
       line2 = `Tr\u00E8s bon prix \u2014 ${absPct}% moins cher que le march\u00E9`;
     } else {
       verdictClass = "verdict-above-fail";
       verdictEmoji = "\uD83D\uDD34";
-      line1 = `${absDelta.toLocaleString("fr-FR")} \u20AC au-dessus du march\u00E9`;
+      line1 = `${fmtD} ${sym} au-dessus du march\u00E9`;
       line2 = `Trop cher \u2014 ${absPct}% plus cher que le march\u00E9`;
     }
   }
@@ -442,19 +452,19 @@ function buildPriceBarHTML(details) {
   const color = statusColors[verdictClass] || "#16a34a";
   const fillBg = fillOpacities[verdictClass] || "rgba(22,163,74,0.15)";
 
-  const minP = Math.min(priceAnnonce, priceRef);
-  const maxP = Math.max(priceAnnonce, priceRef);
+  const minP = Math.min(displayAnnonce, displayRef);
+  const maxP = Math.max(displayAnnonce, displayRef);
   const gap = (maxP - minP) || maxP * 0.1;
   const scaleMin = Math.max(0, minP - gap * 0.8);
   const scaleMax = maxP + gap * 0.8;
   const range = scaleMax - scaleMin;
   const pct = (p) => ((p - scaleMin) / range) * 100;
 
-  const annoncePct = pct(priceAnnonce);
-  const argusPct = pct(priceRef);
+  const annoncePct = pct(displayAnnonce);
+  const argusPct = pct(displayRef);
   const fillLeft = Math.min(annoncePct, argusPct);
   const fillWidth = Math.abs(annoncePct - argusPct);
-  const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " \u20AC";
+  const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " " + escapeHTML(sym);
 
   return `
     <div class="copilot-price-bar-container">
@@ -471,11 +481,11 @@ function buildPriceBarHTML(details) {
         <div class="copilot-price-market-ref" style="left:${argusPct}%">
           <div class="copilot-price-market-line"></div>
           <div class="copilot-price-market-label">March\u00E9</div>
-          <div class="copilot-price-market-price">${fmtP(priceRef)}</div>
+          <div class="copilot-price-market-price">${fmtP(displayRef)}</div>
         </div>
         <div class="copilot-price-car" style="left:${annoncePct}%">
           <span class="copilot-price-car-emoji">\uD83D\uDE97</span>
-          <div class="copilot-price-car-price" style="color:${color}">${fmtP(priceAnnonce)}</div>
+          <div class="copilot-price-car-price" style="color:${color}">${fmtP(displayAnnonce)}</div>
         </div>
       </div>
       <div class="copilot-price-bar-spacer"></div>
@@ -608,7 +618,7 @@ function buildResultsPopup(data, options = {}) {
       </div>
       <div class="copilot-popup-filters">
         <h3 class="copilot-section-title">Détails de l'analyse</h3>
-        ${buildFiltersList(filters)}
+        ${buildFiltersList(filters, vehicle)}
       </div>
       ${bonusHTML}
       ${buildPremiumSection()}

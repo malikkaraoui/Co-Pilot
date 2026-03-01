@@ -546,6 +546,32 @@ export function parseJsonLd(doc) {
  * @param {object|null} jsonLd - JSON-LD structured data
  * @returns {object}
  */
+
+/** Compute days since a given ISO date string. */
+function _daysOnline(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.max(Math.floor((Date.now() - d.getTime()) / 86_400_000), 0);
+}
+
+/** Compute days since last refresh (index_date). */
+function _daysSinceRefresh(createdStr, modifiedStr) {
+  if (!createdStr || !modifiedStr) return null;
+  const modified = new Date(modifiedStr);
+  if (Number.isNaN(modified.getTime())) return null;
+  return Math.max(Math.floor((Date.now() - modified.getTime()) / 86_400_000), 0);
+}
+
+/** Detect republication: created and modified differ by > 1 day. */
+function _isRepublished(createdStr, modifiedStr) {
+  if (!createdStr || !modifiedStr) return false;
+  const created = new Date(createdStr);
+  const modified = new Date(modifiedStr);
+  if (Number.isNaN(created.getTime()) || Number.isNaN(modified.getTime())) return false;
+  return Math.abs(modified.getTime() - created.getTime()) > 86_400_000;
+}
+
 export function normalizeToAdData(rsc, jsonLd) {
   const ld = jsonLd || {};
   const offers = ld.offers || {};
@@ -632,10 +658,10 @@ export function normalizeToAdData(rsc, jsonLd) {
       has_highlight: false,
       has_boost: false,
       publication_date: rsc.createdDate || null,
-      days_online: null,
+      days_online: _daysOnline(rsc.createdDate),
       index_date: rsc.lastModifiedDate || null,
-      days_since_refresh: null,
-      republished: false,
+      days_since_refresh: _daysSinceRefresh(rsc.createdDate, rsc.lastModifiedDate),
+      republished: _isRepublished(rsc.createdDate, rsc.lastModifiedDate),
       lbc_estimation: null,
     };
   }
