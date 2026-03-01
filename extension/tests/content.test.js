@@ -1188,16 +1188,16 @@ describe('maybeCollectMarketPrices', () => {
 
     it('ne POST pas quand moins de 20 prix valides (toutes strategies epuisees)', async () => {
       const tooFew = makeSearchHTML([12000, 13000]);
-      // Sans geo, avec region : 6 strategies
+      // Sans geo, avec region : 7 strategies (6 base + 1 text fallback)
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
-        searchHTMLs: Array(6).fill(tooFew),
+        searchHTMLs: Array(7).fill(tooFew),
       });
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // next-job + 6 recherches × 2 (API + HTML) + 1 POST failed-search
-      expect(fetchMock).toHaveBeenCalledTimes(14);
+      // next-job + 7 recherches × 2 (API + HTML) + 1 POST failed-search = 16
+      expect(fetchMock).toHaveBeenCalledTimes(16);
     });
 
     it('utilise u_car_brand et u_car_model dans URL de recherche LBC', async () => {
@@ -1530,20 +1530,20 @@ describe('maybeCollectMarketPrices', () => {
       expect(fetchMock).toHaveBeenCalledTimes(14);
     });
 
-    it('sans geo-location, 6 strategies (rn + national + relax)', async () => {
+    it('sans geo-location, 7 strategies (rn + national + relax + text fallback)', async () => {
       const tooFew = makeSearchHTML([12000, 13000]);
 
-      // Sans geo, avec region : 6 strategies
+      // Sans geo, avec region : 7 strategies (6 base + 1 text fallback)
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
-        searchHTMLs: Array(6).fill(tooFew),
+        searchHTMLs: Array(7).fill(tooFew),
       });
 
       // makeNextData() n'a PAS de lat/lng → pas de strategie geo
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // 14 appels : next-job + 6×(API+HTML) + 1 POST failed-search
-      expect(fetchMock).toHaveBeenCalledTimes(14);
+      // 16 appels : next-job + 7×(API+HTML) + 1 POST failed-search
+      expect(fetchMock).toHaveBeenCalledTimes(16);
     });
   });
 });

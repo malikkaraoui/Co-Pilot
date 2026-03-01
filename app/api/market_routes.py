@@ -114,7 +114,7 @@ class PriceDetail(BaseModel):
 class SearchStep(BaseModel):
     """Un pas de la cascade de recherche argus."""
 
-    step: int = Field(ge=1, le=10)
+    step: int = Field(ge=1, le=15)
     precision: int = Field(ge=1, le=5)
     location_type: str = Field(max_length=20)
     year_spread: int = Field(ge=1, le=5)
@@ -691,6 +691,18 @@ def report_failed_search():
     )
     db.session.add(entry)
     db.session.commit()
+
+    # Auto-learn tokens meme en echec (le DOM peut avoir les bons tokens
+    # meme si la recherche n'a rien retourne — ex: vehicule niche, annee rare)
+    _site_bt = data.get("site_brand_token")
+    _site_mt = data.get("site_model_token")
+    if _site_bt or _site_mt:
+        _persist_site_tokens(make, model_name, _site_bt, _site_mt)
+
+    _as24_sm = data.get("as24_slug_make")
+    _as24_smod = data.get("as24_slug_model")
+    if _as24_sm or _as24_smod:
+        _persist_as24_slugs(make, model_name, _as24_sm, _as24_smod)
 
     logger.warning(
         "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d, severity=%s)",

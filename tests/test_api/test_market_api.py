@@ -801,6 +801,141 @@ class TestFailedSearchApi:
             assert row.token_source == "as24_response_url"
 
 
+class TestFailedSearchTokenPersistence:
+    """Tests pour la persistence des tokens/slugs dans failed-search."""
+
+    def test_failed_search_persists_lbc_tokens(self, app, client):
+        """POST /api/market-prices/failed-search avec site_brand/model_token les persiste."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="TokenFailTest", model="Model1").first()
+            if not v:
+                v = Vehicle(brand="TokenFailTest", model="Model1", year_start=2019, year_end=2025)
+                db.session.add(v)
+                db.session.commit()
+            v.site_brand_token = None
+            v.site_model_token = None
+            db.session.commit()
+
+        payload = {
+            "make": "TokenFailTest",
+            "model": "Model1",
+            "year": 2021,
+            "region": "Bretagne",
+            "brand_token_used": "TOKENFAILTEST",
+            "model_token_used": "TOKENFAILTEST_Model1",
+            "token_source": "DOM",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 4,
+                    "location_type": "region",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 0,
+                    "url": "https://www.leboncoin.fr/recherche?category=2",
+                    "was_selected": False,
+                }
+            ],
+            "site_brand_token": "TokenFailTest",
+            "site_model_token": "TokenFailTest_Modèle1",
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="TokenFailTest", model="Model1").first()
+            assert v.site_brand_token == "TokenFailTest"
+            assert v.site_model_token == "TokenFailTest_Modèle1"
+
+    def test_failed_search_persists_as24_slugs(self, app, client):
+        """POST /api/market-prices/failed-search avec as24_slug_* les persiste."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugFailTest", model="ModelAS24F").first()
+            if not v:
+                v = Vehicle(
+                    brand="SlugFailTest", model="ModelAS24F", year_start=2019, year_end=2026
+                )
+                db.session.add(v)
+                db.session.commit()
+            v.as24_slug_make = None
+            v.as24_slug_model = None
+            db.session.commit()
+
+        payload = {
+            "make": "SlugFailTest",
+            "model": "ModelAS24F",
+            "year": 2022,
+            "region": "Geneve",
+            "country": "CH",
+            "site": "as24",
+            "tld": "ch",
+            "slug_make_used": "slugfailtest",
+            "slug_model_used": "modelas24f",
+            "slug_source": "as24_response_url",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 3,
+                    "location_type": "canton",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 0,
+                    "url": "https://www.autoscout24.ch/fr/s/mk-slugfailtest",
+                    "was_selected": False,
+                }
+            ],
+            "as24_slug_make": "slugfailtest",
+            "as24_slug_model": "modelas24f",
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugFailTest", model="ModelAS24F").first()
+            assert v.as24_slug_make == "slugfailtest"
+            assert v.as24_slug_model == "modelas24f"
+
+    def test_failed_search_without_tokens_backward_compat(self, client):
+        """POST /api/market-prices/failed-search sans tokens fonctionne (retro-compat)."""
+        payload = {
+            "make": "Peugeot",
+            "model": "208",
+            "year": 2021,
+            "region": "Bretagne",
+            "brand_token_used": "PEUGEOT",
+            "model_token_used": "PEUGEOT_208",
+            "token_source": "fallback",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 3,
+                    "location_type": "national",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 3,
+                    "url": "https://www.leboncoin.fr/recherche?category=2",
+                    "was_selected": False,
+                }
+            ],
+        }
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+
 class TestBonusJobs:
     """Tests for bonus_jobs in GET /api/market-prices/next-job (queue-based)."""
 

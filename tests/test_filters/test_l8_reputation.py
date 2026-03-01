@@ -223,3 +223,114 @@ class TestL8ImportDetectionFilter:
         }
         result = self.filt.run(data)
         assert any("fiscal" in s.lower() or "TVA" in s for s in result.details["signals"])
+
+    # ── Corrections faux positifs L8 ──────────────────────────────────
+
+    def test_tva_recuperable_not_import_signal(self):
+        """'TVA recuperable' est de la comptabilite pro, pas un signal d'import."""
+        data = {
+            "description": "Prix TTC, TVA récupérable pour les professionnels.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert not any("fiscal" in s.lower() or "TVA" in s for s in result.details["signals"])
+
+    def test_tva_deductible_not_import_signal(self):
+        """'TVA deductible' est de la comptabilite pro, pas un signal d'import."""
+        data = {
+            "description": "TVA deductible sur ce vehicule professionnel.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+
+    def test_plaque_provisoire_alone_passes(self):
+        """'plaque provisoire' seul est un signal faible (0.5) -- ne declenche PAS de warning."""
+        data = {
+            "description": "Vehicule en bon etat, plaque provisoire en attente.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert result.details["weak_count"] == 1
+        assert result.details["strong_count"] == 0
+
+    def test_carte_grise_en_cours_alone_passes(self):
+        """'carte grise en cours' seul est un signal faible -- ne declenche PAS de warning."""
+        data = {
+            "description": "Carte grise en cours de refaire, vehicule propre.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+
+    def test_plaque_provisoire_with_strong_signal_warns(self):
+        """Signal faible + signal fort = warning (pas fail)."""
+        data = {
+            "phone": "+49612345678",
+            "description": "Vehicule en bon etat, plaque provisoire.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert result.details["strong_count"] == 1
+        assert result.details["weak_count"] == 1
+
+    def test_two_weak_registration_keywords_still_passes(self):
+        """Meme 2 keywords faibles d'immatriculation = 1 signal faible (0.5) → pass."""
+        data = {
+            "description": "Carte grise en cours, plaque provisoire en attente.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert result.details["weak_count"] == 1
+
+    def test_import_word_boundary_no_false_positive(self):
+        """'important' ne doit PAS matcher le keyword 'import'."""
+        data = {
+            "description": "Element important pour l'acheteur, vehicule propre.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert not any("import" in s.lower() for s in result.details["signals"])
+
+    def test_import_standalone_detected(self):
+        """'import' isole doit toujours matcher."""
+        data = {
+            "description": "Vehicule d'import, papiers en regle.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert any("import" in s.lower() for s in result.details["signals"])
+
+    def test_plaque_ww_still_strong(self):
+        """'plaque ww' reste un signal fort (specifique a l'import)."""
+        data = {
+            "description": "Vehicule avec plaque ww, en attente de carte grise.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert result.details["strong_count"] >= 1
+        assert any("suspecte" in s.lower() for s in result.details["signals"])
+
+    def test_coc_word_boundary(self):
+        """'coc' doit matcher en mot isole, pas dans 'cocorico'."""
+        data = {
+            "description": "Cocorico, vehicule francais de qualite.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert not any("suspecte" in s.lower() for s in result.details["signals"])
+
+    def test_rti_word_boundary(self):
+        """'rti' ne doit PAS matcher dans 'parti' ou 'sortir'."""
+        data = {
+            "description": "Ce vehicule est parti du garage apres sortir de revision.",
+            "country": "FR",
+        }
+        result = self.filt.run(data)
+        assert not any("suspecte" in s.lower() for s in result.details["signals"])

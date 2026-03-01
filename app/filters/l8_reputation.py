@@ -94,12 +94,10 @@ _GERMAN_KEYWORDS = {
 }
 
 # Signaux fiscaux / TVA (import pro)
+# Note: "tva recuperable/deductible" RETIRES — c'est de la comptabilite pro, pas un signal d'import
 TAX_KEYWORDS = [
     "hors taxe",
     "ht",
-    "tva récupérable",
-    "tva recuperable",
-    "tva deductible",
     "exportation",
     "hors tva",
     "malus payé",
@@ -110,18 +108,23 @@ TAX_KEYWORDS = [
     "taxe co2",
 ]
 
-# Signaux de carte grise / immatriculation suspecte
-REGISTRATION_KEYWORDS = [
-    "carte grise en cours",
-    "carte grise a faire",
-    "plaque provisoire",
+# Signaux de carte grise / immatriculation -- FORTS (specifiques a l'import)
+REGISTRATION_STRONG = [
     "plaque ww",
     "immatriculation ww",
     "certificat de conformite",
-    "coc",
-    "homologation",
     "reception a titre isole",
-    "rti",
+]
+
+# Tokens courts d'immatriculation necessitant word boundary
+_SHORT_REGISTRATION_TOKENS = ["coc", "rti"]
+
+# Signaux de carte grise / immatriculation -- FAIBLES (ambigus: import OU admin/ministeriel/leasing)
+REGISTRATION_WEAK = [
+    "carte grise en cours",
+    "carte grise a faire",
+    "plaque provisoire",
+    "homologation",
 ]
 
 
@@ -143,7 +146,8 @@ class L8ImportDetectionFilter(BaseFilter):
     }
 
     def run(self, data: dict[str, Any]) -> FilterResult:
-        signals = []
+        strong_signals: list[str] = []
+        weak_signals: list[str] = []
         country = (data.get("country") or "FR").upper()
 
         # Signal 1 : Telephone etranger (recoupement avec les donnees L6)
@@ -156,22 +160,33 @@ class L8ImportDetectionFilter(BaseFilter):
         local_prefix = self._LOCAL_PREFIXES.get(country, "33")
         if cleaned_phone and cleaned_phone.startswith("+"):
             if not cleaned_phone.startswith("+" + local_prefix):
-                signals.append("Numéro de téléphone avec indicatif étranger")
+                strong_signals.append("Numéro de téléphone avec indicatif étranger")
 
         # Signal 2 : Mots-cles d'import dans la description
         description = (data.get("description") or "").lower()
         title = (data.get("title") or "").lower()
         text = f"{title} {description}"
 
-        found_import = [kw for kw in IMPORT_KEYWORDS_FR if kw in text]
+        # Word boundary sur "import" (evite "important", "importateur" --
+        # les formes specifiques "importé", "importation" sont des entrees separees)
+        found_import = []
+        for kw in IMPORT_KEYWORDS_FR:
+            if kw == "import":
+                if re.search(r"\bimport\b", text):
+                    found_import.append(kw)
+            else:
+                if kw in text:
+                    found_import.append(kw)
         # Exclure le pays local de la liste d'import (ex: "suisse" sur .ch)
         local_country_names = _COUNTRY_LOCAL_NAMES.get(country, set())
         import_countries = [c for c in IMPORT_COUNTRIES if c not in local_country_names]
         found_countries = [kw for kw in import_countries if kw in text]
         if found_import:
-            signals.append(f"Mention d'import dans l'annonce ({', '.join(found_import[:3])})")
+            strong_signals.append(
+                f"Mention d'import dans l'annonce ({', '.join(found_import[:3])})"
+            )
         if found_countries:
-            signals.append(f"Pays d'origine mentionné ({', '.join(found_countries[:3])})")
+            strong_signals.append(f"Pays d'origine mentionné ({', '.join(found_countries[:3])})")
 
         # Signal 3 : Texte en langue etrangere (copier-coller de site etranger)
         # Sur les sites CH/DE/AT, l'allemand est normal -- ne pas flagger
@@ -181,7 +196,9 @@ class L8ImportDetectionFilter(BaseFilter):
             foreign_keywords = IMPORT_KEYWORDS_FOREIGN
         found_foreign = [kw for kw in foreign_keywords if kw in text]
         if found_foreign:
-            signals.append(f"Texte en langue étrangère détecté ({', '.join(found_foreign[:3])})")
+            strong_signals.append(
+                f"Texte en langue étrangère détecté ({', '.join(found_foreign[:3])})"
+            )
 
         # Signal 4 : Signaux fiscaux (malus, TVA, export)
         # Word boundary pour les tokens courts (ex: "ht") pour eviter les faux positifs
@@ -192,12 +209,22 @@ class L8ImportDetectionFilter(BaseFilter):
             or (len(kw) > 3 and kw in text)
         ]
         if found_tax:
-            signals.append(f"Signal fiscal/TVA ({', '.join(found_tax[:3])})")
+            strong_signals.append(f"Signal fiscal/TVA ({', '.join(found_tax[:3])})")
 
-        # Signal 5 : Carte grise en cours / immatriculation provisoire
-        found_reg = [kw for kw in REGISTRATION_KEYWORDS if kw in text]
-        if found_reg:
-            signals.append(f"Immatriculation provisoire ou en cours ({', '.join(found_reg[:2])})")
+        # Signal 5 : Carte grise / immatriculation
+        # Forts : specifiques a l'import (WW, COC, RTI)
+        found_reg_strong = [kw for kw in REGISTRATION_STRONG if kw in text]
+        found_reg_strong += [
+            kw for kw in _SHORT_REGISTRATION_TOKENS if re.search(rf"\b{re.escape(kw)}\b", text)
+        ]
+        # Faibles : ambigus (carte grise en cours, plaque provisoire, homologation)
+        found_reg_weak = [kw for kw in REGISTRATION_WEAK if kw in text]
+        if found_reg_strong:
+            strong_signals.append(f"Immatriculation suspecte ({', '.join(found_reg_strong[:2])})")
+        if found_reg_weak:
+            weak_signals.append(
+                f"Immatriculation provisoire ou en cours ({', '.join(found_reg_weak[:2])})"
+            )
 
         # Signal 6 : Anomalie de prix (tres bas pour le type)
         price = data.get("price_eur")
@@ -207,7 +234,9 @@ class L8ImportDetectionFilter(BaseFilter):
                 year = int(year_str)
                 age = datetime.now(timezone.utc).year - year
                 if age < 8 and price < 3000:
-                    signals.append(f"Prix très bas ({price} EUR) pour un véhicule de {age} ans")
+                    strong_signals.append(
+                        f"Prix très bas ({price} EUR) pour un véhicule de {age} ans"
+                    )
             except (ValueError, TypeError):
                 pass
 
@@ -218,35 +247,55 @@ class L8ImportDetectionFilter(BaseFilter):
         source = (data.get("source") or "").lower()
         if owner_type == "pro" and not siret and source not in VERIFIED_PRO_PLATFORMS:
             if country == "CH":
-                signals.append("Vendeur professionnel sans UID")
+                strong_signals.append("Vendeur professionnel sans UID")
             elif country == "FR":
-                signals.append("Vendeur professionnel sans SIRET")
+                strong_signals.append("Vendeur professionnel sans SIRET")
             else:
-                signals.append("Vendeur professionnel sans numéro d'entreprise")
+                strong_signals.append("Vendeur professionnel sans numéro d'entreprise")
 
-        # Verdict final
-        if not signals:
+        # Verdict final -- ponderation: signaux forts = 1.0, signaux faibles = 0.5
+        all_signals = strong_signals + weak_signals
+        signal_weight = len(strong_signals) + 0.5 * len(weak_signals)
+
+        if signal_weight < 1.0:
             return FilterResult(
                 filter_id=self.filter_id,
                 status="pass",
                 score=1.0,
                 message="Aucun signal d'import détecté",
-                details={"signals": []},
+                details={
+                    "signals": all_signals or [],
+                    "strong_count": len(strong_signals),
+                    "weak_count": len(weak_signals),
+                },
             )
 
-        if len(signals) == 1:
+        if signal_weight < 2.0:
+            msg = (
+                all_signals[0]
+                if len(all_signals) == 1
+                else f"Signal d'import possible ({len(all_signals)} indices)"
+            )
             return FilterResult(
                 filter_id=self.filter_id,
                 status="warning",
                 score=0.4,
-                message=signals[0],
-                details={"signals": signals},
+                message=msg,
+                details={
+                    "signals": all_signals,
+                    "strong_count": len(strong_signals),
+                    "weak_count": len(weak_signals),
+                },
             )
 
         return FilterResult(
             filter_id=self.filter_id,
             status="fail",
             score=0.1,
-            message=f"Véhicule potentiellement importé ({len(signals)} signaux)",
-            details={"signals": signals},
+            message=f"Véhicule potentiellement importé ({len(all_signals)} signaux)",
+            details={
+                "signals": all_signals,
+                "strong_count": len(strong_signals),
+                "weak_count": len(weak_signals),
+            },
         )

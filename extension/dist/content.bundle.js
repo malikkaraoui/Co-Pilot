@@ -120,6 +120,9 @@
   var LBC_BRAND_ALIASES = {
     MERCEDES: "MERCEDES-BENZ"
   };
+  var DUAL_BRAND_ALIASES = {
+    DS: "CITROEN"
+  };
   var LBC_REGIONS = {
     // Regions post-2016
     "\xCEle-de-France": "rn_12",
@@ -222,11 +225,22 @@
       const link = document.querySelector('a[href*="u_car_model"]');
       if (!link) return result;
       const url = new URL(link.href, location.origin);
-      const path = decodeURIComponent(url.pathname + url.search + url.hash);
-      const brandMatch = path.match(/u_car_brand:([^+&]+)/);
-      const modelMatch = path.match(/u_car_model:([^+&]+)/);
-      if (brandMatch) result.brandToken = brandMatch[1].trim();
-      if (modelMatch) result.modelToken = modelMatch[1].trim();
+      const raw = decodeURIComponent(url.pathname + url.search + url.hash);
+      const extractToken = (key) => {
+        const re = new RegExp(`${key}:(.+?)(?:\\+\\w+:|&|$)`);
+        const m = raw.match(re);
+        return m ? m[1].replace(/\+/g, " ").trim() : null;
+      };
+      result.brandToken = extractToken("u_car_brand");
+      result.modelToken = extractToken("u_car_model");
+      if (!result.brandToken) {
+        const qBrand = url.searchParams.get("u_car_brand");
+        if (qBrand) result.brandToken = qBrand.trim();
+      }
+      if (!result.modelToken) {
+        const qModel = url.searchParams.get("u_car_model");
+        if (qModel) result.modelToken = qModel.trim();
+      }
     } catch (e) {
       console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
     }
@@ -881,6 +895,18 @@
     strategies.push({ loc: "", yearSpread: 2, filters: fullFilters, precision: 3 });
     strategies.push({ loc: "", yearSpread: 2, filters: noHpFilters, precision: 2 });
     strategies.push({ loc: "", yearSpread: 3, filters: minFilters, precision: 1 });
+    if (!modelIsGeneric) {
+      const textQuery = `${target.make} ${target.model}`;
+      const textCoreUrl = `https://www.leboncoin.fr/recherche?category=2&text=${encodeURIComponent(textQuery)}`;
+      strategies.push({
+        loc: "",
+        yearSpread: 2,
+        filters: fuelParam,
+        precision: 1,
+        coreUrl: textCoreUrl,
+        isTextFallback: true
+      });
+    }
     console.log(
       "[CoPilot] fuel=%s \u2192 fuelCode=%s | gearbox=%s \u2192 gearboxCode=%s | hp=%d \u2192 hpRange=%s | km=%d",
       targetFuel,
@@ -897,30 +923,55 @@
     let prices = [];
     let collectedPrecision = null;
     const searchLog = [];
+    const MAX_PRICES_CAP = 100;
     if (progress) progress.update("collect", "running");
     try {
       for (let i = 0; i < strategies.length; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
         const strategy = strategies[i];
-        let searchUrl = coreUrl + strategy.filters;
+        if (strategy.isTextFallback && prices.length >= MIN_PRICES_FOR_ARGUS) {
+          console.log("[CoPilot] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
+          searchLog.push({
+            step: i + 1,
+            precision: strategy.precision,
+            location_type: "national",
+            year_spread: strategy.yearSpread,
+            filters_applied: strategy.filters.includes("fuel=") ? ["fuel"] : [],
+            ads_found: 0,
+            unique_added: 0,
+            total_accumulated: prices.length,
+            url: "(skipped)",
+            was_selected: false,
+            reason: `text fallback skipped: ${prices.length} >= ${MIN_PRICES_FOR_ARGUS}`
+          });
+          if (progress) progress.addSubStep("collect", "Strat\xE9gie " + (i + 1) + " \xB7 Text search (fallback)", "skip", "D\xE9j\xE0 assez de donn\xE9es");
+          continue;
+        }
+        const baseCoreUrl = strategy.coreUrl || coreUrl;
+        let searchUrl = baseCoreUrl + strategy.filters;
         if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
         if (targetYear >= 1990) {
           searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
         }
-        const locLabel = strategy.loc === geoParam && geoParam ? "G\xE9o (" + (location2?.city || "local") + " 30km)" : strategy.loc === regionParam && regionParam ? "R\xE9gion (" + targetRegion + ")" : "National";
+        const locLabel = strategy.isTextFallback ? "Text search (fallback)" : strategy.loc === geoParam && geoParam ? "G\xE9o (" + (location2?.city || "local") + " 30km)" : strategy.loc === regionParam && regionParam ? "R\xE9gion (" + targetRegion + ")" : "National";
         const strategyLabel = "Strat\xE9gie " + (i + 1) + " \xB7 " + locLabel + " \xB1" + strategy.yearSpread + "an";
-        prices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+        const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread);
+        const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+        const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+        prices = [...prices, ...unique];
         const enoughPrices = prices.length >= MIN_PRICES_FOR_ARGUS;
         console.log(
-          "[CoPilot] strategie %d (precision=%d): %d prix trouv\xE9s | %s",
+          "[CoPilot] strategie %d (precision=%d): %d nouveaux prix (%d uniques), total=%d | %s",
           i + 1,
           strategy.precision,
+          newPrices.length,
+          unique.length,
           prices.length,
           searchUrl.substring(0, 150)
         );
         if (progress) {
-          const stepStatus = enoughPrices ? "done" : "skip";
-          const stepDetail = prices.length + " annonces" + (enoughPrices ? " \u2713 seuil atteint" : "");
+          const stepStatus = unique.length > 0 ? "done" : "skip";
+          const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")" + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "");
           progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
         }
         const locationType = strategy.loc === geoParam && geoParam ? "geo" : strategy.loc === regionParam && regionParam ? "region" : "national";
@@ -935,15 +986,74 @@
             ...strategy.filters.includes("horse_power_din=") ? ["hp"] : [],
             ...strategy.filters.includes("mileage=") ? ["km"] : []
           ],
-          ads_found: prices.length,
+          ads_found: newPrices.length,
+          unique_added: unique.length,
+          total_accumulated: prices.length,
           url: searchUrl,
           was_selected: enoughPrices,
-          reason: enoughPrices ? `${prices.length} annonces >= ${MIN_PRICES_FOR_ARGUS} minimum` : `${prices.length} annonces < ${MIN_PRICES_FOR_ARGUS} minimum`
+          reason: enoughPrices ? `total ${prices.length} annonces >= ${MIN_PRICES_FOR_ARGUS} minimum` : `total ${prices.length} annonces < ${MIN_PRICES_FOR_ARGUS} minimum`
         });
-        if (enoughPrices) {
+        if (enoughPrices && collectedPrecision === null) {
           collectedPrecision = strategy.precision;
-          console.log("[CoPilot] assez de prix (%d >= %d), precision=%d", prices.length, MIN_PRICES_FOR_ARGUS, collectedPrecision);
+          console.log("[CoPilot] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
+        }
+        if (prices.length >= MAX_PRICES_CAP) {
+          console.log("[CoPilot] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
           break;
+        }
+      }
+      const secondaryBrand = DUAL_BRAND_ALIASES[brandUpper];
+      if (secondaryBrand && !modelIsGeneric && prices.length < MAX_PRICES_CAP) {
+        console.log("[CoPilot] dual-brand: %s \u2192 secondary brand %s", brandUpper, secondaryBrand);
+        const dualQuery = `${target.make} ${target.model}`;
+        const dualCoreUrl = `https://www.leboncoin.fr/recherche?category=2&u_car_brand=${encodeURIComponent(secondaryBrand)}&text=${encodeURIComponent(dualQuery)}`;
+        const dualStrategies = [
+          { loc: regionParam || "", yearSpread: 2, filters: fuelParam, precision: 2 },
+          { loc: "", yearSpread: 2, filters: fuelParam, precision: 1 }
+        ];
+        for (let d = 0; d < dualStrategies.length; d++) {
+          if (prices.length >= MAX_PRICES_CAP) break;
+          await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+          const ds = dualStrategies[d];
+          let searchUrl = dualCoreUrl + ds.filters;
+          if (ds.loc) searchUrl += `&locations=${ds.loc}`;
+          if (targetYear >= 1990) {
+            searchUrl += `&regdate=${targetYear - ds.yearSpread}-${targetYear + ds.yearSpread}`;
+          }
+          const dualLocType = ds.loc ? "region" : "national";
+          const dualLabel = `Strat\xE9gie ${strategies.length + d + 1} \xB7 Dual ${secondaryBrand} (${dualLocType})`;
+          const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread);
+          const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+          const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+          prices = [...prices, ...unique];
+          console.log(
+            "[CoPilot] dual-brand strategie %d: %d nouveaux (%d uniques), total=%d | %s",
+            strategies.length + d + 1,
+            newPrices.length,
+            unique.length,
+            prices.length,
+            searchUrl.substring(0, 150)
+          );
+          if (progress) {
+            const stepStatus = unique.length > 0 ? "done" : "skip";
+            progress.addSubStep("collect", dualLabel, stepStatus, unique.length + " nouvelles annonces (total " + prices.length + ")");
+          }
+          searchLog.push({
+            step: strategies.length + d + 1,
+            precision: ds.precision,
+            location_type: dualLocType,
+            year_spread: ds.yearSpread,
+            filters_applied: ds.filters.includes("fuel=") ? ["fuel"] : [],
+            ads_found: newPrices.length,
+            unique_added: unique.length,
+            total_accumulated: prices.length,
+            url: searchUrl,
+            was_selected: prices.length >= MIN_PRICES_FOR_ARGUS,
+            reason: `dual-brand ${secondaryBrand}: ${unique.length} uniques, total ${prices.length}`
+          });
+          if (prices.length >= MIN_PRICES_FOR_ARGUS && collectedPrecision === null) {
+            collectedPrecision = ds.precision;
+          }
         }
       }
       if (prices.length >= MIN_PRICES_FOR_ARGUS) {
@@ -1023,7 +1133,10 @@
               brand_token_used: effectiveBrand,
               model_token_used: effectiveModel,
               token_source: tokenSource,
-              search_log: searchLog
+              search_log: searchLog,
+              // Persist DOM tokens even on failure (auto-learning)
+              site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
+              site_model_token: isCurrentVehicle ? vehicle.site_model_token : null
             })
           });
           console.log("[CoPilot] failed search reported to server");
@@ -1744,10 +1857,53 @@
     const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
     return match ? match[1] : null;
   }
+  var SMG_TLDS = /* @__PURE__ */ new Set(["ch"]);
+  function toAs24Slug(name) {
+    return String(name || "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
+  }
+  function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
+    try {
+      const u = new URL(url);
+      const hostMatch = u.hostname.match(/autoscout24\.(\w+)$/i);
+      const tld = (tldHint || (hostMatch ? hostMatch[1] : "") || "").toLowerCase();
+      const path = decodeURIComponent(u.pathname || "");
+      if (SMG_TLDS.has(tld)) {
+        const smg = path.match(/\/s\/(?:mo-([^/]+)\/)?mk-([^/?#]+)/i);
+        if (!smg) return { makeSlug: null, modelSlug: null };
+        const modelSlug2 = smg[1] ? toAs24Slug(smg[1]) : null;
+        const makeSlug2 = smg[2] ? toAs24Slug(smg[2]) : null;
+        return { makeSlug: makeSlug2, modelSlug: modelSlug2 };
+      }
+      const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, "");
+      const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
+      if (!gmbh) return { makeSlug: null, modelSlug: null };
+      const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;
+      const modelSlug = gmbh[2] ? toAs24Slug(gmbh[2]) : null;
+      return { makeSlug, modelSlug };
+    } catch {
+      return { makeSlug: null, modelSlug: null };
+    }
+  }
   function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang } = options;
-    const langSegment = lang ? `/${lang}` : "";
-    const base = `https://www.autoscout24.${tld}${langSegment}/lst/${encodeURIComponent(makeKey)}/${encodeURIComponent(modelKey)}`;
+    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang, brandOnly } = options;
+    const makeSlug = toAs24Slug(makeKey);
+    const modelSlug = brandOnly ? "" : toAs24Slug(modelKey);
+    let base;
+    if (SMG_TLDS.has(tld)) {
+      const langPrefix = lang ? `/${lang}` : "/fr";
+      if (modelSlug) {
+        base = `https://www.autoscout24.${tld}${langPrefix}/s/mo-${modelSlug}/mk-${makeSlug}`;
+      } else {
+        base = `https://www.autoscout24.${tld}${langPrefix}/s/mk-${makeSlug}`;
+      }
+    } else {
+      const langSegment = lang ? `/${lang}` : "";
+      if (modelSlug) {
+        base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}/${modelSlug}`;
+      } else {
+        base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}`;
+      }
+    }
     const params = new URLSearchParams({
       fregfrom: String(year - yearSpread),
       fregto: String(year + yearSpread),
@@ -1965,8 +2121,8 @@
           return { submitted: false, isCurrentVehicle: false };
         }
       }
-      const targetMakeKey = target.make.toLowerCase();
-      const targetModelKey = target.model.toLowerCase();
+      const targetMakeKey = target.as24_slug_make || toAs24Slug(target.make);
+      const targetModelKey = target.as24_slug_model || toAs24Slug(target.model);
       const targetYear = parseInt(target.year, 10);
       const targetLabel = `${target.make} ${target.model} ${targetYear}`;
       if (progress) {
@@ -2003,6 +2159,7 @@
         const opts5 = { yearSpread: 2, fuel: fuelCode };
         strategies.push({ ...opts5, precision: 2, label: "National fuel", location_type: "national", filters_applied: _filtersApplied(opts5) });
         strategies.push({ yearSpread: 3, precision: 1, label: "National large", location_type: "national", filters_applied: [] });
+        strategies.push({ yearSpread: 2, fuel: fuelCode, brandOnly: true, precision: 0, label: "Marque seule + fuel", location_type: "national", filters_applied: fuelCode ? ["fuel"] : [] });
       } else {
         if (targetCantonZip) {
           strategies.push({
@@ -2017,16 +2174,27 @@
         }
         strategies.push({ yearSpread: 1, precision: 2, label: "National \xB11an", location_type: "national", filters_applied: [] });
         strategies.push({ yearSpread: 2, precision: 1, label: "National \xB12ans", location_type: "national", filters_applied: [] });
+        strategies.push({ yearSpread: 2, brandOnly: true, precision: 0, label: "Marque seule", location_type: "national", filters_applied: [] });
       }
       let prices = [];
       let usedPrecision = null;
       const searchLog = [];
+      let learnedSlugMake = null;
+      let learnedSlugModel = null;
+      let slugSource = null;
+      function rememberSlugs(url, source) {
+        const parsed = extractAs24SlugsFromSearchUrl(url, tld);
+        if (parsed.makeSlug) learnedSlugMake = parsed.makeSlug;
+        if (parsed.modelSlug) learnedSlugModel = parsed.modelSlug;
+        if ((parsed.makeSlug || parsed.modelSlug) && source) slugSource = source;
+      }
       if (progress) progress.update("collect", "running");
       for (let i = 0; i < strategies.length; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
         const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
         const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
         const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
+        rememberSlugs(searchUrl, "as24_generated_url");
         try {
           const resp = await fetch(searchUrl, { credentials: "same-origin" });
           if (!resp.ok) {
@@ -2034,6 +2202,7 @@
             if (progress) progress.addSubStep?.("collect", `Strat\xE9gie ${i + 1} \xB7 ${label}`, "skip", `HTTP ${resp.status}`);
             continue;
           }
+          if (resp.url) rememberSlugs(resp.url, "as24_response_url");
           const html = await resp.text();
           prices = parseSearchPrices(html);
           const enough = prices.length >= MIN_PRICES;
@@ -2088,7 +2257,9 @@
           country: countryCode,
           hp_range: isCurrentVehicle ? hpRangeStr : null,
           gearbox: isCurrentVehicle && this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
-          search_log: searchLog
+          search_log: searchLog,
+          as24_slug_make: learnedSlugMake || targetMakeKey,
+          as24_slug_model: learnedSlugModel || (!searchLog.some((s) => (s.reason || "").startsWith("HTTP 404")) ? targetModelKey : null)
         };
         try {
           const resp = await this._fetch(marketUrl, {
@@ -2124,7 +2295,15 @@
               fuel: isCurrentVehicle ? fuelKey || null : null,
               hp_range: isCurrentVehicle ? hpRangeStr : null,
               country: countryCode,
-              search_log: searchLog
+              search_log: searchLog,
+              site: "as24",
+              tld,
+              slug_make_used: learnedSlugMake || targetMakeKey,
+              slug_model_used: learnedSlugModel || targetModelKey,
+              slug_source: slugSource || "as24_generated_url",
+              // Persist learned slugs even on failure (auto-learning)
+              as24_slug_make: learnedSlugMake || null,
+              as24_slug_model: learnedSlugModel || null
             })
           });
         } catch {
@@ -2165,8 +2344,8 @@
         }
         try {
           await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
-          const jobMakeKey = job.slug_make || job.make.toLowerCase();
-          const jobModelKey = job.slug_model || job.model.toLowerCase();
+          const jobMakeKey = job.slug_make || toAs24Slug(job.make);
+          const jobModelKey = job.slug_model || toAs24Slug(job.model);
           const jobYear = parseInt(job.year, 10);
           const cantonZip = getCantonCenterZip(job.region);
           const searchOpts = { yearSpread: 1 };
@@ -2188,6 +2367,7 @@
           }
           const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
           const resp = await fetch(searchUrl, { credentials: "same-origin" });
+          const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
           if (!resp.ok) {
             await this._reportJobDone(jobDoneUrl, job.job_id, false);
             if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, "skip", `HTTP ${resp.status}`);
@@ -2215,6 +2395,8 @@
               hp_range: job.hp_range || null,
               precision: bonusPrecision,
               country: countryCode,
+              as24_slug_make: learned.makeSlug || jobMakeKey,
+              as24_slug_model: learned.modelSlug || (searchOpts.brandOnly ? null : jobModelKey),
               search_log: [{
                 step: 1,
                 precision: bonusPrecision,

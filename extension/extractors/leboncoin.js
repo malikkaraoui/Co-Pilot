@@ -58,6 +58,13 @@ export const LBC_BRAND_ALIASES = {
   MERCEDES: "MERCEDES-BENZ",
 };
 
+/** Marques a double identite : le vehicule peut etre liste sous deux marques sur LBC.
+ *  DS etait une sous-marque Citroen avant ~2014 ; ~10% des DS sont encore sous CITROEN.
+ *  Format : { MARQUE_PRINCIPALE: "MARQUE_SECONDAIRE" }. */
+export const DUAL_BRAND_ALIASES = {
+  DS: "CITROEN",
+};
+
 /** Mapping des regions LeBonCoin -> codes rn_ (region + voisines).
  *  Les codes rn_ utilisent l'ancienne nomenclature regionale LBC (pre-2016).
  *  Inclut AUSSI les anciens noms de region (LBC retourne parfois les anciens
@@ -1051,6 +1058,18 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   strategies.push({ loc: "", yearSpread: 2, filters: noHpFilters, precision: 2 });
   strategies.push({ loc: "", yearSpread: 3, filters: minFilters,  precision: 1 });
 
+  // Strategy 8: Text search fallback — bypass les tokens structures (u_car_brand/u_car_model).
+  // Si les tokens sont faux (accent manquant, format inconnu), les 7 strategies ci-dessus
+  // renvoient 0 resultats. Le text search est un filet de securite qui utilise le nom brut.
+  if (!modelIsGeneric) {
+    const textQuery = `${target.make} ${target.model}`;
+    const textCoreUrl = `https://www.leboncoin.fr/recherche?category=2&text=${encodeURIComponent(textQuery)}`;
+    strategies.push({
+      loc: "", yearSpread: 2, filters: fuelParam,
+      precision: 1, coreUrl: textCoreUrl, isTextFallback: true,
+    });
+  }
+
   console.log("[CoPilot] fuel=%s → fuelCode=%s | gearbox=%s → gearboxCode=%s | hp=%d → hpRange=%s | km=%d",
     targetFuel, fuelCode, (gearbox || "").toLowerCase(), gearboxCode, hp, hpRange, mileageKm);
   console.log("[CoPilot] coreUrl:", coreUrl);
@@ -1067,6 +1086,22 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
 
       const strategy = strategies[i];
+
+      // Skip text fallback si on a deja assez de prix (evite une requete inutile)
+      if (strategy.isTextFallback && prices.length >= MIN_PRICES_FOR_ARGUS) {
+        console.log("[CoPilot] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
+        searchLog.push({
+          step: i + 1, precision: strategy.precision, location_type: "national",
+          year_spread: strategy.yearSpread,
+          filters_applied: strategy.filters.includes("fuel=") ? ["fuel"] : [],
+          ads_found: 0, unique_added: 0, total_accumulated: prices.length,
+          url: "(skipped)", was_selected: false,
+          reason: `text fallback skipped: ${prices.length} >= ${MIN_PRICES_FOR_ARGUS}`,
+        });
+        if (progress) progress.addSubStep("collect", "Stratégie " + (i + 1) + " · Text search (fallback)", "skip", "Déjà assez de données");
+        continue;
+      }
+
       const baseCoreUrl = strategy.coreUrl || coreUrl;
       let searchUrl = baseCoreUrl + strategy.filters;
       if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
@@ -1132,6 +1167,67 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       if (prices.length >= MAX_PRICES_CAP) {
         console.log("[CoPilot] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
         break;
+      }
+    }
+
+    // ── Dual-brand strategies (ex: DS aussi sous CITROEN sur LBC) ────────
+    const secondaryBrand = DUAL_BRAND_ALIASES[brandUpper];
+    if (secondaryBrand && !modelIsGeneric && prices.length < MAX_PRICES_CAP) {
+      console.log("[CoPilot] dual-brand: %s → secondary brand %s", brandUpper, secondaryBrand);
+      const dualQuery = `${target.make} ${target.model}`;
+      const dualCoreUrl = `https://www.leboncoin.fr/recherche?category=2`
+        + `&u_car_brand=${encodeURIComponent(secondaryBrand)}`
+        + `&text=${encodeURIComponent(dualQuery)}`;
+
+      const dualStrategies = [
+        { loc: regionParam || "", yearSpread: 2, filters: fuelParam, precision: 2 },
+        { loc: "", yearSpread: 2, filters: fuelParam, precision: 1 },
+      ];
+
+      for (let d = 0; d < dualStrategies.length; d++) {
+        if (prices.length >= MAX_PRICES_CAP) break;
+        await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+
+        const ds = dualStrategies[d];
+        let searchUrl = dualCoreUrl + ds.filters;
+        if (ds.loc) searchUrl += `&locations=${ds.loc}`;
+        if (targetYear >= 1990) {
+          searchUrl += `&regdate=${targetYear - ds.yearSpread}-${targetYear + ds.yearSpread}`;
+        }
+
+        const dualLocType = ds.loc ? "region" : "national";
+        const dualLabel = `Stratégie ${strategies.length + d + 1} · Dual ${secondaryBrand} (${dualLocType})`;
+
+        const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread);
+        const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+        const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+        prices = [...prices, ...unique];
+
+        console.log("[CoPilot] dual-brand strategie %d: %d nouveaux (%d uniques), total=%d | %s",
+          strategies.length + d + 1, newPrices.length, unique.length, prices.length, searchUrl.substring(0, 150));
+
+        if (progress) {
+          const stepStatus = unique.length > 0 ? "done" : "skip";
+          progress.addSubStep("collect", dualLabel, stepStatus, unique.length + " nouvelles annonces (total " + prices.length + ")");
+        }
+
+        searchLog.push({
+          step: strategies.length + d + 1,
+          precision: ds.precision,
+          location_type: dualLocType,
+          year_spread: ds.yearSpread,
+          filters_applied: ds.filters.includes("fuel=") ? ["fuel"] : [],
+          ads_found: newPrices.length,
+          unique_added: unique.length,
+          total_accumulated: prices.length,
+          url: searchUrl,
+          was_selected: prices.length >= MIN_PRICES_FOR_ARGUS,
+          reason: `dual-brand ${secondaryBrand}: ${unique.length} uniques, total ${prices.length}`,
+        });
+
+        if (prices.length >= MIN_PRICES_FOR_ARGUS && collectedPrecision === null) {
+          collectedPrecision = ds.precision;
+        }
       }
     }
 
@@ -1216,6 +1312,9 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
             model_token_used: effectiveModel,
             token_source: tokenSource,
             search_log: searchLog,
+            // Persist DOM tokens even on failure (auto-learning)
+            site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
+            site_model_token: isCurrentVehicle ? vehicle.site_model_token : null,
           }),
         });
         console.log("[CoPilot] failed search reported to server");

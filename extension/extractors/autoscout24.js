@@ -1351,6 +1351,9 @@ export class AutoScout24Extractor extends SiteExtractor {
             slug_make_used: learnedSlugMake || targetMakeKey,
             slug_model_used: learnedSlugModel || targetModelKey,
             slug_source: slugSource || 'as24_generated_url',
+            // Persist learned slugs even on failure (auto-learning)
+            as24_slug_make: learnedSlugMake || null,
+            as24_slug_model: learnedSlugModel || null,
           }),
         });
       } catch { /* ignore */ }
