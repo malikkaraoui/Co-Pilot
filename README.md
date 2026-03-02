@@ -1,125 +1,129 @@
-# Co-Pilot -- Analyse de confiance pour annonces auto Leboncoin
+# Vehicore — Analyse de confiance pour annonces auto
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?logo=googlechrome&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-292%2B_passing-2EA44F)
+![Tests](https://img.shields.io/badge/tests-783_passing-2EA44F)
 ![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+![Render](https://img.shields.io/badge/deploy-Render-46E3B7?logo=render&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-Co-Pilot est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur Leboncoin et attribue un **score de confiance de 0 à 100**.
+**Vehicore** est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur **Leboncoin** et **AutoScout24** (8 pays européens) et attribue un **score de confiance de 0 à 100**.
 
-L'utilisateur navigue sur Leboncoin, clique sur "Analyser avec Co-Pilot", et obtient un verdict instantané avec le détail de 10 filtres indépendants.
+L'utilisateur navigue sur une annonce, clique sur "Analyser", et obtient un verdict instantané avec le détail de 10 filtres indépendants, un radar visuel, et des recommandations personnalisées.
+
+## Points forts
+
+- **Multi-plateforme** : Leboncoin (FR) + AutoScout24 (.ch, .de, .fr, .it, .be, .nl, .at, .es)
+- **10 filtres indépendants** avec scoring pondéré et radar SVG interactif
+- **Argus Maison collaboratif** : cotation participative en temps réel via les utilisateurs de l'extension
+- **Auto-learning** : tokens de recherche LBC et slugs AS24 appris automatiquement pour chaque véhicule
+- **Email vendeur IA** : génération de mails personnalisés via Gemini (adapté pro/particulier)
+- **YouTube intégré** : vidéos de test et avis liées à chaque véhicule (sous-titres extractibles)
+- **Détection intelligente** : non-véhicules, imports, republications, annonces sponsorisées off-brand
+- **Dashboard admin complet** : pilotage, monitoring, gestion du référentiel, LLM, vidéos, erreurs
 
 ## Fonctionnement
 
 ```text
 Extension Chrome                API Flask (Python)
      |                               |
-     |  1. Extrait __NEXT_DATA__     |
+     |  1. Extrait les données       |
+     |     (LBC: __NEXT_DATA__,      |
+     |      AS24: JSON-LD + DOM)     |
+     |                               |
      |  2. POST /api/analyze ------> |
-     |                               | 3. Extraction des données
-     |                               | 4. Exécution des 10 filtres (parallèle)
-     |                               | 5. Calcul du score global
+     |                               | 3. Extraction & normalisation
+     |                               | 4. Exécution des 10 filtres
+     |                               | 5. Scoring pondéré (L2/L4 critique)
      |  6. Affiche la popup  <------ |
-     |     avec jauge + détails      |
+     |     avec radar + détails      |
+     |                               |
+     |  7. Collecte prix marché ---> | 8. Upsert MarketPrice
+     |     (véhicule courant +       |    (crowdsourcé, cache 24h)
+     |      job bonus rotation)      |
 ```
 
-## Argus Maison -- Cotation collaborative
+## Les 10 filtres
 
-L'**Argus Maison** est un système de cotation participatif intégré à Co-Pilot. Plutôt que de dépendre uniquement de données Argus importées (seeds), le système collecte les prix réels du marché directement depuis les annonces Leboncoin grâce aux utilisateurs de l'extension.
+| ID  | Nom                      | Poids | Description                                                                |
+| --- | ------------------------ | ----- | -------------------------------------------------------------------------- |
+| L1  | Complétude des données   | 1.0   | Vérifie la présence des champs critiques (prix, marque, modèle, année, km)|
+| L2  | Modèle reconnu           | 2.0   | Recherche le véhicule dans le référentiel (70+ véhicules, aliases)        |
+| L3  | Cohérence km / année     | 1.0   | Détecte les kilométrages anormaux par rapport à l'âge                     |
+| L4  | Prix vs Argus            | 2.0   | Compare le prix annoncé à l'argus géolocalisé + signal "anguille"        |
+| L5  | Analyse statistique prix | 1.0   | Z-scores NumPy pour détecter les prix outliers                            |
+| L6  | Téléphone                | 0.5   | Détecte les indicatifs étrangers et formats suspects                      |
+| L7  | SIRET vendeur            | 1.0   | Vérifie le SIRET via l'API publique gouv.fr                               |
+| L8  | Détection import         | 1.0   | Repère les signaux d'un véhicule importé (TVA, pays-aware)               |
+| L9  | Évaluation globale       | 1.0   | Synthèse des points forts / faibles de l'annonce                          |
+| L10 | Ancienneté annonce       | 1.0   | Durée de mise en vente et détection des republications                    |
 
-Chaque utilisateur qui analyse une annonce contribue automatiquement à enrichir la base de prix.
+## Argus Maison — Cotation collaborative
 
-### Schéma du pipeline
+Plutôt que de dépendre uniquement de données Argus importées (seeds), le système collecte les prix réels du marché directement depuis les annonces grâce aux utilisateurs de l'extension.
 
 ```text
                         Extension Chrome
                               |
-         1. Analyse d'une annonce Leboncoin
+         1. Analyse d'une annonce (LBC ou AS24)
                               |
          2. GET /api/market-prices/next-job
                   (quel véhicule collecter ?)
                               |
                     +---------+---------+
                     |                   |
-          Véhicule courant        Autre véhicule
+          Véhicule courant        Job bonus
           (toujours collecté)     (rotation, cooldown 24h)
                     |                   |
                     +---------+---------+
                               |
-         3. Recherche Leboncoin (même marque/modèle/région)
-            Parse __NEXT_DATA__ → extraction des prix
+         3. Recherche sur la plateforme source
+            LBC: parse __NEXT_DATA__
+            AS24: parse JSON-LD + DOM
                               |
          4. POST /api/market-prices
-            { make, model, year, region, prices: [...] }
+            { make, model, year, region, prices, source }
                               |
-                        API Flask
+         5. Filtrage + calcul NumPy (min, median, mean, max, std)
                               |
-         5. Filtrage (prix < 500 EUR exclus)
-            Calcul NumPy : min, median, mean, max, std
-                              |
-         6. Upsert MarketPrice en base
-            (clé unique : marque + modèle + année + région)
-                              |
-                    Données disponibles
-                      pour les filtres
-                              |
-              +---------------+---------------+
-              |                               |
-     Filtre L4 (Prix vs Argus)     Filtre L5 (Z-score)
-              |                               |
-     MarketPrice (n >= 5) ?        MarketPrice (n >= 5) ?
-        OUI → prix réel              OUI → stats réelles
-        NON → fallback ArgusPrice    NON → fallback ArgusPrice
+         6. Upsert MarketPrice (clé : marque + modèle + année + région)
 ```
 
-### Strategie de fallback des prix
+**Stratégie de fallback** : MarketPrice crowdsourcé (≥ 5 échantillons) → MarketPrice année ±3 → ArgusPrice seed → filtre skip
 
-```text
-MarketPrice crowdsourcé (>= 5 échantillons)
-        |
-        +-- NON --> MarketPrice année ±3 (même marque/modèle/région)
-                          |
-                          +-- NON --> ArgusPrice seed (import CSV)
-                                            |
-                                            +-- NON --> filtre skip
-```
+**Auto-learning** : les tokens de recherche (LBC: accents, AS24: slugs) sont appris automatiquement depuis le DOM et persistés en base pour les futures recherches.
 
-### Points clés
+## Email vendeur IA
 
-- **Fraîcheur** : cache 24h par véhicule/région, les données restent exploitables au-delà
-- **Anti-abus** : cooldown 24h pour les véhicules tiers, le véhicule courant est toujours collecté
-- **Matching robuste** : normalisation Unicode (NFKC), insensible à la casse et aux apostrophes
-- **Transparence** : l'extension affiche un badge "Données simulées" quand L4/L5 utilisent le fallback ArgusPrice
-- **Admin** : page `/admin/argus` avec stats, filtres par marque/région, tableau paginé des cotations
+Génération automatique de mails personnalisés via **Google Gemini** pour contacter le vendeur :
 
-## Les 10 filtres
+- Adapté au type de vendeur (professionnel / particulier)
+- Basé sur les résultats des 10 filtres (points forts, alertes à questionner)
+- Prompts versionnés et configurables depuis l'admin
+- Suivi des coûts LLM avec graphiques Plotly
 
-| ID  | Nom                      | Description                                                                 |
-| --- | ------------------------ | --------------------------------------------------------------------------- |
-| L1  | Complétude des données   | Vérifie la présence des champs critiques (prix, marque, modèle, année, km)  |
-| L2  | Modèle reconnu           | Recherche le véhicule dans le référentiel                                   |
-| L3  | Cohérence km / année     | Détecte les kilométrages anormaux par rapport à l'âge                       |
-| L4  | Prix vs Argus            | Compare le prix annoncé à l'argus géolocalisé par région                    |
-| L5  | Analyse statistique prix | Calcul de z-scores via NumPy pour détecter les prix outliers                |
-| L6  | Téléphone                | Détecte les indicatifs étrangers et formats suspects                        |
-| L7  | SIRET vendeur            | Vérifie le SIRET via l'API publique gouv.fr                                 |
-| L8  | Détection import         | Repère les signaux d'un véhicule importé                                    |
-| L9  | Évaluation globale       | Synthèse des points forts / faibles de l'annonce                            |
-| L10 | Ancienneté annonce       | Analyse la durée de mise en vente et détecte les republications             |
+## YouTube intégré
+
+Recherche automatique de vidéos YouTube (tests, avis) liées à chaque véhicule :
+
+- Extraction des sous-titres via `youtube-transcript-api`
+- Système de vidéo "featured" par véhicule
+- Gestion complète depuis l'admin (archivage, extraction, recherche)
 
 ## Stack technique
 
-- **Backend** : Python 3.12, Flask 3.x, SQLAlchemy 2.x, Pydantic 2.x
-- **Base de données** : SQLite (portable, persistée via Docker volume)
-- **Extension** : Chrome Manifest V3, vanilla JS, CSS préfixé `.copilot-*`
-- **Tests** : pytest, 226+ tests, couverture 86%+
+- **Backend** : Python 3.12, Flask 3.1, SQLAlchemy 2.0, Pydantic 2.11
+- **IA** : Google Gemini (génération email), yt-dlp + youtube-transcript-api (vidéos)
+- **Base de données** : SQLite (persistée via Docker volume / Render disk)
+- **Extension** : Chrome Manifest V3, vanilla JS, esbuild (bundling), CSS préfixé `.copilot-*`
+- **Tests** : pytest (783 tests Python) + Vitest (tests JS)
 - **Lint** : ruff
 - **CI** : GitHub Actions (lint + tests)
 - **Conteneurisation** : Docker + docker-compose
+- **Déploiement** : Render (Starter, Frankfurt, HTTPS auto)
 
 ## Installation
 
@@ -127,6 +131,7 @@ MarketPrice crowdsourcé (>= 5 échantillons)
 
 - Python 3.12+
 - pip
+- Node.js 20+ (pour le build de l'extension et les tests JS)
 - Chrome (pour l'extension)
 
 ### Backend
@@ -159,23 +164,23 @@ docker-compose up --build
 
 ### Extension Chrome
 
-1. Ouvrir Chrome > `chrome://extensions`
-2. Activer le **Mode développeur**
-3. Cliquer **"Charger l'extension non empaquetée"**
-4. Sélectionner le dossier `extension/`
-
-### Page de démo
-
-Ouvrir `extension/demo.html` dans le navigateur pour tester sans Leboncoin (le serveur Flask doit tourner).
+1. Builder l'extension : `npm run build` (ou utiliser `scripts/package-extension.sh`)
+2. Ouvrir Chrome > `chrome://extensions`
+3. Activer le **Mode développeur**
+4. Cliquer **"Charger l'extension non empaquetée"**
+5. Sélectionner le dossier `extension/`
 
 ## Tests
 
 ```bash
-# Lancer tous les tests
+# Tests Python
 pytest
 
 # Avec couverture
 pytest --cov=app
+
+# Tests JS (extension)
+npm test
 
 # Linting
 ruff check .
@@ -184,49 +189,53 @@ ruff check .
 ## Structure du projet
 
 ```text
-Co-Pilot/
+Vehicore/
 ├── app/
-│   ├── __init__.py          # Flask Application Factory
-│   ├── api/                 # Blueprint API (routes, erreurs)
-│   ├── admin/               # Blueprint admin (dashboard)
-│   ├── filters/             # 10 filtres L1-L10 + BaseFilter + FilterEngine
-│   ├── models/              # Modèles SQLAlchemy (Vehicle, ScanLog, MarketPrice…)
-│   ├── schemas/             # Schémas Pydantic (validation)
-│   ├── services/            # Logique métier (extraction, scoring, market_service…)
-│   └── extensions.py        # Extensions Flask (db, cors, login)
+│   ├── __init__.py              # Flask Application Factory
+│   ├── api/                     # Blueprint API (routes, market_routes, erreurs)
+│   ├── admin/                   # Blueprint admin (dashboard, templates)
+│   ├── filters/                 # 10 filtres L1-L10 + BaseFilter + FilterEngine
+│   ├── models/                  # SQLAlchemy (Vehicle, ScanLog, MarketPrice,
+│   │                            #   CollectionJob, EmailDraft, YouTubeVideo…)
+│   ├── schemas/                 # Schémas Pydantic (validation)
+│   ├── services/                # Logique métier (extraction, scoring, market,
+│   │                            #   email, gemini, youtube, currency…)
+│   └── extensions.py            # Extensions Flask (db, cors, login, limiter)
 ├── extension/
-│   ├── manifest.json        # Manifest V3
-│   ├── content.js           # Script injecté sur Leboncoin
-│   ├── content.css          # Styles de la popup
-│   ├── popup/               # Popup de l'extension
-│   └── demo.html            # Page de test
-├── tests/                   # 226+ tests pytest
+│   ├── manifest.json            # Manifest V3 (LBC + AS24 8 pays)
+│   ├── content.js               # Script injecté (LBC + AS24)
+│   ├── background.js            # Service worker
+│   ├── build.js                 # esbuild config
+│   ├── content.css              # Styles popup
+│   └── popup/                   # Popup de l'extension
+├── tests/                       # 783 tests pytest
 ├── data/
-│   ├── copilot.db           # Base SQLite (non versionné)
-│   └── seeds/               # Scripts de peuplement
-├── config.py                # Configuration par environnement
-├── wsgi.py                  # Point d'entrée WSGI
-├── Dockerfile
-└── docker-compose.yml
+│   ├── vehicore.db              # Base SQLite (non versionné)
+│   └── seeds/                   # Scripts de peuplement (vehicles, argus,
+│                                #   youtube, gemini prompts)
+├── docs/                        # Documentation (deployment, privacy, specs…)
+├── scripts/                     # Scripts utilitaires (init_db, packaging…)
+├── config.py                    # Configuration par environnement
+├── wsgi.py                      # Point d'entrée WSGI
+├── Dockerfile                   # Image production (python:3.12-slim)
+├── docker-compose.yml
+└── render.yaml                  # IaC Render (service + disk + env vars)
 ```
 
 ## API
 
 ### POST /api/analyze
 
-Analyse une annonce Leboncoin et retourne un score de confiance.
-
-**Requête :**
+Analyse une annonce et retourne un score de confiance.
 
 ```json
+// Requête
 {
-  "next_data": { "props": { "pageProps": { "ad": { ... } } } }
+  "next_data": { "props": { "pageProps": { "ad": { "..." } } } },
+  "url": "https://www.leboncoin.fr/voitures/..."
 }
-```
 
-**Réponse :**
-
-```json
+// Réponse
 {
   "success": true,
   "data": {
@@ -234,37 +243,30 @@ Analyse une annonce Leboncoin et retourne un score de confiance.
     "is_partial": false,
     "vehicle": { "make": "Peugeot", "model": "3008", "year": "2019" },
     "filters": [
-      { "filter_id": "L1", "status": "pass", "score": 1.0, "message": "..." },
-      { "filter_id": "L2", "status": "pass", "score": 1.0, "message": "..." }
-    ]
+      { "filter_id": "L1", "status": "pass", "score": 1.0, "message": "..." }
+    ],
+    "featured_video": { "title": "...", "video_id": "..." },
+    "scan_id": 42
   }
 }
 ```
 
 ### POST /api/market-prices
 
-Enregistre des prix collectés par l'extension pour alimenter l'Argus Maison.
-
-**Requête :**
+Enregistre des prix collectés pour alimenter l'Argus Maison.
 
 ```json
+// Requête
 {
-  "make": "Peugeot",
-  "model": "3008",
-  "year": 2019,
-  "region": "Île-de-France",
-  "prices": [15200, 16800, 14500, 17000, 15900]
+  "make": "Peugeot", "model": "3008", "year": 2019,
+  "region": "Île-de-France", "prices": [15200, 16800, 14500],
+  "source": "lbc"
 }
 ```
 
-**Réponse :**
+### POST /api/email-draft
 
-```json
-{
-  "success": true,
-  "data": { "sample_count": 5, "price_median": 15900 }
-}
-```
+Génère un email personnalisé pour contacter le vendeur (via Gemini).
 
 ### GET /api/market-prices/next-job
 
@@ -274,9 +276,30 @@ Retourne le prochain véhicule à collecter (smart job assignment).
 
 Vérification de l'état du serveur.
 
+## Dashboard admin
+
+Le panneau d'administration (`/admin`) offre :
+
+- **Dashboard** : 7 stat cards (taux d'échec, warnings, erreurs, véhicules non reconnus…)
+- **Référentiel véhicules** : gestion des 70+ véhicules, demandes utilisateurs, quick-add
+- **Argus** : cotations crowdsourcées, stats par marque/région
+- **Filtres** : maturité de chaque filtre, badges OK/simulé
+- **YouTube** : vidéos par véhicule, extraction de sous-titres, featured toggle
+- **Email/LLM** : configuration Gemini, prompts versionnés, coûts, drafts
+- **Pipelines** : historique des exécutions de seeds
+- **Issues** : recherches échouées (LBC/AS24), diagnostic des tokens
+- **Erreurs** : logs WARNING/ERROR persistés
+
+## Sites supportés
+
+| Site | Pays | Extraction | Collecte prix |
+| --- | --- | --- | --- |
+| Leboncoin | France | `__NEXT_DATA__` | `__NEXT_DATA__` + tokens auto-appris |
+| AutoScout24 | CH, DE, FR, IT, BE, NL, AT, ES | JSON-LD + DOM | JSON-LD + slugs auto-appris |
+
 ## Auteur
 
-**Malik Karaoui** -- Projet de certification Python SE (jury mars 2026)
+**Malik Karaoui** — Projet de certification Python SE (jury mars 2026)
 
 ## Licence
 
