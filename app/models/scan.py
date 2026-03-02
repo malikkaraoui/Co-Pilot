@@ -20,6 +20,8 @@ class ScanLog(db.Model):
     price_eur = db.Column(db.Integer)
     days_online = db.Column(db.Integer)
     republished = db.Column(db.Boolean, default=False)
+    source = db.Column(db.String(30))  # "leboncoin", "autoscout24"
+    country = db.Column(db.String(5))  # ISO code: "FR", "DE", "CH", "PL"...
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     filter_results = db.relationship("FilterResultDB", backref="scan", lazy="select")

@@ -129,6 +129,37 @@
   </div>
 </div>
 
+<!-- Couverture par pays -->
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="stat-card">
+      <h5>Couverture par pays</h5>
+      {% if country_stats %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr><th></th><th>Pays</th><th>Scans</th><th>Refs prix</th><th>Annonces collectees</th></tr></thead>
+          <tbody>
+            {% set flag_map = {"FR": "\U0001f1eb\U0001f1f7", "DE": "\U0001f1e9\U0001f1ea", "CH": "\U0001f1e8\U0001f1ed", "IT": "\U0001f1ee\U0001f1f9", "ES": "\U0001f1ea\U0001f1f8", "AT": "\U0001f1e6\U0001f1f9", "BE": "\U0001f1e7\U0001f1ea", "NL": "\U0001f1f3\U0001f1f1", "PL": "\U0001f1f5\U0001f1f1", "LU": "\U0001f1f1\U0001f1fa", "SE": "\U0001f1f8\U0001f1ea", "INT": "\U0001f310"} %}
+            {% set name_map = {"FR": "France", "DE": "Allemagne", "CH": "Suisse", "IT": "Italie", "ES": "Espagne", "AT": "Autriche", "BE": "Belgique", "NL": "Pays-Bas", "PL": "Pologne", "LU": "Luxembourg", "SE": "Suede", "INT": "International"} %}
+            {% for cc, stats in country_stats %}
+            <tr>
+              <td style="font-size:20px; text-align:center; width:40px;">{{ flag_map.get(cc, "\U0001f3f3\ufe0f") }}</td>
+              <td><strong>{{ name_map.get(cc, cc) }}</strong></td>
+              <td><span class="badge bg-primary">{{ stats.scans }}</span></td>
+              <td>{{ stats.market_refs }}</td>
+              <td>{{ "{:,}".format(stats.market_samples|int).replace(",", " ") }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted text-center py-4">Aucune donnee par pays disponible</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
 <!-- Argus maison (prix du marche crowdsources) -->
 <div class="row g-3 mb-3">
   <div class="col-md-4">
@@ -158,17 +189,22 @@
       {% if recent_market %}
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0">
-          <thead><tr><th>Collecte</th><th>Vehicule</th><th>Region</th><th>Median</th><th>Min</th><th>Max</th><th>Annonces</th><th>Fraicheur</th></tr></thead>
+          {% set currency_map = {"CH": "CHF", "PL": "PLN", "SE": "SEK"} %}
+          {% set flag_map2 = {"FR": "\U0001f1eb\U0001f1f7", "DE": "\U0001f1e9\U0001f1ea", "CH": "\U0001f1e8\U0001f1ed", "IT": "\U0001f1ee\U0001f1f9", "ES": "\U0001f1ea\U0001f1f8", "AT": "\U0001f1e6\U0001f1f9", "BE": "\U0001f1e7\U0001f1ea", "NL": "\U0001f1f3\U0001f1f1", "PL": "\U0001f1f5\U0001f1f1", "LU": "\U0001f1f1\U0001f1fa", "SE": "\U0001f1f8\U0001f1ea", "INT": "\U0001f310"} %}
+          <thead><tr><th></th><th>Collecte</th><th>Vehicule</th><th>Region</th><th>Median</th><th>Min</th><th>Max</th><th>Annonces</th><th>Fraicheur</th></tr></thead>
           <tbody>
             {% for m in recent_market %}
             {% set is_fresh = m.refresh_after > now %}
+            {% set cc = m.country or "FR" %}
+            {% set cur = currency_map.get(cc, "EUR") %}
             <tr>
+              <td style="font-size:16px; text-align:center;">{{ flag_map2.get(cc, "") }}</td>
               <td style="font-size:12px; white-space:nowrap">{{ m.collected_at|localdatetime('%d/%m %H:%M') }}</td>
               <td><strong>{{ m.make }}</strong> {{ m.model }} {{ m.year }}</td>
               <td>{{ m.region }}</td>
-              <td><strong>{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong></td>
-              <td style="font-size:12px">{{ "{:,}".format(m.price_min).replace(",", " ") }} &euro;</td>
-              <td style="font-size:12px">{{ "{:,}".format(m.price_max).replace(",", " ") }} &euro;</td>
+              <td><strong>{{ "{:,}".format(m.price_median).replace(",", " ") }} {{ cur }}</strong></td>
+              <td style="font-size:12px">{{ "{:,}".format(m.price_min).replace(",", " ") }} {{ cur }}</td>
+              <td style="font-size:12px">{{ "{:,}".format(m.price_max).replace(",", " ") }} {{ cur }}</td>
               <td><span class="badge bg-primary">{{ m.sample_count }}</span></td>
               <td>
                 {% if is_fresh %}
@@ -197,10 +233,12 @@
       {% if recent_scans %}
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0">
-          <thead><tr><th>Date</th><th>Vehicule</th><th>URL</th><th>Score</th><th>Partiel</th></tr></thead>
+          {% set scan_flags = {"FR": "\U0001f1eb\U0001f1f7", "DE": "\U0001f1e9\U0001f1ea", "CH": "\U0001f1e8\U0001f1ed", "IT": "\U0001f1ee\U0001f1f9", "ES": "\U0001f1ea\U0001f1f8", "AT": "\U0001f1e6\U0001f1f9", "BE": "\U0001f1e7\U0001f1ea", "NL": "\U0001f1f3\U0001f1f1", "PL": "\U0001f1f5\U0001f1f1", "LU": "\U0001f1f1\U0001f1fa", "SE": "\U0001f1f8\U0001f1ea", "INT": "\U0001f310"} %}
+          <thead><tr><th></th><th>Date</th><th>Vehicule</th><th>URL</th><th>Score</th><th>Partiel</th></tr></thead>
           <tbody>
             {% for s in recent_scans %}
             <tr>
+              <td style="font-size:16px; text-align:center;">{{ scan_flags.get(s.country or "FR", "\U0001f1eb\U0001f1f7") }}</td>
               <td style="font-size:12px; white-space:nowrap">{{ s.created_at|localdatetime('%d/%m %H:%M') }}</td>
               <td>{{ s.vehicle_make or '' }} {{ s.vehicle_model or '' }}</td>
               <td style="font-size:12px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">

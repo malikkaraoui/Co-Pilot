@@ -214,6 +214,8 @@ def _do_analyze():
             price_eur=ad_data.get("price_eur"),
             days_online=ad_data.get("days_online"),
             republished=ad_data.get("republished", False),
+            source=req.source or ("leboncoin" if is_lbc_source else "autoscout24"),
+            country=(ad_data.get("country") or "FR").upper(),
         )
         db.session.add(scan)
         db.session.flush()

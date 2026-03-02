@@ -206,6 +206,37 @@ def dashboard():
 
     csv_missing_count = len(get_csv_missing_vehicles())
 
+    # Stats par pays : scans et prix marche par country code
+    country_scan_rows = (
+        db.session.query(
+            db.func.coalesce(ScanLog.country, "FR").label("country"),
+            db.func.count(ScanLog.id).label("scan_count"),
+        )
+        .group_by(db.func.coalesce(ScanLog.country, "FR"))
+        .all()
+    )
+    country_market_rows = (
+        db.session.query(
+            db.func.coalesce(MarketPrice.country, "FR").label("country"),
+            db.func.count(MarketPrice.id).label("market_count"),
+            db.func.sum(MarketPrice.sample_count).label("sample_total"),
+        )
+        .group_by(db.func.coalesce(MarketPrice.country, "FR"))
+        .all()
+    )
+
+    # Fusionner dans un dict {country_code: {scans, market_refs, market_samples}}
+    country_stats: dict[str, dict] = {}
+    for row in country_scan_rows:
+        cc = row.country
+        country_stats.setdefault(cc, {"scans": 0, "market_refs": 0, "market_samples": 0})
+        country_stats[cc]["scans"] = row.scan_count
+    for row in country_market_rows:
+        cc = row.country
+        country_stats.setdefault(cc, {"scans": 0, "market_refs": 0, "market_samples": 0})
+        country_stats[cc]["market_refs"] = row.market_count
+        country_stats[cc]["market_samples"] = row.sample_total or 0
+
     return render_template(
         "admin/dashboard.html",
         total_scans=total_scans,
@@ -227,6 +258,7 @@ def dashboard():
         market_total_samples=market_total_samples,
         recent_market=recent_market,
         csv_missing_count=csv_missing_count,
+        country_stats=sorted(country_stats.items(), key=lambda x: x[1]["scans"], reverse=True),
         now=now,
     )
 
