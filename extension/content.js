@@ -336,6 +336,7 @@ function buildFilterBody(f, vehicle) {
   const d = f.details || {};
   switch (f.filter_id) {
     case "L1":  return buildL1Body(f, d);
+    case "L3":  return buildL3Body(f, d);
     case "L4":  return buildPriceBarHTML(d, vehicle);
     case "L10": return buildL10Body(f, d);
     default:    return buildGenericBody(f);
@@ -387,6 +388,81 @@ function buildL1Body(f, d) {
   }
 
   return `<div class="copilot-l1-body">${barHTML}${statusMsg}${missingHTML}</div>`;
+}
+
+// ── L3 : Cohérence km / année ─────────────────────────────
+
+function buildL3Body(f, d) {
+  const kmYear = d.km_per_year;
+  const expectedKm = d.expected_km;
+  const mileage = d.mileage_km;
+  const age = d.age;
+  const isPro = d.is_pro;
+  const warnings = d.warnings || [];
+  const avgExpected = d.avg_km_per_year;
+  const kmRatio = d.km_ratio;
+
+  if (kmYear == null || expectedKm == null) {
+    return `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
+  }
+
+  const fmtKm = (n) => Math.round(n).toLocaleString("fr-FR");
+
+  // Stat principale
+  const statHTML = `
+    <div class="copilot-l3-stat">
+      <span class="copilot-l3-km-year">~${fmtKm(kmYear)} km/an</span>
+      <span class="copilot-l3-expected">Attendu : ~${fmtKm(avgExpected || 15000)} km/an pour un véhicule de ${age} an${age > 1 ? "s" : ""}</span>
+    </div>
+  `;
+
+  // Barre comparaison km réel vs attendu
+  const maxKm = Math.max(mileage, expectedKm) * 1.3;
+  const realPct = Math.min((mileage / maxKm) * 100, 100);
+  const expectedPct = Math.min((expectedKm / maxKm) * 100, 100);
+  const barColor = kmRatio < 0.5 ? "#3b82f6" : kmRatio <= 1.5 ? "#22c55e" : kmRatio <= 2.0 ? "#f59e0b" : "#ef4444";
+
+  const barHTML = `
+    <div class="copilot-l3-comparison">
+      <div class="copilot-l3-bar-row">
+        <span class="copilot-l3-bar-label">Réel</span>
+        <div class="copilot-l3-bar-track"><div class="copilot-l3-bar-fill" style="width:${realPct}%;background:${barColor}"></div></div>
+        <span class="copilot-l3-bar-value">${fmtKm(mileage)} km</span>
+      </div>
+      <div class="copilot-l3-bar-row">
+        <span class="copilot-l3-bar-label">Attendu</span>
+        <div class="copilot-l3-bar-track"><div class="copilot-l3-bar-fill" style="width:${expectedPct}%;background:#9ca3af"></div></div>
+        <span class="copilot-l3-bar-value">${fmtKm(expectedKm)} km</span>
+      </div>
+    </div>
+  `;
+
+  // Verdict
+  let verdictHTML = "";
+  if (f.status === "pass") {
+    verdictHTML = '<div class="copilot-l3-verdict copilot-l3-ok">Kilométrage cohérent avec l\'âge du véhicule</div>';
+  } else if (kmRatio < 0.5) {
+    verdictHTML = '<div class="copilot-l3-verdict copilot-l3-alert">Kilométrage très bas — compteur remis à zéro ?</div>';
+  } else if (kmRatio > 2.0) {
+    verdictHTML = '<div class="copilot-l3-verdict copilot-l3-alert">Kilométrage très élevé — usure accélérée</div>';
+  } else {
+    verdictHTML = '<div class="copilot-l3-verdict copilot-l3-warn">Kilométrage à surveiller</div>';
+  }
+
+  // Badge pro
+  let proHTML = "";
+  if (isPro) {
+    proHTML = '<span class="copilot-l3-pro-badge">Véhicule pro</span>';
+  }
+
+  // Warnings additionnels
+  let warningsHTML = "";
+  if (warnings.length > 0) {
+    const items = warnings.map((w) => `<li>${escapeHTML(w)}</li>`).join("");
+    warningsHTML = `<ul class="copilot-l3-warnings">${items}</ul>`;
+  }
+
+  return `<div class="copilot-l3-body">${statHTML}${barHTML}${verdictHTML}${proHTML}${warningsHTML}</div>`;
 }
 
 // ── L10 : Ancienneté annonce ──────────────────────────────
