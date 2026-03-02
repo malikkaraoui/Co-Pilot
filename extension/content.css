@@ -800,6 +800,44 @@
   font-weight: 700;
 }
 
+/* ── L2 : Modèle reconnu ────────────────────────────────── */
+.copilot-l2-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0 30px;
+  flex-wrap: wrap;
+}
+
+.copilot-l2-na {
+  font-size: 11px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.copilot-l2-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.copilot-l2-badge-ok {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.copilot-l2-badge-warn {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.copilot-l2-msg {
+  font-size: 11px;
+  color: var(--copilot-text-secondary);
+}
+
 /* ── L6 : Téléphone ─────────────────────────────────────── */
 .copilot-l6-body {
   display: flex;

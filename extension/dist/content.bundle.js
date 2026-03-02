@@ -3133,6 +3133,8 @@
         return buildL3Body(f, d);
       case "L4":
         return buildPriceBarHTML(d, vehicle);
+      case "L2":
+        return buildL2Body(f, d);
       case "L6":
         return buildL6Body(f, d);
       case "L7":
@@ -3344,6 +3346,23 @@
     `;
     }
     return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
+  }
+  function buildL2Body(f, d) {
+    if (f.status === "skip") {
+      return `<div class="copilot-l2-body"><span class="copilot-l2-na">${escapeHTML(f.message)}</span></div>`;
+    }
+    if (f.status === "pass") {
+      const brand = d.brand || "";
+      const model = d.model || "";
+      const gen = d.generation ? ` \xB7 ${d.generation}` : "";
+      return `<div class="copilot-l2-body">
+      <span class="copilot-l2-badge copilot-l2-badge-ok">\u2713 ${escapeHTML(brand)} ${escapeHTML(model)}${escapeHTML(gen)}</span>
+    </div>`;
+    }
+    return `<div class="copilot-l2-body">
+    <span class="copilot-l2-badge copilot-l2-badge-warn">\u26A0 Mod\xE8le non reconnu</span>
+    <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
+  </div>`;
   }
   function buildL6Body(f, d) {
     if (f.status === "neutral") {

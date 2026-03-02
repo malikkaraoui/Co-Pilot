@@ -338,6 +338,7 @@ function buildFilterBody(f, vehicle, allFilters) {
     case "L1":  return buildL1Body(f, d);
     case "L3":  return buildL3Body(f, d);
     case "L4":  return buildPriceBarHTML(d, vehicle);
+    case "L2":  return buildL2Body(f, d);
     case "L6":  return buildL6Body(f, d);
     case "L7":  return buildL7Body(f, d);
     case "L8":  return buildL8Body(f, d);
@@ -594,6 +595,31 @@ function buildL9Body(f, d, allFilters) {
   }
 
   return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
+}
+
+// ── L2 : Modèle reconnu ─────────────────────────────────
+
+function buildL2Body(f, d) {
+  // Skip : marque/modèle absents
+  if (f.status === "skip") {
+    return `<div class="copilot-l2-body"><span class="copilot-l2-na">${escapeHTML(f.message)}</span></div>`;
+  }
+
+  // Pass : modèle reconnu
+  if (f.status === "pass") {
+    const brand = d.brand || "";
+    const model = d.model || "";
+    const gen = d.generation ? ` \u00B7 ${d.generation}` : "";
+    return `<div class="copilot-l2-body">
+      <span class="copilot-l2-badge copilot-l2-badge-ok">\u2713 ${escapeHTML(brand)} ${escapeHTML(model)}${escapeHTML(gen)}</span>
+    </div>`;
+  }
+
+  // Warning : modèle non reconnu
+  return `<div class="copilot-l2-body">
+    <span class="copilot-l2-badge copilot-l2-badge-warn">\u26A0 Mod\u00E8le non reconnu</span>
+    <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
+  </div>`;
 }
 
 // ── L6 : Téléphone ──────────────────────────────────────
