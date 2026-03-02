@@ -33,20 +33,24 @@ const TLD_TO_COUNTRY = {
   be: 'Belgique',
   nl: 'Pays-Bas',
   es: 'Espagne',
+  pl: 'Pologne',
+  lu: 'Luxembourg',
+  se: 'Suede',
+  com: 'International',
 };
 
-// TLD → currency
+// TLD → currency (omitted = EUR by default)
 const TLD_TO_CURRENCY = {
   ch: 'CHF',
+  pl: 'PLN',
+  se: 'SEK',
 };
-
-// CHF → EUR rate (same as backend currency_service.py)
-const CHF_TO_EUR = 0.94;
 
 // TLD → ISO country code (for backend MarketPrice.country)
 const TLD_TO_COUNTRY_CODE = {
   ch: 'CH', de: 'DE', fr: 'FR', it: 'IT',
   at: 'AT', be: 'BE', nl: 'NL', es: 'ES',
+  pl: 'PL', lu: 'LU', se: 'SE', com: 'INT',
 };
 
 // Swiss ZIP prefix (2 digits) → canton name (French, matching backend SWISS_CANTONS)
@@ -1831,12 +1835,8 @@ export class AutoScout24Extractor extends SiteExtractor {
     let submitted = false;
 
     if (prices.length >= MIN_PRICES) {
-      let priceInts = prices.map((p) => p.price);
-      let priceDetails = prices;
-      if (currency === 'CHF') {
-        priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-        priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
-      }
+      const priceInts = prices.map((p) => p.price);
+      const priceDetails = prices;
 
       if (progress) {
         progress.update('collect', 'done', `${priceInts.length} prix (précision ${usedPrecision})`);
@@ -2008,12 +2008,8 @@ export class AutoScout24Extractor extends SiteExtractor {
         console.log('[CoPilot] AS24 bonus %s %s %d %s: %d prix', job.make, job.model, jobYear, job.region, prices.length);
 
         if (prices.length >= MIN_BONUS_PRICES) {
-          let priceInts = prices.map((p) => p.price);
-          let priceDetails = prices;
-          if (currency === 'CHF') {
-            priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-            priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
-          }
+          const priceInts = prices.map((p) => p.price);
+          const priceDetails = prices;
 
           const bonusPrecision = prices.length >= 20 ? 4 : 2;
           const bonusPayload = {

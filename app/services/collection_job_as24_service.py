@@ -53,9 +53,11 @@ SWISS_CANTONS = [
     "Jura",
 ]
 
-# Mapping TLD → currency
+# Mapping TLD → currency (omitted = EUR by default)
 TLD_TO_CURRENCY = {
     "ch": "CHF",
+    "pl": "PLN",
+    "se": "SEK",
 }
 
 # Mapping TLD → country code ISO
@@ -69,6 +71,9 @@ TLD_TO_COUNTRY = {
     "be": "BE",
     "nl": "NL",
     "lu": "LU",
+    "pl": "PL",
+    "se": "SE",
+    "com": "INT",
 }
 
 FUEL_OPPOSITES = {"diesel": "essence", "essence": "diesel"}

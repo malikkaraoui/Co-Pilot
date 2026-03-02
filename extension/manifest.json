@@ -18,7 +18,11 @@
     "https://*.autoscout24.be/*",
     "https://*.autoscout24.nl/*",
     "https://*.autoscout24.at/*",
-    "https://*.autoscout24.es/*"
+    "https://*.autoscout24.es/*",
+    "https://*.autoscout24.pl/*",
+    "https://*.autoscout24.lu/*",
+    "https://*.autoscout24.se/*",
+    "https://*.autoscout24.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -48,7 +52,11 @@
         "https://*.autoscout24.be/*",
         "https://*.autoscout24.nl/*",
         "https://*.autoscout24.at/*",
-        "https://*.autoscout24.es/*"
+        "https://*.autoscout24.es/*",
+        "https://*.autoscout24.pl/*",
+        "https://*.autoscout24.lu/*",
+        "https://*.autoscout24.se/*",
+        "https://*.autoscout24.com/*"
       ]
     }
   ]
