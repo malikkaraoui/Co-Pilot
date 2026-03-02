@@ -3044,6 +3044,8 @@
         return buildL1Body(f, d);
       case "L4":
         return buildPriceBarHTML(d, vehicle);
+      case "L10":
+        return buildL10Body(f, d);
       default:
         return buildGenericBody(f);
     }
@@ -3091,6 +3093,61 @@
       missingHTML += `<div class="copilot-l1-missing"><span class="copilot-l1-missing-title">Secondaires :</span><ul>${items}</ul></div>`;
     }
     return `<div class="copilot-l1-body">${barHTML}${statusMsg}${missingHTML}</div>`;
+  }
+  function buildL10Body(f, d) {
+    const days = d.days_online;
+    const threshold = d.threshold_days || 35;
+    const ratio = d.ratio || 0;
+    const republished = d.republished;
+    const thresholdSource = d.threshold_source === "marche" ? "march\xE9" : "prix";
+    const marketMedian = d.market_median_days;
+    if (days == null) {
+      return '<p class="copilot-filter-message">Anciennet\xE9 non disponible</p>';
+    }
+    let barColor, verdictText;
+    if (ratio <= 0.3) {
+      barColor = "#22c55e";
+      verdictText = "Annonce tr\xE8s r\xE9cente";
+    } else if (ratio <= 1) {
+      barColor = "#22c55e";
+      verdictText = "Dur\xE9e de mise en vente normale";
+    } else if (ratio <= 2) {
+      barColor = "#f59e0b";
+      verdictText = "Au-del\xE0 de la dur\xE9e normale pour ce segment";
+    } else {
+      barColor = "#ef4444";
+      verdictText = "Annonce stagnante \u2014 pourquoi personne n'a achet\xE9 ?";
+    }
+    const maxDisplay = threshold * 2.5;
+    const cursorPct = Math.min(Math.max(days / maxDisplay * 100, 2), 98);
+    const thresholdPct = Math.min(threshold / maxDisplay * 100, 95);
+    const bigNumber = `<div class="copilot-l10-big"><span class="copilot-l10-days" style="color:${barColor}">${days}</span><span class="copilot-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
+    const barHTML = `
+    <div class="copilot-l10-timeline">
+      <div class="copilot-l10-track">
+        <div class="copilot-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
+        <div class="copilot-l10-threshold" style="left:${thresholdPct}%">
+          <div class="copilot-l10-threshold-line"></div>
+          <span class="copilot-l10-threshold-label">Seuil ${threshold}j</span>
+        </div>
+        <div class="copilot-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
+      </div>
+      <div class="copilot-l10-scale">
+        <span>0j</span>
+        <span>${Math.round(maxDisplay)}j</span>
+      </div>
+    </div>
+  `;
+    const verdictHTML = `<div class="copilot-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
+    let metaHTML = `<div class="copilot-l10-meta">Seuil bas\xE9 sur le ${escapeHTML(thresholdSource)}</div>`;
+    if (marketMedian != null) {
+      metaHTML += `<div class="copilot-l10-meta">M\xE9diane march\xE9 : ${marketMedian} jours</div>`;
+    }
+    let republishedHTML = "";
+    if (republished) {
+      republishedHTML = `<div class="copilot-l10-republished">Republication d\xE9tect\xE9e \u2014 l'annonce a \xE9t\xE9 remise en ligne pour para\xEEtre r\xE9cente</div>`;
+    }
+    return `<div class="copilot-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
   }
   function buildGenericBody(f) {
     const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
