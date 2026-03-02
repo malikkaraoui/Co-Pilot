@@ -1724,9 +1724,41 @@
       lbc_estimation: null
     };
   }
-  function parseRSCPayload(doc) {
+  function _scoreVehicleAgainstUrl(vehicle, urlSlug, expectedMake = null) {
+    if (!vehicle || !urlSlug) return 0;
+    const make = typeof vehicle.make === "string" ? vehicle.make : vehicle.make?.name;
+    const model = typeof vehicle.model === "string" ? vehicle.model : vehicle.model?.name;
+    const makeSlug = toAs24Slug(make || "");
+    const modelSlug = toAs24Slug(model || "");
+    let score = 0;
+    if (makeSlug && urlSlug.startsWith(makeSlug)) score += 2;
+    if (expectedMake) {
+      const expMake = toAs24Slug(expectedMake);
+      if (expMake && makeSlug === expMake) score += 1;
+    }
+    if (modelSlug) {
+      if (urlSlug.includes(modelSlug)) {
+        score += 4;
+      } else {
+        const tokenHit = modelSlug.split("-").filter((t) => t.length >= 3).some((t) => urlSlug.includes(t));
+        if (tokenHit) score += 2;
+      }
+    }
+    return score;
+  }
+  function parseRSCPayload(doc, currentUrl = null) {
     const scripts = doc.querySelectorAll("script");
     let lastFound = null;
+    const candidates = [];
+    let urlSlug = "";
+    let expectedMake = null;
+    const sourceUrl = currentUrl || (typeof window !== "undefined" ? window.location?.href : null);
+    if (sourceUrl) {
+      const slugMatch = String(sourceUrl).match(/\/d\/([^/]+)-\d+(?:\/|$)/i);
+      urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : "";
+      expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;
+    }
+    let order = 0;
     for (const script of scripts) {
       const text = script.textContent || "";
       if (!text.includes("vehicleCategory") && !text.includes("firstRegistrationDate")) {
@@ -1751,12 +1783,24 @@
               }
             }
             lastFound = vehicle;
+            candidates.push({ vehicle, order: order++ });
           }
         } catch {
         }
       }
     }
-    return lastFound;
+    if (!candidates.length) return null;
+    if (!urlSlug) return lastFound;
+    let best = null;
+    let bestScore = -1;
+    for (const c of candidates) {
+      const score = _scoreVehicleAgainstUrl(c.vehicle, urlSlug, expectedMake);
+      if (score > bestScore || score === bestScore && (!best || c.order > best.order)) {
+        best = c;
+        bestScore = score;
+      }
+    }
+    return best?.vehicle || lastFound;
   }
   function parseJsonLd(doc) {
     const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
@@ -1768,19 +1812,37 @@
     }
     return null;
   }
-  function _findJsonLdByMake(doc, expectedMake) {
+  function _findJsonLdByMake(doc, expectedMake, expectedModel = null, urlSlug = "") {
     const target = (expectedMake || "").toLowerCase();
     if (!target) return null;
     const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+    let best = null;
+    let bestScore = -1;
+    let order = 0;
     for (const script of scripts) {
       const data = parseLooselyJsonLd(script.textContent || "");
       if (!data) continue;
       const vehicle = findVehicleLikeLdNode(data);
       if (!vehicle) continue;
-      const brand = (vehicle.brand?.name || "").toLowerCase();
-      if (brand === target) return vehicle;
+      const brand = String(vehicle.brand?.name || vehicle.brand || "").toLowerCase();
+      if (brand !== target) continue;
+      const model = typeof vehicle.model === "string" ? vehicle.model : vehicle.model?.name;
+      const modelSlug = toAs24Slug(model || "");
+      const expectedModelSlug = toAs24Slug(expectedModel || "");
+      let score = 2;
+      if (expectedModelSlug && modelSlug && modelSlug === expectedModelSlug) {
+        score += 3;
+      }
+      if (urlSlug && modelSlug && urlSlug.includes(modelSlug)) {
+        score += 2;
+      }
+      const candidate = { vehicle, score, order: order++ };
+      if (!best || candidate.score > bestScore || candidate.score === bestScore && candidate.order > best.order) {
+        best = candidate;
+        bestScore = candidate.score;
+      }
     }
-    return null;
+    return best?.vehicle || null;
   }
   function _daysOnline(dateStr) {
     if (!dateStr) return null;
@@ -2211,7 +2273,7 @@
      * @returns {Promise<{type: string, source: string, ad_data: object}|null>}
      */
     async extract() {
-      this._rsc = parseRSCPayload(document);
+      this._rsc = parseRSCPayload(document, window.location.href);
       this._jsonLd = parseJsonLd(document);
       if (!this._rsc && !this._jsonLd) {
         this._adData = fallbackAdDataFromDom(document, window.location.href);
@@ -2230,7 +2292,8 @@
       if (urlSlug && this._adData.make) {
         const makeSlug = toAs24Slug(this._adData.make);
         const modelSlug = toAs24Slug(this._adData.model || "");
-        const vehicleInUrl = urlSlug.startsWith(makeSlug) && (!modelSlug || urlSlug.includes(modelSlug));
+        const hasModelMatch = modelSlug ? urlSlug.includes(modelSlug) || modelSlug.split("-").filter((t) => t.length >= 3).some((t) => urlSlug.includes(t)) : false;
+        const vehicleInUrl = urlSlug.startsWith(makeSlug) && hasModelMatch;
         if (!vehicleInUrl) {
           console.warn(
             '[CoPilot] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
@@ -2238,7 +2301,7 @@
             this._adData.model || "?",
             urlSlug
           );
-          const freshLd = _findJsonLdByMake(document, urlHint.make);
+          const freshLd = _findJsonLdByMake(document, urlHint.make, urlHint.model, urlSlug);
           if (freshLd) {
             console.log("[CoPilot] Found fresh JSON-LD for %s, using it", urlHint.make);
             this._rsc = null;
