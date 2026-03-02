@@ -1726,6 +1726,7 @@
   }
   function parseRSCPayload(doc) {
     const scripts = doc.querySelectorAll("script");
+    let lastFound = null;
     for (const script of scripts) {
       const text = script.textContent || "";
       if (!text.includes("vehicleCategory") && !text.includes("firstRegistrationDate")) {
@@ -1749,13 +1750,13 @@
                 }
               }
             }
-            return vehicle;
+            lastFound = vehicle;
           }
         } catch {
         }
       }
     }
-    return null;
+    return lastFound;
   }
   function parseJsonLd(doc) {
     const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
@@ -2224,14 +2225,18 @@
       }
       this._adData = normalizeToAdData(this._rsc, this._jsonLd);
       const urlHint = extractMakeModelFromUrl(window.location.href);
-      if (urlHint.make && this._adData.make) {
-        const extractedMake = (this._adData.make || "").toLowerCase();
-        const urlMake = (urlHint.make || "").toLowerCase();
-        if (extractedMake && urlMake && extractedMake !== urlMake) {
+      const urlSlugMatch = window.location.pathname.match(/\/d\/([^/]+)-\d+/);
+      const urlSlug = urlSlugMatch ? urlSlugMatch[1].toLowerCase() : "";
+      if (urlSlug && this._adData.make) {
+        const makeSlug = toAs24Slug(this._adData.make);
+        const modelSlug = toAs24Slug(this._adData.model || "");
+        const vehicleInUrl = urlSlug.startsWith(makeSlug) && (!modelSlug || urlSlug.includes(modelSlug));
+        if (!vehicleInUrl) {
           console.warn(
-            "[CoPilot] AS24 SPA stale data: extracted make=%s but URL says make=%s",
+            '[CoPilot] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
             this._adData.make,
-            urlHint.make
+            this._adData.model || "?",
+            urlSlug
           );
           const freshLd = _findJsonLdByMake(document, urlHint.make);
           if (freshLd) {
@@ -3369,37 +3374,37 @@
     const fmtD = displayDelta.toLocaleString("fr-FR");
     let verdictClass, verdictEmoji, line1, line2;
     if (absPct <= 10) {
-      verdictClass = deltaPct < 0 ? "verdict-below" : "verdict-fair";
-      verdictEmoji = deltaPct < 0 ? "\u{1F7E2}" : "\u2705";
-      line1 = deltaPct < 0 ? `${fmtD} ${sym} en dessous du march\xE9` : "Prix juste";
-      line2 = deltaPct < 0 ? `Bon prix \u2014 ${absPct}% moins cher que le march\xE9` : `Dans la fourchette du march\xE9 (${deltaPct > 0 ? "+" : ""}${Math.round(deltaPct)}%)`;
+      verdictClass = "verdict-fair";
+      verdictEmoji = "\u2705";
+      line1 = "Prix march\xE9";
+      line2 = `Dans la fourchette du march\xE9 (${deltaPct > 0 ? "+" : ""}${Math.round(deltaPct)}%) \u2014 n\xE9gociez sereinement`;
     } else if (absPct <= 25) {
       if (deltaPct < 0) {
         verdictClass = "verdict-below";
         verdictEmoji = "\u{1F7E2}";
         line1 = `${fmtD} ${sym} en dessous du march\xE9`;
-        line2 = `Bon prix \u2014 ${absPct}% moins cher que le march\xE9`;
+        line2 = `Bonne affaire potentielle \u2014 ${absPct}% moins cher`;
       } else {
         verdictClass = "verdict-above-warning";
         verdictEmoji = "\u{1F7E0}";
         line1 = `${fmtD} ${sym} au-dessus du march\xE9`;
-        line2 = `Prix \xE9lev\xE9 \u2014 ${absPct}% plus cher que le march\xE9`;
+        line2 = `N\xE9gociez serr\xE9 \u2014 ${absPct}% plus cher que le march\xE9`;
       }
     } else {
       if (deltaPct < 0) {
-        verdictClass = "verdict-below";
-        verdictEmoji = "\u{1F7E2}";
+        verdictClass = "verdict-below-suspect";
+        verdictEmoji = "\u26A0\uFE0F";
         line1 = `${fmtD} ${sym} en dessous du march\xE9`;
-        line2 = `Tr\xE8s bon prix \u2014 ${absPct}% moins cher que le march\xE9`;
+        line2 = `Prix tr\xE8s bas \u2014 m\xE9fiez-vous, \xE7a peut cacher quelque chose`;
       } else {
         verdictClass = "verdict-above-fail";
         verdictEmoji = "\u{1F534}";
         line1 = `${fmtD} ${sym} au-dessus du march\xE9`;
-        line2 = `Trop cher \u2014 ${absPct}% plus cher que le march\xE9`;
+        line2 = `Trop cher \u2014 ${absPct}% plus cher, ce n'est pas une affaire`;
       }
     }
-    const statusColors = { "verdict-below": "#16a34a", "verdict-fair": "#16a34a", "verdict-above-warning": "#ea580c", "verdict-above-fail": "#dc2626" };
-    const fillOpacities = { "verdict-below": "rgba(22,163,74,0.15)", "verdict-fair": "rgba(22,163,74,0.15)", "verdict-above-warning": "rgba(234,88,12,0.2)", "verdict-above-fail": "rgba(220,38,38,0.2)" };
+    const statusColors = { "verdict-below": "#16a34a", "verdict-below-suspect": "#ea580c", "verdict-fair": "#16a34a", "verdict-above-warning": "#ea580c", "verdict-above-fail": "#dc2626" };
+    const fillOpacities = { "verdict-below": "rgba(22,163,74,0.15)", "verdict-below-suspect": "rgba(234,88,12,0.2)", "verdict-fair": "rgba(22,163,74,0.15)", "verdict-above-warning": "rgba(234,88,12,0.2)", "verdict-above-fail": "rgba(220,38,38,0.2)" };
     const color = statusColors[verdictClass] || "#16a34a";
     const fillBg = fillOpacities[verdictClass] || "rgba(22,163,74,0.15)";
     const minP = Math.min(displayAnnonce, displayRef);
@@ -3414,6 +3419,50 @@
     const fillLeft = Math.min(annoncePct, argusPct);
     const fillWidth = Math.abs(annoncePct - argusPct);
     const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " " + escapeHTML(sym);
+    const src = details.source || "";
+    let srcLabel = "";
+    let srcClass = "copilot-l4-src-default";
+    if (src === "marche_leboncoin") {
+      srcLabel = "LBC";
+      srcClass = "copilot-l4-src-lbc";
+    } else if (src === "marche_autoscout24") {
+      srcLabel = "AS24";
+      srcClass = "copilot-l4-src-as24";
+    } else if (src === "argus_seed") {
+      srcLabel = "Argus Seed";
+      srcClass = "copilot-l4-src-seed";
+    } else if (src === "estimation_lbc") {
+      srcLabel = "Estimation LBC";
+      srcClass = "copilot-l4-src-est";
+    }
+    const sampleCount = details.sample_count;
+    const precision = details.precision;
+    let precisionStars = "";
+    if (precision != null) {
+      const full = Math.floor(precision);
+      const half = precision - full >= 0.5 ? 1 : 0;
+      const empty = 5 - full - half;
+      precisionStars = "\u2605".repeat(full) + (half ? "\xBD" : "") + "\u2606".repeat(empty);
+    }
+    let footerHTML = "";
+    if (srcLabel) {
+      footerHTML = `<div class="copilot-l4-footer">`;
+      footerHTML += `<span class="copilot-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
+      if (sampleCount != null) footerHTML += `<span class="copilot-l4-samples">Bas\xE9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}</span>`;
+      if (precisionStars) footerHTML += `<span class="copilot-l4-precision" title="Pr\xE9cision de l'\xE9chantillon">${precisionStars}</span>`;
+      footerHTML += `</div>`;
+    }
+    let staleHTML = "";
+    if (details.stale_below_market) {
+      const staleDays = details.days_online || "30+";
+      staleHTML = `<div class="copilot-l4-stale">
+      <span class="copilot-l4-stale-icon">\u{1F440}</span>
+      <div>
+        <div class="copilot-l4-stale-title">Prix bas + ${staleDays} jours en ligne</div>
+        <div class="copilot-l4-stale-text">Les acheteurs n'ont pas franchi le pas \u2014 il y a peut-\xEAtre anguille sous roche</div>
+      </div>
+    </div>`;
+    }
     return `
     <div class="copilot-price-bar-container">
       <div class="copilot-price-verdict ${escapeHTML(verdictClass)}">
@@ -3437,6 +3486,8 @@
         </div>
       </div>
       <div class="copilot-price-bar-spacer"></div>
+      ${footerHTML}
+      ${staleHTML}
     </div>
   `;
   }

@@ -574,6 +574,9 @@ function fallbackAdDataFromDom(doc, url) {
  */
 export function parseRSCPayload(doc) {
   const scripts = doc.querySelectorAll('script');
+  // SPA defense: accumulate all vehicle nodes instead of returning the first.
+  // In SPA contexts, old <script> tags persist — the last node is the newest.
+  let lastFound = null;
   for (const script of scripts) {
     const text = script.textContent || '';
     // Pre-filter: check keywords without quotes to handle both raw JSON
@@ -609,14 +612,15 @@ export function parseRSCPayload(doc) {
               }
             }
           }
-          return vehicle;
+          // SPA defense: accumulate instead of returning first match.
+          lastFound = vehicle;
         }
       } catch {
         // Not valid JSON, try next candidate
       }
     }
   }
-  return null;
+  return lastFound;
 }
 
 // ── JSON-LD parsing (DOM-dependent) ─────────────────────────────────
@@ -1277,15 +1281,20 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     // SPA guard: AS24 is a React SPA. When navigating between listings,
     // stale RSC/JSON-LD <script> tags from the previous page may still be
-    // in the DOM. Cross-validate extracted make/model against the URL slug.
+    // in the DOM. Cross-validate extracted make AND model against the URL slug.
+    // (Old guard only checked make — missed same-make transitions like Ford Transit → Ford Ranger)
     const urlHint = extractMakeModelFromUrl(window.location.href);
-    if (urlHint.make && this._adData.make) {
-      const extractedMake = (this._adData.make || '').toLowerCase();
-      const urlMake = (urlHint.make || '').toLowerCase();
-      if (extractedMake && urlMake && extractedMake !== urlMake) {
+    const urlSlugMatch = window.location.pathname.match(/\/d\/([^/]+)-\d+/);
+    const urlSlug = urlSlugMatch ? urlSlugMatch[1].toLowerCase() : '';
+    if (urlSlug && this._adData.make) {
+      const makeSlug = toAs24Slug(this._adData.make);
+      const modelSlug = toAs24Slug(this._adData.model || '');
+      const vehicleInUrl = urlSlug.startsWith(makeSlug)
+        && (!modelSlug || urlSlug.includes(modelSlug));
+      if (!vehicleInUrl) {
         console.warn(
-          '[CoPilot] AS24 SPA stale data: extracted make=%s but URL says make=%s',
-          this._adData.make, urlHint.make
+          '[CoPilot] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
+          this._adData.make, this._adData.model || '?', urlSlug
         );
         // Try to find a JSON-LD node matching the URL's make
         const freshLd = _findJsonLdByMake(document, urlHint.make);
