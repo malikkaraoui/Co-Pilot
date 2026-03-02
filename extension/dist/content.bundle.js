@@ -3135,6 +3135,8 @@
         return buildPriceBarHTML(d, vehicle);
       case "L6":
         return buildL6Body(f, d);
+      case "L7":
+        return buildL7Body(f, d);
       case "L8":
         return buildL8Body(f, d);
       case "L9":
@@ -3392,6 +3394,48 @@
     if (f.message && f.status !== "pass") {
       html += `<span class="copilot-l6-msg">${escapeHTML(f.message)}</span>`;
     }
+    html += `</div>`;
+    return html;
+  }
+  function buildL7Body(f, d) {
+    const ownerType = (d.owner_type || "").toLowerCase();
+    if (f.status === "neutral" || ownerType === "private" || ownerType === "particulier") {
+      return `<div class="copilot-l7-body"><span class="copilot-l7-badge copilot-l7-badge-neutral">Particulier</span></div>`;
+    }
+    if (f.status === "skip") {
+      return `<div class="copilot-l7-body"><span class="copilot-l7-na">${escapeHTML(f.message)}</span></div>`;
+    }
+    let html = `<div class="copilot-l7-body">`;
+    if (d.platform_verified) {
+      html += `<span class="copilot-l7-badge copilot-l7-badge-verified">Pro v\xE9rifi\xE9</span>`;
+      if (d.dealer_rating != null && d.dealer_review_count != null) {
+        const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
+        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+    if (f.status === "pass") {
+      const denom = d.denomination || d.name || "";
+      const siretOrUid = d.formatted || d.siret || d.uid || "";
+      html += `<span class="copilot-l7-badge copilot-l7-badge-pro">Pro</span>`;
+      if (denom) html += `<span class="copilot-l7-denom">${escapeHTML(denom)}</span>`;
+      if (siretOrUid) html += `<span class="copilot-l7-id">${escapeHTML(siretOrUid)}</span>`;
+      if (d.dealer_rating != null && d.dealer_review_count != null) {
+        const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
+        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+    if (f.status === "warning") {
+      html += `<span class="copilot-l7-badge copilot-l7-badge-warn">Pro non identifi\xE9</span>`;
+      html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
+      html += `</div>`;
+      return html;
+    }
+    html += `<span class="copilot-l7-badge copilot-l7-badge-fail">Pro suspect</span>`;
+    html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
     html += `</div>`;
     return html;
   }

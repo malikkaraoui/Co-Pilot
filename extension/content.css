@@ -859,6 +859,77 @@
   color: var(--copilot-text-secondary);
 }
 
+/* ── L7 : SIRET / UID vendeur ───────────────────────────── */
+.copilot-l7-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0 30px;
+  flex-wrap: wrap;
+}
+
+.copilot-l7-na {
+  font-size: 11px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.copilot-l7-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.copilot-l7-badge-neutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.copilot-l7-badge-verified {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.copilot-l7-badge-pro {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.copilot-l7-badge-warn {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.copilot-l7-badge-fail {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.copilot-l7-denom {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--copilot-text);
+}
+
+.copilot-l7-id {
+  font-size: 10px;
+  color: var(--copilot-text-secondary);
+  font-family: monospace;
+}
+
+.copilot-l7-rating {
+  font-size: 11px;
+  color: #f59e0b;
+}
+
+.copilot-l7-msg {
+  font-size: 11px;
+  color: var(--copilot-text-secondary);
+}
+
 /* ── L8 : Détection import ───────────────────────────────── */
 .copilot-l8-body {
   margin: 6px 0 0 30px;

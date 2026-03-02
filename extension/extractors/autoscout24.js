@@ -565,6 +565,38 @@ function fallbackAdDataFromDom(doc, url) {
   };
 }
 
+function _scoreVehicleAgainstUrl(vehicle, urlSlug, expectedMake = null) {
+  if (!vehicle || !urlSlug) return 0;
+
+  const make = typeof vehicle.make === 'string' ? vehicle.make : vehicle.make?.name;
+  const model = typeof vehicle.model === 'string' ? vehicle.model : vehicle.model?.name;
+  const makeSlug = toAs24Slug(make || '');
+  const modelSlug = toAs24Slug(model || '');
+
+  let score = 0;
+  if (makeSlug && urlSlug.startsWith(makeSlug)) score += 2;
+
+  if (expectedMake) {
+    const expMake = toAs24Slug(expectedMake);
+    if (expMake && makeSlug === expMake) score += 1;
+  }
+
+  if (modelSlug) {
+    if (urlSlug.includes(modelSlug)) {
+      score += 4;
+    } else {
+      // Tolerance for truncated/variant model slugs: match significant tokens.
+      const tokenHit = modelSlug
+        .split('-')
+        .filter((t) => t.length >= 3)
+        .some((t) => urlSlug.includes(t));
+      if (tokenHit) score += 2;
+    }
+  }
+
+  return score;
+}
+
 /**
  * Parses the RSC (React Server Components) payload from the page.
  * Searches all script tags for JSON containing vehicle data.
@@ -572,11 +604,23 @@ function fallbackAdDataFromDom(doc, url) {
  * @param {Document} doc
  * @returns {object|null}
  */
-export function parseRSCPayload(doc) {
+export function parseRSCPayload(doc, currentUrl = null) {
   const scripts = doc.querySelectorAll('script');
   // SPA defense: accumulate all vehicle nodes instead of returning the first.
   // In SPA contexts, old <script> tags persist — the last node is the newest.
   let lastFound = null;
+  const candidates = [];
+
+  let urlSlug = '';
+  let expectedMake = null;
+  const sourceUrl = currentUrl || (typeof window !== 'undefined' ? window.location?.href : null);
+  if (sourceUrl) {
+    const slugMatch = String(sourceUrl).match(/\/d\/([^/]+)-\d+(?:\/|$)/i);
+    urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : '';
+    expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;
+  }
+
+  let order = 0;
   for (const script of scripts) {
     const text = script.textContent || '';
     // Pre-filter: check keywords without quotes to handle both raw JSON
@@ -585,15 +629,31 @@ export function parseRSCPayload(doc) {
       continue;
     }
 
-    // Next.js RSC Flight payloads wrap data in self.__next_f.push([1,"..."])
-    // where JSON quotes are double-escaped as \\" (or sometimes \") in textContent.
-    // Strip all backslashes preceding a quote so extractJsonObjects can properly
-    // track string boundaries and extract balanced JSON objects.
-    const searchText = text.includes('self.__next_f')
-      ? text.replace(/\\+"/g, '"')
-      : text;
+    const candidateSources = [];
 
-    for (const candidate of extractJsonObjects(searchText)) {
+    if (text.includes('self.__next_f')) {
+      // Flight payloads are often double-escaped: structural JSON quotes are
+      // encoded as \\" while quoted text inside values may appear as \\\".
+      // Decode in two phases to preserve inner escaped quotes:
+      //   1) protect triple-escaped quotes (value content)
+      //   2) decode structural double-escaped quotes
+      //   3) restore protected value quotes as \"
+      const sentinel = '__AS24_ESCAPED_QUOTE__';
+      const decoded = text
+        .replace(/\\\\\\"/g, sentinel)
+        .replace(/\\\\"/g, '"')
+        .replaceAll(sentinel, '\\"');
+      candidateSources.push(decoded);
+
+      // Compatibility variant: some pages expose single-escaped Flight chunks.
+      // Keep this path as fallback so old payload shapes still parse.
+      candidateSources.push(text.replace(/\\"/g, '"'));
+    } else {
+      candidateSources.push(text);
+    }
+
+    for (const source of candidateSources) {
+      for (const candidate of extractJsonObjects(source)) {
       if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
         continue;
       }
@@ -614,13 +674,31 @@ export function parseRSCPayload(doc) {
           }
           // SPA defense: accumulate instead of returning first match.
           lastFound = vehicle;
+          candidates.push({ vehicle, order: order++ });
         }
       } catch {
         // Not valid JSON, try next candidate
       }
+      }
     }
   }
-  return lastFound;
+
+  if (!candidates.length) return null;
+
+  if (!urlSlug) return lastFound;
+
+  // Prefer the candidate that best matches the URL vehicle slug.
+  let best = null;
+  let bestScore = -1;
+  for (const c of candidates) {
+    const score = _scoreVehicleAgainstUrl(c.vehicle, urlSlug, expectedMake);
+    if (score > bestScore || (score === bestScore && (!best || c.order > best.order))) {
+      best = c;
+      bestScore = score;
+    }
+  }
+
+  return best?.vehicle || lastFound;
 }
 
 // ── JSON-LD parsing (DOM-dependent) ─────────────────────────────────
@@ -642,23 +720,47 @@ export function parseJsonLd(doc) {
 }
 
 /**
- * SPA guard helper: find a JSON-LD vehicle node matching the expected make.
+ * SPA guard helper: find a JSON-LD vehicle node matching expected make/model.
  * When AS24 SPA navigation leaves stale scripts in the DOM, multiple JSON-LD
- * blocks may coexist. This picks the one whose brand matches the URL.
+ * blocks may coexist. This picks the node that best matches URL make/model.
  */
-function _findJsonLdByMake(doc, expectedMake) {
+function _findJsonLdByMake(doc, expectedMake, expectedModel = null, urlSlug = '') {
   const target = (expectedMake || '').toLowerCase();
   if (!target) return null;
   const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+
+  let best = null;
+  let bestScore = -1;
+  let order = 0;
+
   for (const script of scripts) {
     const data = parseLooselyJsonLd(script.textContent || '');
     if (!data) continue;
     const vehicle = findVehicleLikeLdNode(data);
     if (!vehicle) continue;
-    const brand = (vehicle.brand?.name || '').toLowerCase();
-    if (brand === target) return vehicle;
+
+    const brand = String(vehicle.brand?.name || vehicle.brand || '').toLowerCase();
+    if (brand !== target) continue;
+
+    const model = typeof vehicle.model === 'string' ? vehicle.model : vehicle.model?.name;
+    const modelSlug = toAs24Slug(model || '');
+    const expectedModelSlug = toAs24Slug(expectedModel || '');
+
+    let score = 2; // brand match
+    if (expectedModelSlug && modelSlug && modelSlug === expectedModelSlug) {
+      score += 3;
+    }
+    if (urlSlug && modelSlug && urlSlug.includes(modelSlug)) {
+      score += 2;
+    }
+
+    const candidate = { vehicle, score, order: order++ };
+    if (!best || candidate.score > bestScore || (candidate.score === bestScore && candidate.order > best.order)) {
+      best = candidate;
+      bestScore = candidate.score;
+    }
   }
-  return null;
+  return best?.vehicle || null;
 }
 
 // ── Normalize to ad_data ────────────────────────────────────────────
@@ -727,6 +829,16 @@ export function normalizeToAdData(rsc, jsonLd) {
     return ld.model || null;
   }
 
+  function resolveDescription() {
+    if (rsc) {
+      const full = typeof rsc.description === 'string' ? rsc.description.trim() : '';
+      if (full) return full;
+      const short = typeof rsc.teaser === 'string' ? rsc.teaser.trim() : '';
+      if (short) return short;
+    }
+    return null;
+  }
+
   // Dealer rating from JSON-LD aggregateRating
   const rating = seller.aggregateRating || {};
   const dealerRating = rating.ratingValue ?? null;
@@ -773,7 +885,7 @@ export function normalizeToAdData(rsc, jsonLd) {
         lng: null,
       },
       phone: seller.telephone || null,
-      description: rsc.teaser || null,
+      description: resolveDescription(),
       owner_type: resolveOwnerType(),
       owner_name: seller.name || null,
       siret: null,
@@ -1263,7 +1375,7 @@ export class AutoScout24Extractor extends SiteExtractor {
    * @returns {Promise<{type: string, source: string, ad_data: object}|null>}
    */
   async extract() {
-    this._rsc = parseRSCPayload(document);
+    this._rsc = parseRSCPayload(document, window.location.href);
     this._jsonLd = parseJsonLd(document);
 
     if (!this._rsc && !this._jsonLd) {
@@ -1289,15 +1401,20 @@ export class AutoScout24Extractor extends SiteExtractor {
     if (urlSlug && this._adData.make) {
       const makeSlug = toAs24Slug(this._adData.make);
       const modelSlug = toAs24Slug(this._adData.model || '');
+      // If model is missing, do not trust a make-only match on SPA pages.
+      const hasModelMatch = modelSlug
+        ? (urlSlug.includes(modelSlug)
+          || modelSlug.split('-').filter((t) => t.length >= 3).some((t) => urlSlug.includes(t)))
+        : false;
       const vehicleInUrl = urlSlug.startsWith(makeSlug)
-        && (!modelSlug || urlSlug.includes(modelSlug));
+        && hasModelMatch;
       if (!vehicleInUrl) {
         console.warn(
           '[CoPilot] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
           this._adData.make, this._adData.model || '?', urlSlug
         );
         // Try to find a JSON-LD node matching the URL's make
-        const freshLd = _findJsonLdByMake(document, urlHint.make);
+        const freshLd = _findJsonLdByMake(document, urlHint.make, urlHint.model, urlSlug);
         if (freshLd) {
           console.log('[CoPilot] Found fresh JSON-LD for %s, using it', urlHint.make);
           this._rsc = null;

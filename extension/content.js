@@ -339,6 +339,7 @@ function buildFilterBody(f, vehicle, allFilters) {
     case "L3":  return buildL3Body(f, d);
     case "L4":  return buildPriceBarHTML(d, vehicle);
     case "L6":  return buildL6Body(f, d);
+    case "L7":  return buildL7Body(f, d);
     case "L8":  return buildL8Body(f, d);
     case "L9":  return buildL9Body(f, d, allFilters);
     case "L10": return buildL10Body(f, d);
@@ -656,6 +657,64 @@ function buildL6Body(f, d) {
   if (f.message && f.status !== "pass") {
     html += `<span class="copilot-l6-msg">${escapeHTML(f.message)}</span>`;
   }
+  html += `</div>`;
+  return html;
+}
+
+// ── L7 : SIRET / UID vendeur ────────────────────────────
+
+function buildL7Body(f, d) {
+  const ownerType = (d.owner_type || "").toLowerCase();
+
+  // Particulier : badge neutre compact
+  if (f.status === "neutral" || ownerType === "private" || ownerType === "particulier") {
+    return `<div class="copilot-l7-body"><span class="copilot-l7-badge copilot-l7-badge-neutral">Particulier</span></div>`;
+  }
+
+  // Skip : pas assez d'info
+  if (f.status === "skip") {
+    return `<div class="copilot-l7-body"><span class="copilot-l7-na">${escapeHTML(f.message)}</span></div>`;
+  }
+
+  let html = `<div class="copilot-l7-body">`;
+
+  // Pro vérifié par plateforme (AS24 etc.)
+  if (d.platform_verified) {
+    html += `<span class="copilot-l7-badge copilot-l7-badge-verified">Pro v\u00E9rifi\u00E9</span>`;
+    if (d.dealer_rating != null && d.dealer_review_count != null) {
+      const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
+      html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  // Pro avec SIRET/UID vérifié (pass)
+  if (f.status === "pass") {
+    const denom = d.denomination || d.name || "";
+    const siretOrUid = d.formatted || d.siret || d.uid || "";
+    html += `<span class="copilot-l7-badge copilot-l7-badge-pro">Pro</span>`;
+    if (denom) html += `<span class="copilot-l7-denom">${escapeHTML(denom)}</span>`;
+    if (siretOrUid) html += `<span class="copilot-l7-id">${escapeHTML(siretOrUid)}</span>`;
+    if (d.dealer_rating != null && d.dealer_review_count != null) {
+      const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
+      html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  // Warning : pro sans identification ou entreprise radiée
+  if (f.status === "warning") {
+    html += `<span class="copilot-l7-badge copilot-l7-badge-warn">Pro non identifi\u00E9</span>`;
+    html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
+    html += `</div>`;
+    return html;
+  }
+
+  // Fail : SIRET invalide ou introuvable
+  html += `<span class="copilot-l7-badge copilot-l7-badge-fail">Pro suspect</span>`;
+  html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
   html += `</div>`;
   return html;
 }

@@ -358,6 +358,34 @@ describe('parseRSCPayload', () => {
     expect(result.firstRegistrationYear).toBe(2020);
   });
 
+  it('parses RSC Flight when description contains escaped quotes', () => {
+    const vehicle = {
+      vehicleCategory: 'car',
+      make: { name: 'FORD' },
+      model: { name: 'RANGER' },
+      price: 56900,
+      mileage: 21000,
+      firstRegistrationDate: '2022-11-01',
+      description: 'Herzlich willkommen. Das Feature "Finanzierung sichern" ist verfügbar.',
+      teaser: '***CH Fahrzeug***',
+    };
+    const rawJson = JSON.stringify(vehicle);
+    const doubleEscaped = rawJson.replace(/"/g, '\\\\"');
+    const scriptText = 'self.__next_f.push([1,"6:' + doubleEscaped + '"])';
+
+    const dom = new JSDOM('<html><head></head><body></body></html>');
+    const doc = dom.window.document;
+    const script = doc.createElement('script');
+    script.textContent = scriptText;
+    doc.head.appendChild(script);
+
+    const result = parseRSCPayload(doc);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('FORD');
+    expect(result.model.name).toBe('RANGER');
+    expect(result.description).toContain('Finanzierung sichern');
+  });
+
   it('ignores i18n translation objects with make/model label keys', () => {
     // AS24 pages have an i18n script with labels like {make: "Marque", model: "Modèle"}
     // and vehicleCategory as an object (translations), NOT a string.
@@ -413,6 +441,40 @@ describe('parseRSCPayload', () => {
     expect(result.warranty.duration).toBe(6);
     expect(result.images).toHaveLength(2);
   });
+
+  it('prefers URL-matching vehicle when stale and fresh RSC coexist in SPA DOM', () => {
+    const ranger = {
+      vehicleCategory: 'car',
+      make: { name: 'FORD' },
+      model: { name: 'RANGER' },
+      price: 56900,
+      mileage: 21000,
+      firstRegistrationDate: '2022-11-01',
+    };
+    const transit = {
+      vehicleCategory: 'car',
+      make: { name: 'FORD' },
+      model: { name: 'TRANSIT CUSTOM' },
+      price: 44900,
+      mileage: 52000,
+      firstRegistrationDate: '2022-06-01',
+    };
+
+    // Simulate stale script appended after current one (order not reliable on SPA pages)
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(ranger)}</script>
+      <script>${JSON.stringify(transit)}</script>
+    </head><body></body></html>`);
+
+    const result = parseRSCPayload(
+      dom.window.document,
+      'https://www.autoscout24.ch/fr/d/ford-ranger-dkabpick-up-20-ecoblue-4x4-raptor-20239836'
+    );
+
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('FORD');
+    expect(result.model.name).toBe('RANGER');
+  });
 });
 
 
@@ -449,6 +511,18 @@ describe('normalizeToAdData edge cases', () => {
     const ad = normalizeToAdData(rsc, jsonLd);
     expect(ad.make).toBe('Volkswagen');
     expect(ad.model).toBe('Golf');
+  });
+
+  it('prefers full RSC description over teaser', () => {
+    const rsc = {
+      make: { name: 'FORD' },
+      model: { name: 'RANGER' },
+      price: 56000,
+      description: 'Description vendeur longue et détaillée',
+      teaser: 'Teaser court',
+    };
+    const ad = normalizeToAdData(rsc, null);
+    expect(ad.description).toBe('Description vendeur longue et détaillée');
   });
 });
 
@@ -1487,5 +1561,66 @@ describe('extract() date fallback from DOM scripts', () => {
       expect(result.ad_data.index_date).toBe('2026-02-15T10:00:00.000Z');
       expect(result.ad_data.republished).toBe(true); // 26 days apart
     });
+  });
+
+  it('SPA stale defense: rejects same-make wrong-model and keeps URL-matching JSON-LD', async () => {
+    const staleRscTransit = {
+      vehicleCategory: 'car',
+      make: { name: 'FORD' },
+      model: { name: 'TRANSIT CUSTOM' },
+      price: 44900,
+      mileage: 52000,
+      firstRegistrationDate: '2022-06-01',
+    };
+
+    const freshJsonLdRanger = {
+      '@type': 'Car',
+      name: 'FORD RANGER',
+      brand: { name: 'FORD' },
+      model: 'RANGER',
+      vehicleModelDate: 2022,
+      mileageFromOdometer: { value: 21000, unitCode: 'KMT' },
+      offers: {
+        price: 56900,
+        priceCurrency: 'CHF',
+        seller: { '@type': 'AutoDealer', name: 'Ford Pro', address: { postalCode: '1200' } },
+      },
+    };
+
+    const staleJsonLdTransit = {
+      '@type': 'Car',
+      name: 'FORD TRANSIT CUSTOM',
+      brand: { name: 'FORD' },
+      model: 'TRANSIT CUSTOM',
+      offers: {
+        price: 44900,
+        priceCurrency: 'CHF',
+        seller: { '@type': 'AutoDealer', name: 'Ford Pro', address: { postalCode: '1200' } },
+      },
+    };
+
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(staleRscTransit)}</script>
+      <script type="application/ld+json">${JSON.stringify(staleJsonLdTransit)}</script>
+      <script type="application/ld+json">${JSON.stringify(freshJsonLdRanger)}</script>
+    </head><body></body></html>`, {
+      url: 'https://www.autoscout24.ch/fr/d/ford-ranger-dkabpick-up-20-ecoblue-4x4-raptor-20239836',
+    });
+
+    const ext = new AutoScout24Extractor();
+    const origDoc = globalThis.document;
+    const origWin = globalThis.window;
+    globalThis.document = dom.window.document;
+    globalThis.window = dom.window;
+
+    const result = await ext.extract();
+
+    globalThis.document = origDoc;
+    globalThis.window = origWin;
+
+    expect(result).not.toBeNull();
+    expect(result.ad_data.make).toBe('FORD');
+    expect(result.ad_data.model).toBe('RANGER');
+    expect(result.ad_data.title).toContain('RANGER');
   });
 });
