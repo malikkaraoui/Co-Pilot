@@ -1673,6 +1673,42 @@
     }
     return { createdDate: null, lastModifiedDate: null };
   }
+  function _normalizeText(text) {
+    return String(text || "").replace(/\s+/g, " ").trim();
+  }
+  function _extractDescriptionFromDom(doc) {
+    const directSelectors = [
+      '[data-cy*="description"]',
+      '[data-testid*="description"]',
+      "#description",
+      '[class*="description"]'
+    ];
+    for (const sel of directSelectors) {
+      const nodes = doc.querySelectorAll(sel);
+      for (const node of nodes) {
+        const txt = _normalizeText(node.textContent);
+        if (txt.length >= 50) return txt.slice(0, 2e3);
+      }
+    }
+    const equipmentHeadingRe = /(équipement|equipement|ausstattung|equipment|dotazione|equipaggiamento|opzioni|options?)/i;
+    const headings = doc.querySelectorAll("h1,h2,h3,h4,strong,span,div");
+    for (const h of headings) {
+      const title = _normalizeText(h.textContent);
+      if (!title || title.length > 60 || !equipmentHeadingRe.test(title)) continue;
+      const container = h.closest("section,article,div") || h.parentElement;
+      if (!container) continue;
+      const lis = Array.from(container.querySelectorAll("li")).map((li) => _normalizeText(li.textContent)).filter((t) => t.length >= 3 && t.length <= 180);
+      const uniq = [...new Set(lis)];
+      if (uniq.length >= 3) {
+        return uniq.join(" \u2022 ").slice(0, 2e3);
+      }
+    }
+    const ogDesc = _normalizeText(doc.querySelector('meta[property="og:description"]')?.getAttribute("content"));
+    if (ogDesc.length >= 50) return ogDesc.slice(0, 2e3);
+    const metaDesc = _normalizeText(doc.querySelector('meta[name="description"]')?.getAttribute("content"));
+    if (metaDesc.length >= 50) return metaDesc.slice(0, 2e3);
+    return null;
+  }
   function fallbackAdDataFromDom(doc, url) {
     const h1 = doc.querySelector("h1")?.textContent?.trim() || null;
     const title = h1 || doc.querySelector('meta[property="og:title"]')?.getAttribute("content") || doc.title || null;
@@ -1706,7 +1742,7 @@
         lng: null
       },
       phone: null,
-      description: null,
+      description: _extractDescriptionFromDom(doc),
       owner_type: "private",
       owner_name: null,
       siret: null,
@@ -1905,6 +1941,8 @@
         const short = typeof rsc.teaser === "string" ? rsc.teaser.trim() : "";
         if (short) return short;
       }
+      const ldDesc = typeof ld.description === "string" ? ld.description.trim() : "";
+      if (ldDesc) return ldDesc;
       return null;
     }
     const rating = seller.aggregateRating || {};
@@ -1988,7 +2026,7 @@
         lng: null
       },
       phone: seller.telephone || null,
-      description: null,
+      description: typeof ld.description === "string" && ld.description.trim() || null,
       owner_type: resolveOwnerType(),
       owner_name: seller.name || null,
       siret: null,
@@ -2342,6 +2380,12 @@
           this._adData.index_date = domDates.lastModifiedDate || this._adData.index_date;
           this._adData.days_since_refresh = _daysSinceRefresh(domDates.createdDate, domDates.lastModifiedDate);
           this._adData.republished = _isRepublished(domDates.createdDate, domDates.lastModifiedDate);
+        }
+      }
+      if (!this._adData.description) {
+        const domDesc = _extractDescriptionFromDom(document);
+        if (domDesc) {
+          this._adData.description = domDesc;
         }
       }
       return {

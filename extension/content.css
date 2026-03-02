@@ -1760,6 +1760,7 @@
 .copilot-step {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 4px 0;
   font-size: 13px;
@@ -1842,6 +1843,7 @@
 
 /* Substeps (indented) */
 .copilot-substeps {
+  flex-basis: 100%;
   margin: 2px 0 2px 26px;
   padding-left: 10px;
   border-left: 2px solid var(--copilot-border);
