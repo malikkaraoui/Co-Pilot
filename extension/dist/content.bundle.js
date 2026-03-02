@@ -1764,28 +1764,38 @@
       if (!text.includes("vehicleCategory") && !text.includes("firstRegistrationDate")) {
         continue;
       }
-      const searchText = text.includes("self.__next_f") ? text.replace(/\\+"/g, '"') : text;
-      for (const candidate of extractJsonObjects(searchText)) {
-        if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
-          continue;
-        }
-        try {
-          const parsed = JSON.parse(candidate);
-          const vehicle = findVehicleNode(parsed);
-          if (vehicle) {
-            if (!vehicle.createdDate) {
-              const dates = _findListingDates(parsed);
-              if (dates) {
-                vehicle.createdDate = dates.createdDate;
-                if (!vehicle.lastModifiedDate) {
-                  vehicle.lastModifiedDate = dates.lastModifiedDate;
+      const candidateSources = [];
+      if (text.includes("self.__next_f")) {
+        const sentinel = "__AS24_ESCAPED_QUOTE__";
+        const decoded = text.replace(/\\\\\\"/g, sentinel).replace(/\\\\"/g, '"').replaceAll(sentinel, '\\"');
+        candidateSources.push(decoded);
+        candidateSources.push(text.replace(/\\"/g, '"'));
+      } else {
+        candidateSources.push(text);
+      }
+      for (const source of candidateSources) {
+        for (const candidate of extractJsonObjects(source)) {
+          if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(candidate);
+            const vehicle = findVehicleNode(parsed);
+            if (vehicle) {
+              if (!vehicle.createdDate) {
+                const dates = _findListingDates(parsed);
+                if (dates) {
+                  vehicle.createdDate = dates.createdDate;
+                  if (!vehicle.lastModifiedDate) {
+                    vehicle.lastModifiedDate = dates.lastModifiedDate;
+                  }
                 }
               }
+              lastFound = vehicle;
+              candidates.push({ vehicle, order: order++ });
             }
-            lastFound = vehicle;
-            candidates.push({ vehicle, order: order++ });
+          } catch {
           }
-        } catch {
         }
       }
     }
@@ -1888,6 +1898,15 @@
       }
       return ld.model || null;
     }
+    function resolveDescription() {
+      if (rsc) {
+        const full = typeof rsc.description === "string" ? rsc.description.trim() : "";
+        if (full) return full;
+        const short = typeof rsc.teaser === "string" ? rsc.teaser.trim() : "";
+        if (short) return short;
+      }
+      return null;
+    }
     const rating = seller.aggregateRating || {};
     const dealerRating = rating.ratingValue ?? null;
     const dealerReviewCount = rating.reviewCount ?? null;
@@ -1923,7 +1942,7 @@
           lng: null
         },
         phone: seller.telephone || null,
-        description: rsc.teaser || null,
+        description: resolveDescription(),
         owner_type: resolveOwnerType(),
         owner_name: seller.name || null,
         siret: null,
@@ -3114,6 +3133,8 @@
         return buildL3Body(f, d);
       case "L4":
         return buildPriceBarHTML(d, vehicle);
+      case "L8":
+        return buildL8Body(f, d);
       case "L9":
         return buildL9Body(f, d, allFilters);
       case "L10":
@@ -3319,6 +3340,32 @@
     `;
     }
     return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
+  }
+  function buildL8Body(f, d) {
+    const signals = d.signals || [];
+    const strongCount = d.strong_count || 0;
+    const weakCount = d.weak_count || 0;
+    if (f.status === "pass" || signals.length === 0) {
+      return `<div class="copilot-l8-body">
+      <div class="copilot-l8-clean">
+        <span class="copilot-l8-clean-icon">\u2705</span>
+        <span>Aucun signal d'import d\xE9tect\xE9</span>
+      </div>
+    </div>`;
+    }
+    let headerText = strongCount >= 2 ? "Import probable" : strongCount === 1 ? "Signal d'import d\xE9tect\xE9" : "Signal faible d'import";
+    const headerClass = f.status === "fail" ? "copilot-l8-alert-fail" : "copilot-l8-alert-warn";
+    let html = `<div class="copilot-l8-body">`;
+    html += `<div class="copilot-l8-alert ${headerClass}">`;
+    html += `<span class="copilot-l8-alert-icon">${f.status === "fail" ? "\u{1F6A8}" : "\u26A0\uFE0F"}</span>`;
+    html += `<span class="copilot-l8-alert-text">${escapeHTML(headerText)} (${signals.length} indice${signals.length > 1 ? "s" : ""})</span>`;
+    html += `</div>`;
+    html += `<ul class="copilot-l8-signals">`;
+    for (const sig of signals) {
+      html += `<li class="copilot-l8-signal">${escapeHTML(sig)}</li>`;
+    }
+    html += `</ul></div>`;
+    return html;
   }
   function buildGenericBody(f) {
     const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;

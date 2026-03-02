@@ -338,6 +338,7 @@ function buildFilterBody(f, vehicle, allFilters) {
     case "L1":  return buildL1Body(f, d);
     case "L3":  return buildL3Body(f, d);
     case "L4":  return buildPriceBarHTML(d, vehicle);
+    case "L8":  return buildL8Body(f, d);
     case "L9":  return buildL9Body(f, d, allFilters);
     case "L10": return buildL10Body(f, d);
     default:    return buildGenericBody(f);
@@ -591,6 +592,43 @@ function buildL9Body(f, d, allFilters) {
   }
 
   return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
+}
+
+// ── L8 : Détection import ────────────────────────────────
+
+function buildL8Body(f, d) {
+  const signals = d.signals || [];
+  const strongCount = d.strong_count || 0;
+  const weakCount = d.weak_count || 0;
+
+  if (f.status === "pass" || signals.length === 0) {
+    return `<div class="copilot-l8-body">
+      <div class="copilot-l8-clean">
+        <span class="copilot-l8-clean-icon">\u2705</span>
+        <span>Aucun signal d'import d\u00E9tect\u00E9</span>
+      </div>
+    </div>`;
+  }
+
+  let headerText = strongCount >= 2
+    ? "Import probable"
+    : strongCount === 1
+      ? "Signal d'import d\u00E9tect\u00E9"
+      : "Signal faible d'import";
+  const headerClass = f.status === "fail" ? "copilot-l8-alert-fail" : "copilot-l8-alert-warn";
+
+  let html = `<div class="copilot-l8-body">`;
+  html += `<div class="copilot-l8-alert ${headerClass}">`;
+  html += `<span class="copilot-l8-alert-icon">${f.status === "fail" ? "\uD83D\uDEA8" : "\u26A0\uFE0F"}</span>`;
+  html += `<span class="copilot-l8-alert-text">${escapeHTML(headerText)} (${signals.length} indice${signals.length > 1 ? "s" : ""})</span>`;
+  html += `</div>`;
+
+  html += `<ul class="copilot-l8-signals">`;
+  for (const sig of signals) {
+    html += `<li class="copilot-l8-signal">${escapeHTML(sig)}</li>`;
+  }
+  html += `</ul></div>`;
+  return html;
 }
 
 function buildGenericBody(f) {
