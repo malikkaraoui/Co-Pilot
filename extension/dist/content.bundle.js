@@ -3135,6 +3135,8 @@
         return buildPriceBarHTML(d, vehicle);
       case "L2":
         return buildL2Body(f, d);
+      case "L5":
+        return buildL5Body(f, d);
       case "L6":
         return buildL6Body(f, d);
       case "L7":
@@ -3363,6 +3365,73 @@
     <span class="copilot-l2-badge copilot-l2-badge-warn">\u26A0 Mod\xE8le non reconnu</span>
     <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
   </div>`;
+  }
+  function buildL5Body(f, d) {
+    if (f.status === "skip") {
+      return `<div class="copilot-l5-body"><span class="copilot-l5-na">${escapeHTML(f.message)}</span></div>`;
+    }
+    const zPrice = d.z_scores?.price;
+    const anomalies = d.anomalies || [];
+    const refCount = d.ref_count || 0;
+    const hasOutlier = anomalies.some((a) => a.includes("outlier"));
+    const hasMargin = anomalies.some((a) => a.includes("marge"));
+    const dieselOnly = anomalies.length > 0 && anomalies.every((a) => a.includes("Diesel"));
+    let cursorPct, zoneClass, verdictText;
+    if (hasOutlier) {
+      cursorPct = zPrice > 0 ? 8 : 12;
+      zoneClass = "copilot-l5-zone-red";
+      verdictText = "Anomalie d\xE9tect\xE9e \u2014 prix tr\xE8s \xE9loign\xE9 de la distribution";
+    } else if (hasMargin) {
+      cursorPct = zPrice > 0 ? 22 : 28;
+      zoneClass = "copilot-l5-zone-orange";
+      verdictText = "Signal faible \u2014 prix en marge de la distribution";
+    } else if (anomalies.length === 0 || dieselOnly) {
+      const bonus = Math.min(refCount, 20) / 20 * 20;
+      cursorPct = 60 + bonus;
+      zoneClass = refCount >= 10 ? "copilot-l5-zone-green" : "copilot-l5-zone-neutral";
+      verdictText = refCount >= 10 ? `RAS \u2014 aucune anomalie (${refCount} v\xE9hicules compar\xE9s)` : `RAS \u2014 confiance mod\xE9r\xE9e (${refCount} r\xE9f\xE9rences)`;
+    } else {
+      cursorPct = 35;
+      zoneClass = "copilot-l5-zone-orange";
+      verdictText = anomalies[0];
+    }
+    let html = `<div class="copilot-l5-body">`;
+    html += `<div class="copilot-l5-scale">`;
+    html += `  <div class="copilot-l5-track">`;
+    html += `    <div class="copilot-l5-zone-left"></div>`;
+    html += `    <div class="copilot-l5-zone-center"></div>`;
+    html += `    <div class="copilot-l5-zone-right"></div>`;
+    html += `    <div class="copilot-l5-cursor ${zoneClass}" style="left:${cursorPct}%"></div>`;
+    html += `  </div>`;
+    html += `  <div class="copilot-l5-labels">`;
+    html += `    <span class="copilot-l5-label-left">Louche</span>`;
+    html += `    <span class="copilot-l5-label-center">RAS</span>`;
+    html += `    <span class="copilot-l5-label-right">Fiable</span>`;
+    html += `  </div>`;
+    html += `</div>`;
+    html += `<div class="copilot-l5-verdict">${escapeHTML(verdictText)}</div>`;
+    if (d.diesel_urban) {
+      html += `<div class="copilot-l5-diesel">`;
+      html += `  <span class="copilot-l5-diesel-icon">\u2699\uFE0F</span>`;
+      html += `  <div>`;
+      html += `    <div class="copilot-l5-diesel-title">Diesel en zone urbaine dense</div>`;
+      html += `    <div class="copilot-l5-diesel-text">Risque FAP, injecteurs, vanne EGR \u2014 les r\xE9g\xE9n\xE9rations ne se font pas en ville</div>`;
+      html += `  </div>`;
+      html += `</div>`;
+    }
+    const src = d.source || "";
+    let srcLabel = "";
+    if (src === "marche_leboncoin") srcLabel = "LBC";
+    else if (src === "marche_autoscout24") srcLabel = "AS24";
+    else if (src === "argus_seed") srcLabel = "Argus Seed";
+    if (srcLabel || refCount) {
+      html += `<div class="copilot-l5-footer">`;
+      if (srcLabel) html += `<span class="copilot-l5-src">${escapeHTML(srcLabel)}</span>`;
+      if (refCount) html += `<span class="copilot-l5-refs">Bas\xE9 sur ${refCount} v\xE9hicule${refCount > 1 ? "s" : ""}</span>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+    return html;
   }
   function buildL6Body(f, d) {
     if (f.status === "neutral") {
