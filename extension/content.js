@@ -795,12 +795,15 @@ function createProgressTracker() {
 
   function appendCascadeDetails(container, details) {
     var lines = [];
-    if (details.source === "marche_leboncoin") { lines.push("Source : march\u00e9 LBC (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\u00e9cision " + details.precision : "") + ")"); }
+    if (details.source === "marche_leboncoin" || details.source === "marche_autoscout24") {
+      var srcLabel = details.source === "marche_autoscout24" ? "AS24" : "LBC";
+      lines.push("Source : march\u00e9 " + srcLabel + " (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\u00e9cision " + details.precision : "") + ")");
+    }
     else if (details.source === "argus_seed") { lines.push("Source : Argus (donn\u00e9es seed)"); }
     if (details.cascade_tried) {
       details.cascade_tried.forEach(function (tier) {
         var result = details["cascade_" + tier + "_result"] || "non essay\u00e9";
-        var tierLabel = tier === "market_price" ? "March\u00e9 LBC" : "Argus Seed";
+        var tierLabel = tier === "market_price" ? "March\u00e9 crowdsourc\u00e9" : "Argus Seed";
         var tierIcon = result === "found" ? "\u2713" : result === "insufficient" ? "\u26A0" : "\u2014";
         lines.push(tierIcon + " " + tierLabel + " : " + result);
       });

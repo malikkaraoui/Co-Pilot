@@ -1338,3 +1338,154 @@ describe('buildSearchUrl with fuel codes', () => {
     expect(url).toContain('fuel=B');
   });
 });
+
+
+// ─── Date extraction: _findListingDates + parseRSCPayload enrichment ────
+
+describe('parseRSCPayload date enrichment', () => {
+  it('extracts dates from parent level when vehicle node lacks createdDate', () => {
+    // Simulate AS24 RSC structure where dates are at parent (listing) level
+    const nestedRsc = {
+      listing: {
+        createdDate: '2026-01-15T10:30:00.000Z',
+        lastModifiedDate: '2026-02-01T08:00:00.000Z',
+        vehicle: {
+          make: { name: 'PEUGEOT' },
+          model: { name: '3008' },
+          vehicleCategory: 'car',
+          price: 25000,
+          mileage: 50000,
+          firstRegistrationDate: '2022-06-01',
+        },
+      },
+    };
+
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(nestedRsc)}</script>
+    </head><body></body></html>`);
+
+    const result = parseRSCPayload(dom.window.document);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('PEUGEOT');
+    expect(result.createdDate).toBe('2026-01-15T10:30:00.000Z');
+    expect(result.lastModifiedDate).toBe('2026-02-01T08:00:00.000Z');
+  });
+
+  it('keeps vehicle-level dates when they exist', () => {
+    // Vehicle node already has dates — should NOT be overwritten
+    const flatRsc = {
+      make: { name: 'AUDI' },
+      model: { name: 'Q5' },
+      vehicleCategory: 'car',
+      price: 43900,
+      mileage: 29000,
+      firstRegistrationDate: '2023-12-01',
+      createdDate: '2026-02-11T09:00:20.284Z',
+      lastModifiedDate: '2026-02-11T09:20:30.037Z',
+    };
+
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(flatRsc)}</script>
+    </head><body></body></html>`);
+
+    const result = parseRSCPayload(dom.window.document);
+    expect(result).not.toBeNull();
+    expect(result.createdDate).toBe('2026-02-11T09:00:20.284Z');
+  });
+
+  it('handles RSC Flight format with escaped quotes', () => {
+    const rscData = {
+      listing: {
+        createdDate: '2026-03-01T12:00:00.000Z',
+        lastModifiedDate: '2026-03-01T14:00:00.000Z',
+        car: {
+          make: { name: 'BMW' },
+          model: { name: '320' },
+          vehicleCategory: 'car',
+          price: 30000,
+          firstRegistrationDate: '2021-01-01',
+        },
+      },
+    };
+    const escaped = JSON.stringify(rscData).replace(/"/g, '\\"');
+    const script = `self.__next_f.push([1,"${escaped}"])`;
+
+    const dom = new JSDOM(`<html><head><script>${script}</script></head><body></body></html>`);
+    const result = parseRSCPayload(dom.window.document);
+    expect(result).not.toBeNull();
+    expect(result.make.name).toBe('BMW');
+    expect(result.createdDate).toBe('2026-03-01T12:00:00.000Z');
+  });
+});
+
+
+describe('normalizeToAdData JSON-LD only path', () => {
+  it('returns null dates when no RSC and JSON-LD has no dates', () => {
+    const result = normalizeToAdData(null, JSON_LD);
+    expect(result.publication_date).toBeNull();
+    expect(result.days_online).toBeNull();
+  });
+
+  it('returns dates from RSC when available', () => {
+    const result = normalizeToAdData(RSC_VEHICLE, JSON_LD);
+    expect(result.publication_date).toBe('2026-02-11T09:00:20.284Z');
+    expect(result.days_online).toBeGreaterThanOrEqual(0);
+    expect(result.index_date).toBe('2026-02-11T09:20:30.037Z');
+  });
+});
+
+
+describe('extract() date fallback from DOM scripts', () => {
+  it('extracts dates from DOM when RSC vehicle node lacks them and JSON-LD only is used', () => {
+    // Simulate: JSON-LD provides vehicle data, but a separate RSC script has dates
+    const jsonLd = {
+      '@type': 'Car',
+      name: 'PEUGEOT 3008',
+      brand: { name: 'PEUGEOT' },
+      model: '3008',
+      vehicleModelDate: 2022,
+      mileageFromOdometer: { value: 60000, unitCode: 'KMT' },
+      vehicleEngine: { fuelType: 'Diesel', enginePower: { value: 130 } },
+      offers: {
+        price: 20000,
+        priceCurrency: 'CHF',
+        seller: {
+          '@type': 'AutoDealer',
+          name: 'Test Dealer',
+          address: { postalCode: '1000' },
+        },
+      },
+    };
+
+    // Separate script has createdDate but no vehicle node
+    const dateScript = JSON.stringify({
+      someOther: 'data',
+      createdDate: '2026-01-20T08:00:00.000Z',
+      lastModifiedDate: '2026-02-15T10:00:00.000Z',
+    });
+
+    const dom = new JSDOM(`<html><head>
+      <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
+      <script>${dateScript}</script>
+    </head><body></body></html>`, { url: 'https://www.autoscout24.ch/fr/d/peugeot-3008-test-12345678' });
+
+    const ext = new AutoScout24Extractor();
+    // Mock global document/window
+    const origDoc = globalThis.document;
+    const origWin = globalThis.window;
+    globalThis.document = dom.window.document;
+    globalThis.window = dom.window;
+
+    return ext.extract().then((result) => {
+      globalThis.document = origDoc;
+      globalThis.window = origWin;
+
+      expect(result).not.toBeNull();
+      expect(result.ad_data.make).toBe('PEUGEOT');
+      expect(result.ad_data.publication_date).toBe('2026-01-20T08:00:00.000Z');
+      expect(result.ad_data.days_online).toBeGreaterThanOrEqual(0);
+      expect(result.ad_data.index_date).toBe('2026-02-15T10:00:00.000Z');
+      expect(result.ad_data.republished).toBe(true); // 26 days apart
+    });
+  });
+});

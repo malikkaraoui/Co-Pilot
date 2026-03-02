@@ -137,8 +137,8 @@ class MarketPricesRequest(BaseModel):
     prices: list[int] = Field(min_length=MIN_SAMPLE_ABSOLUTE)
     price_details: list[PriceDetail] | None = None
     category: str | None = Field(default=None, max_length=40)
-    fuel: str | None = Field(default=None, max_length=30)
-    precision: int | None = Field(default=None, ge=1, le=5)
+    fuel: str | None = Field(default=None, max_length=60)
+    precision: int | None = Field(default=None, ge=0, le=5)
     search_log: list[SearchStep] | None = None
     hp_range: str | None = Field(default=None, max_length=20)
     fiscal_hp: int | None = Field(default=None, ge=1, le=100)
@@ -180,11 +180,15 @@ def submit_market_prices():
         req = MarketPricesRequest.model_validate(json_data)
     except PydanticValidationError as exc:
         logger.warning("Market prices validation error: %s", exc)
+        # Extraire les champs en erreur pour le debug
+        field_errors = [
+            f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
+        ]
         return jsonify(
             {
                 "success": False,
                 "error": "VALIDATION_ERROR",
-                "message": "Donnees invalides. Verifiez le format du payload.",
+                "message": "; ".join(field_errors) if field_errors else "Donnees invalides.",
                 "data": None,
             }
         ), 400

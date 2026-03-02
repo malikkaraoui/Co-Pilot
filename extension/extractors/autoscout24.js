@@ -112,6 +112,19 @@ const FUEL_MAP = {
   cng: 'GNV',
   lpg: 'GPL',
   hydrogen: 'Hydrogene',
+  // Variantes supplementaires vues sur AS24 (noms longs dans le RSC)
+  hybrid: 'Hybride',
+  'hybrid-diesel': 'Hybride',
+  'hybrid-gasoline': 'Hybride',
+  'mild-hybrid': 'Hybride',
+  'mild-hybrid-diesel': 'Diesel',
+  'mild-hybrid-gasoline': 'Essence',
+  'plug-in-hybrid': 'Hybride Rechargeable',
+  'plug-in-hybrid-diesel': 'Hybride Rechargeable',
+  'plug-in-hybrid-gasoline': 'Hybride Rechargeable',
+  ethanol: 'Ethanol',
+  'e85': 'Ethanol',
+  bifuel: 'Bicarburation',
 };
 
 /**
@@ -121,8 +134,14 @@ const FUEL_MAP = {
  * @returns {string}
  */
 export function mapFuelType(fuelType) {
-  const key = (fuelType || '').toLowerCase();
-  return FUEL_MAP[key] || fuelType;
+  const key = (fuelType || '').toLowerCase().trim();
+  if (FUEL_MAP[key]) return FUEL_MAP[key];
+  // Recherche partielle : "Mild Hybrid Electric (Gasoline)" → contient "gasoline"
+  if (key.includes('diesel')) return 'Diesel';
+  if (key.includes('gasoline') || key.includes('benzin') || key.includes('essence')) return 'Essence';
+  if (key.includes('hybrid') || key.includes('hybride')) return 'Hybride';
+  if (key.includes('electri')) return 'Electrique';
+  return fuelType.length > 50 ? fuelType.slice(0, 50) : fuelType;
 }
 
 // ── Transmission mapping ────────────────────────────────────────────
@@ -349,6 +368,42 @@ function findVehicleNode(input, depth = 0) {
   return null;
 }
 
+/**
+ * Recursively searches for listing date fields (createdDate, lastModifiedDate)
+ * in a parsed RSC tree. On AS24, these dates may live at a parent/sibling level
+ * rather than inside the vehicle node itself.
+ * @param {unknown} input
+ * @param {number} depth
+ * @returns {{createdDate: string, lastModifiedDate: string|null}|null}
+ */
+function _findListingDates(input, depth = 0) {
+  if (!input || depth > 12) return null;
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = _findListingDates(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof input !== 'object') return null;
+
+  // Match an object that has createdDate as an ISO date string (contains 'T')
+  if (typeof input.createdDate === 'string' && input.createdDate.includes('T')) {
+    return {
+      createdDate: input.createdDate,
+      lastModifiedDate: typeof input.lastModifiedDate === 'string' ? input.lastModifiedDate : null,
+    };
+  }
+
+  for (const value of Object.values(input)) {
+    const found = _findListingDates(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 function parseLooselyJsonLd(text) {
   const cleaned = String(text || '')
     .trim()
@@ -425,6 +480,38 @@ function extractMakeModelFromUrl(url) {
   }
 }
 
+/**
+ * Extracts listing dates from the DOM as a last resort.
+ * Searches for RSC-like scripts that contain createdDate but were missed by
+ * parseRSCPayload (e.g. the vehicle node was not found but dates exist).
+ * @param {Document} doc
+ * @returns {{createdDate: string|null, lastModifiedDate: string|null}}
+ */
+function _extractDatesFromDom(doc) {
+  // Strategy 1: search all scripts for createdDate pattern
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    const text = script.textContent || '';
+    if (!text.includes('createdDate')) continue;
+
+    const searchText = text.includes('self.__next_f')
+      ? text.replace(/\\+"/g, '"')
+      : text;
+
+    // Quick regex extraction — faster than full JSON parse
+    const createdMatch = searchText.match(/"createdDate"\s*:\s*"([^"]+T[^"]+)"/);
+    if (createdMatch) {
+      const modifiedMatch = searchText.match(/"lastModifiedDate"\s*:\s*"([^"]+T[^"]+)"/);
+      return {
+        createdDate: createdMatch[1],
+        lastModifiedDate: modifiedMatch ? modifiedMatch[1] : null,
+      };
+    }
+  }
+
+  return { createdDate: null, lastModifiedDate: null };
+}
+
 function fallbackAdDataFromDom(doc, url) {
   const h1 = doc.querySelector('h1')?.textContent?.trim() || null;
   const title = h1 || doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || doc.title || null;
@@ -432,6 +519,7 @@ function fallbackAdDataFromDom(doc, url) {
   const price = priceMeta ? Number(String(priceMeta).replace(/[^\d.]/g, '')) : null;
   const currency = doc.querySelector('meta[property="product:price:currency"]')?.getAttribute('content') || null;
   const fromUrl = extractMakeModelFromUrl(url);
+  const domDates = _extractDatesFromDom(doc);
 
   return {
     title,
@@ -468,11 +556,11 @@ function fallbackAdDataFromDom(doc, url) {
     has_urgent: false,
     has_highlight: false,
     has_boost: false,
-    publication_date: null,
-    days_online: null,
-    index_date: null,
-    days_since_refresh: null,
-    republished: false,
+    publication_date: domDates.createdDate || null,
+    days_online: _daysOnline(domDates.createdDate),
+    index_date: domDates.lastModifiedDate || null,
+    days_since_refresh: _daysSinceRefresh(domDates.createdDate, domDates.lastModifiedDate),
+    republished: _isRepublished(domDates.createdDate, domDates.lastModifiedDate),
     lbc_estimation: null,
   };
 }
@@ -509,7 +597,20 @@ export function parseRSCPayload(doc) {
       try {
         const parsed = JSON.parse(candidate);
         const vehicle = findVehicleNode(parsed);
-        if (vehicle) return vehicle;
+        if (vehicle) {
+          // AS24 RSC may store createdDate/lastModifiedDate at a parent level,
+          // not inside the vehicle node. Search the broader tree if missing.
+          if (!vehicle.createdDate) {
+            const dates = _findListingDates(parsed);
+            if (dates) {
+              vehicle.createdDate = dates.createdDate;
+              if (!vehicle.lastModifiedDate) {
+                vehicle.lastModifiedDate = dates.lastModifiedDate;
+              }
+            }
+          }
+          return vehicle;
+        }
       } catch {
         // Not valid JSON, try next candidate
       }
@@ -1199,11 +1300,20 @@ export class AutoScout24Extractor extends SiteExtractor {
           this._jsonLd = null;
           this._adData = fallbackAdDataFromDom(document, window.location.href);
         }
-        return {
-          type: 'normalized',
-          source: 'autoscout24',
-          ad_data: this._adData,
-        };
+      }
+    }
+
+    // Final fallback: if dates are still missing, search DOM scripts directly.
+    // AS24 RSC may store createdDate at a parent level that findVehicleNode() missed,
+    // or the normalizeToAdData JSON-LD path may not have dates.
+    if (!this._adData.publication_date) {
+      const domDates = _extractDatesFromDom(document);
+      if (domDates.createdDate) {
+        this._adData.publication_date = domDates.createdDate;
+        this._adData.days_online = _daysOnline(domDates.createdDate);
+        this._adData.index_date = domDates.lastModifiedDate || this._adData.index_date;
+        this._adData.days_since_refresh = _daysSinceRefresh(domDates.createdDate, domDates.lastModifiedDate);
+        this._adData.republished = _isRepublished(domDates.createdDate, domDates.lastModifiedDate);
       }
     }
 
@@ -1556,6 +1666,17 @@ export class AutoScout24Extractor extends SiteExtractor {
         as24_slug_model: learnedSlugModel || (!searchLog.some((s) => (s.reason || '').startsWith('HTTP 404')) ? targetModelKey : null),
       };
 
+      console.log('[CoPilot] AS24 submit payload:', JSON.stringify({
+        make: payload.make, model: payload.model, year: payload.year,
+        region: payload.region, precision: payload.precision, country: payload.country,
+        fuel: payload.fuel, hp_range: payload.hp_range, gearbox: payload.gearbox,
+        prices_count: payload.prices.length, prices_sample: payload.prices.slice(0, 3),
+        price_details_sample: payload.price_details?.slice(0, 2),
+        search_log_count: payload.search_log?.length,
+        search_log_sample: payload.search_log?.slice(0, 2),
+        as24_slug_make: payload.as24_slug_make, as24_slug_model: payload.as24_slug_model,
+      }));
+
       try {
         const resp = await this._fetch(marketUrl, {
           method: 'POST',
@@ -1566,7 +1687,12 @@ export class AutoScout24Extractor extends SiteExtractor {
           if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${targetRegion})`);
           submitted = true;
         } else {
-          if (progress) progress.update('submit', 'error', 'Erreur serveur');
+          const errBody = await resp.text().catch(() => '');
+          console.error('[CoPilot] AS24 market-prices POST %d: %s', resp.status, errBody);
+          const errMsg = (() => {
+            try { return JSON.parse(errBody)?.message || `HTTP ${resp.status}`; } catch { return `HTTP ${resp.status}`; }
+          })();
+          if (progress) progress.update('submit', 'error', errMsg);
         }
       } catch (err) {
         console.error('[CoPilot] AS24 market-prices POST error:', err);
@@ -1721,8 +1847,12 @@ export class AutoScout24Extractor extends SiteExtractor {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(bonusPayload),
           });
+          if (!postResp.ok) {
+            const errBody = await postResp.text().catch(() => '');
+            console.error('[CoPilot] AS24 bonus POST %d for %s %s: %s', postResp.status, job.make, job.model, errBody);
+          }
           await this._reportJobDone(jobDoneUrl, job.job_id, postResp.ok);
-          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'done', `${priceInts.length} prix`);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, postResp.ok ? 'done' : 'error', postResp.ok ? `${priceInts.length} prix` : `HTTP ${postResp.status}`);
         } else {
           await this._reportJobDone(jobDoneUrl, job.job_id, false);
           if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `${prices.length} annonces`);

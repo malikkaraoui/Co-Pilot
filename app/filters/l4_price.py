@@ -93,7 +93,7 @@ class L4PriceFilter(BaseFilter):
         if market and market.sample_count >= min_samples:
             # IQR Mean = moyenne des 50% centraux du marche (plus robuste que la mediane)
             ref_price = market.price_iqr_mean or market.price_median
-            source = "marche_leboncoin"
+            source = "marche_autoscout24" if country != "FR" else "marche_leboncoin"
             details["price_reference"] = ref_price
             details["price_iqr_mean"] = market.price_iqr_mean
             details["price_median"] = market.price_median
