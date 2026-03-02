@@ -332,12 +332,13 @@ function buildScoreBar(f) {
   return `<div class="copilot-filter-score-bar"><div class="copilot-score-track"><div class="copilot-score-fill" style="width:${pct}%;background:${color}"></div></div><span class="copilot-score-text" style="color:${color}">${pct}%</span></div>`;
 }
 
-function buildFilterBody(f, vehicle) {
+function buildFilterBody(f, vehicle, allFilters) {
   const d = f.details || {};
   switch (f.filter_id) {
     case "L1":  return buildL1Body(f, d);
     case "L3":  return buildL3Body(f, d);
     case "L4":  return buildPriceBarHTML(d, vehicle);
+    case "L9":  return buildL9Body(f, d, allFilters);
     case "L10": return buildL10Body(f, d);
     default:    return buildGenericBody(f);
   }
@@ -534,6 +535,64 @@ function buildL10Body(f, d) {
   return `<div class="copilot-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
 }
 
+// ── L9 : Résultat de scan ─────────────────────────────────
+
+function buildL9Body(f, d, allFilters) {
+  const forts = d.points_forts || [];
+  const faibles = d.points_faibles || [];
+
+  // Couverture : compter les filtres évalués (hors L9 lui-même)
+  const others = (allFilters || []).filter((x) => x.filter_id !== "L9");
+  const total = others.length;
+  const evaluated = others.filter((x) => x.status !== "skip").length;
+
+  let coverageHTML = "";
+  if (total > 0) {
+    const coverageColor = evaluated === total ? "#22c55e" : evaluated >= total * 0.7 ? "#f59e0b" : "#ef4444";
+    const coverageText = evaluated === total
+      ? "Analyse complète"
+      : `Analyse partielle — ${total - evaluated} filtre${total - evaluated > 1 ? "s" : ""} non évalué${total - evaluated > 1 ? "s" : ""} (données absentes de l'annonce)`;
+    coverageHTML = `
+      <div class="copilot-l9-coverage">
+        <span class="copilot-l9-coverage-count" style="color:${coverageColor}">${evaluated}/${total} filtres évalués</span>
+        <span class="copilot-l9-coverage-text">${escapeHTML(coverageText)}</span>
+      </div>
+    `;
+  }
+
+  // Points forts
+  let fortsHTML = "";
+  if (forts.length > 0) {
+    const items = forts.map((p) => `<li class="copilot-l9-fort">${escapeHTML(p)}</li>`).join("");
+    fortsHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-fort-title">Points forts</div><ul>${items}</ul></div>`;
+  }
+
+  // Points faibles
+  let faiblesHTML = "";
+  if (faibles.length > 0) {
+    const items = faibles.map((p) => `<li class="copilot-l9-faible">${escapeHTML(p)}</li>`).join("");
+    faiblesHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-faible-title">Points faibles</div><ul>${items}</ul></div>`;
+  }
+
+  // Phone login hint
+  let phoneHintHTML = "";
+  if (d.phone_login_hint) {
+    const hintText = typeof d.phone_login_hint === "string"
+      ? d.phone_login_hint
+      : "Connectez-vous sur LeBonCoin pour accéder au numéro";
+    phoneHintHTML = `
+      <div class="copilot-phone-login-hint">
+        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+        <span>${escapeHTML(hintText)}</span>
+        <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
+           class="copilot-phone-login-link">Se connecter</a>
+      </div>
+    `;
+  }
+
+  return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
+}
+
 function buildGenericBody(f) {
   const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
   const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
@@ -559,7 +618,7 @@ function buildFiltersList(filters, vehicle) {
         ? '<span class="copilot-badge-simulated">Données simulées</span>'
         : "";
       const scoreBarHTML = buildScoreBar(f);
-      const bodyHTML = buildFilterBody(f, vehicle);
+      const bodyHTML = buildFilterBody(f, vehicle, sorted);
       return `
         <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
           <div class="copilot-filter-header">
