@@ -524,6 +524,22 @@ describe('normalizeToAdData edge cases', () => {
     const ad = normalizeToAdData(rsc, null);
     expect(ad.description).toBe('Description vendeur longue et détaillée');
   });
+
+  it('falls back to JSON-LD description when RSC has no description', () => {
+    const rsc = {
+      make: { name: 'FORD' },
+      model: { name: 'MONDEO' },
+      price: 14980,
+    };
+    const ld = {
+      '@type': 'Car',
+      brand: { name: 'FORD' },
+      model: 'Mondeo',
+      description: 'Véhicule bien entretenu, options complètes, historique disponible.',
+    };
+    const ad = normalizeToAdData(rsc, ld);
+    expect(ad.description).toContain('Véhicule bien entretenu');
+  });
 });
 
 
@@ -1622,5 +1638,60 @@ describe('extract() date fallback from DOM scripts', () => {
     expect(result.ad_data.make).toBe('FORD');
     expect(result.ad_data.model).toBe('RANGER');
     expect(result.ad_data.title).toContain('RANGER');
+  });
+
+  it('fills description from DOM equipment list when RSC/JSON-LD have none', async () => {
+    const rscNoDesc = {
+      vehicleCategory: 'car',
+      make: { name: 'FORD' },
+      model: { name: 'MONDEO' },
+      price: 14980,
+      mileage: 181000,
+      firstRegistrationDate: '2023-02-01',
+    };
+
+    const jsonLdNoDesc = {
+      '@type': 'Car',
+      name: 'FORD MONDEO',
+      brand: { name: 'FORD' },
+      model: 'MONDEO',
+      offers: {
+        price: 14980,
+        priceCurrency: 'CHF',
+        seller: { '@type': 'AutoDealer', name: 'Dealer', address: { postalCode: '3000' } },
+      },
+    };
+
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(rscNoDesc)}</script>
+      <script type="application/ld+json">${JSON.stringify(jsonLdNoDesc)}</script>
+    </head><body>
+      <section>
+        <h2>Équipement en option</h2>
+        <ul>
+          <li>Caméra de recul</li>
+          <li>Régulateur de vitesse adaptatif ACC</li>
+          <li>Sièges chauffants AV et AR</li>
+          <li>Système de navigation</li>
+        </ul>
+      </section>
+    </body></html>`, {
+      url: 'https://www.autoscout24.ch/fr/d/ford-mondeo-station-wagon-20-ecoblue-190-st-line-4x4-20233448',
+    });
+
+    const ext = new AutoScout24Extractor();
+    const origDoc = globalThis.document;
+    const origWin = globalThis.window;
+    globalThis.document = dom.window.document;
+    globalThis.window = dom.window;
+
+    const result = await ext.extract();
+
+    globalThis.document = origDoc;
+    globalThis.window = origWin;
+
+    expect(result).not.toBeNull();
+    expect(result.ad_data.description).toContain('Caméra de recul');
+    expect(result.ad_data.description.length).toBeGreaterThanOrEqual(50);
   });
 });
