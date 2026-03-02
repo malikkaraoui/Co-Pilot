@@ -87,12 +87,13 @@ class L4PriceFilter(BaseFilter):
         )
         min_samples = self._get_min_samples(data)
         details["lookup_min_samples"] = min_samples
-        market = get_market_stats(make, model, year, region, fuel=fuel)
+        country = (data.get("country") or "FR").upper()
+        market = get_market_stats(make, model, year, region, fuel=fuel, country=country)
         cascade_tried.append("market_price")
         if market and market.sample_count >= min_samples:
             # IQR Mean = moyenne des 50% centraux du marche (plus robuste que la mediane)
             ref_price = market.price_iqr_mean or market.price_median
-            source = "marche_leboncoin"
+            source = "marche_autoscout24" if country != "FR" else "marche_leboncoin"
             details["price_reference"] = ref_price
             details["price_iqr_mean"] = market.price_iqr_mean
             details["price_median"] = market.price_median

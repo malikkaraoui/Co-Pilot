@@ -1,0 +1,1886 @@
+/**
+ * AutoScout24 Extractor
+ *
+ * Extrait les donnees vehicule depuis les pages d'annonces AutoScout24
+ * (.ch, .de, .fr, .it, .at, .be, .nl, .es).
+ *
+ * Deux sources de donnees:
+ * 1. RSC payload (React Server Components) -- richest data
+ * 2. JSON-LD structured data -- fallback
+ */
+
+import { SiteExtractor } from './base.js';
+
+// ── URL patterns ────────────────────────────────────────────────────
+
+export const AS24_URL_PATTERNS = [
+  /autoscout24\.\w+\/(?:fr|de|it|en|nl|es)?\/?d\//,
+  /autoscout24\.\w+\/angebote\//,
+  /autoscout24\.\w+\/offerte\//,
+  /autoscout24\.\w+\/ofertas\//,
+  /autoscout24\.\w+\/aanbod\//,
+];
+
+const AD_PAGE_PATTERN = /autoscout24\.\w+\/.*\/d\/.*-\d+/;
+
+// TLD → country mapping for region field
+const TLD_TO_COUNTRY = {
+  ch: 'Suisse',
+  de: 'Allemagne',
+  fr: 'France',
+  it: 'Italie',
+  at: 'Autriche',
+  be: 'Belgique',
+  nl: 'Pays-Bas',
+  es: 'Espagne',
+};
+
+// TLD → currency
+const TLD_TO_CURRENCY = {
+  ch: 'CHF',
+};
+
+// CHF → EUR rate (same as backend currency_service.py)
+const CHF_TO_EUR = 0.94;
+
+// TLD → ISO country code (for backend MarketPrice.country)
+const TLD_TO_COUNTRY_CODE = {
+  ch: 'CH', de: 'DE', fr: 'FR', it: 'IT',
+  at: 'AT', be: 'BE', nl: 'NL', es: 'ES',
+};
+
+// Swiss ZIP prefix (2 digits) → canton name (French, matching backend SWISS_CANTONS)
+const SWISS_ZIP_TO_CANTON = {
+  '10': 'Vaud', '11': 'Vaud', '12': 'Geneve', '13': 'Vaud',
+  '14': 'Vaud', '15': 'Vaud', '16': 'Fribourg', '17': 'Fribourg',
+  '18': 'Vaud', '19': 'Valais',
+  '20': 'Neuchatel', '21': 'Neuchatel', '22': 'Neuchatel', '23': 'Neuchatel',
+  '24': 'Jura', '25': 'Berne', '26': 'Berne', '27': 'Jura',
+  '28': 'Jura', '29': 'Jura',
+  '30': 'Berne', '31': 'Berne', '32': 'Berne', '33': 'Berne',
+  '34': 'Berne', '35': 'Berne', '36': 'Berne', '37': 'Berne',
+  '38': 'Berne', '39': 'Valais',
+  '40': 'Bale-Ville', '41': 'Bale-Campagne', '42': 'Bale-Campagne',
+  '43': 'Argovie', '44': 'Bale-Campagne', '45': 'Soleure', '46': 'Soleure',
+  '47': 'Soleure', '48': 'Argovie', '49': 'Berne',
+  '50': 'Argovie', '51': 'Argovie', '52': 'Argovie', '53': 'Argovie',
+  '54': 'Argovie', '55': 'Argovie', '56': 'Argovie', '57': 'Argovie',
+  '58': 'Argovie', '59': 'Argovie',
+  '60': 'Lucerne', '61': 'Lucerne', '62': 'Lucerne',
+  '63': 'Zoug', '64': 'Schwyz', '65': 'Obwald',
+  '66': 'Tessin', '67': 'Tessin', '68': 'Tessin', '69': 'Tessin',
+  '70': 'Grisons', '71': 'Grisons', '72': 'Grisons', '73': 'Grisons',
+  '74': 'Grisons', '75': 'Grisons', '76': 'Grisons', '77': 'Grisons',
+  '78': 'Grisons', '79': 'Grisons',
+  '80': 'Zurich', '81': 'Zurich', '82': 'Schaffhouse', '83': 'Zurich',
+  '84': 'Zurich', '85': 'Thurgovie', '86': 'Zurich', '87': 'Saint-Gall',
+  '88': 'Zurich', '89': 'Saint-Gall',
+  '90': 'Saint-Gall', '91': 'Appenzell Rhodes-Exterieures', '92': 'Saint-Gall',
+  '93': 'Saint-Gall', '94': 'Saint-Gall', '95': 'Thurgovie', '96': 'Saint-Gall',
+  '97': 'Saint-Gall',
+};
+
+/**
+ * Derives the Swiss canton from a postal code.
+ * Uses 2-digit prefix mapping (covers ~95% accuracy).
+ * @param {string|number} zipcode
+ * @returns {string|null} Canton name or null if not mapped
+ */
+export function getCantonFromZip(zipcode) {
+  const zip = String(zipcode || '').trim();
+  if (zip.length < 4) return null;
+  const prefix = zip.slice(0, 2);
+  return SWISS_ZIP_TO_CANTON[prefix] || null;
+}
+
+// Minimum prices to submit (raised from 5 for better statistical significance)
+const MIN_PRICES = 10;
+
+// Cooldown for collecting OTHER vehicles (24h), same as LBC
+const COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+// ── Fuel type mapping ───────────────────────────────────────────────
+
+const FUEL_MAP = {
+  gasoline: 'Essence',
+  diesel: 'Diesel',
+  electric: 'Electrique',
+  'mhev-diesel': 'Diesel',
+  'mhev-gasoline': 'Essence',
+  'phev-diesel': 'Hybride Rechargeable',
+  'phev-gasoline': 'Hybride Rechargeable',
+  cng: 'GNV',
+  lpg: 'GPL',
+  hydrogen: 'Hydrogene',
+  // Variantes supplementaires vues sur AS24 (noms longs dans le RSC)
+  hybrid: 'Hybride',
+  'hybrid-diesel': 'Hybride',
+  'hybrid-gasoline': 'Hybride',
+  'mild-hybrid': 'Hybride',
+  'mild-hybrid-diesel': 'Diesel',
+  'mild-hybrid-gasoline': 'Essence',
+  'plug-in-hybrid': 'Hybride Rechargeable',
+  'plug-in-hybrid-diesel': 'Hybride Rechargeable',
+  'plug-in-hybrid-gasoline': 'Hybride Rechargeable',
+  ethanol: 'Ethanol',
+  'e85': 'Ethanol',
+  bifuel: 'Bicarburation',
+};
+
+/**
+ * Maps an AutoScout24 fuel type key to a French label.
+ * Returns the original value if no mapping exists.
+ * @param {string} fuelType
+ * @returns {string}
+ */
+export function mapFuelType(fuelType) {
+  const key = (fuelType || '').toLowerCase().trim();
+  if (FUEL_MAP[key]) return FUEL_MAP[key];
+  // Recherche partielle : "Mild Hybrid Electric (Gasoline)" → contient "gasoline"
+  if (key.includes('diesel')) return 'Diesel';
+  if (key.includes('gasoline') || key.includes('benzin') || key.includes('essence')) return 'Essence';
+  if (key.includes('hybrid') || key.includes('hybride')) return 'Hybride';
+  if (key.includes('electri')) return 'Electrique';
+  return fuelType.length > 50 ? fuelType.slice(0, 50) : fuelType;
+}
+
+// ── Transmission mapping ────────────────────────────────────────────
+
+const TRANSMISSION_MAP = {
+  automatic: 'Automatique',
+  manual: 'Manuelle',
+  'semi-automatic': 'Automatique',
+};
+
+/**
+ * Maps an AutoScout24 transmission key to a French label.
+ * Returns the original value if no mapping exists.
+ * @param {string} transmission
+ * @returns {string}
+ */
+export function mapTransmission(transmission) {
+  const key = (transmission || '').toLowerCase();
+  return TRANSMISSION_MAP[key] || transmission;
+}
+
+// ── AS24 search parameter helpers ────────────────────────────────────
+
+// AS24 gear codes for search URL
+const AS24_GEAR_MAP = {
+  automatic: 'A',
+  automatique: 'A',
+  'semi-automatic': 'A',
+  manual: 'M',
+  manuelle: 'M',
+};
+
+/**
+ * Maps a gearbox string to AS24 search gear code ('A' or 'M').
+ * @param {string} gearbox
+ * @returns {string|null}
+ */
+export function getAs24GearCode(gearbox) {
+  return AS24_GEAR_MAP[(gearbox || '').toLowerCase()] || null;
+}
+
+// AS24 search fuel codes (single-letter params accepted by search URLs)
+const AS24_FUEL_CODE_MAP = {
+  // RSC fuelType keys (English)
+  gasoline: 'B', diesel: 'D', electric: 'E',
+  cng: 'C', lpg: 'L', hydrogen: 'H',
+  'mhev-diesel': 'D', 'mhev-gasoline': 'B',
+  'phev-diesel': '2', 'phev-gasoline': '2',
+  // French labels (from backend bonus jobs)
+  essence: 'B', electrique: 'E',
+  gnv: 'C', gpl: 'L', hydrogene: 'H',
+  'hybride rechargeable': '2',
+};
+
+/**
+ * Maps a fuel string (RSC key or French label) to AS24 search fuel code.
+ * @param {string} fuel
+ * @returns {string|null} e.g. 'D', 'B', 'E'
+ */
+export function getAs24FuelCode(fuel) {
+  return AS24_FUEL_CODE_MAP[(fuel || '').toLowerCase()] || null;
+}
+
+/**
+ * Returns AS24 power search params {powerfrom, powerto} based on hp.
+ * Same bands as LBC getHorsePowerRange() for consistency.
+ * @param {number} hp
+ * @returns {object} e.g. {powerfrom: 170, powerto: 260}
+ */
+export function getAs24PowerParams(hp) {
+  if (!hp || hp <= 0) return {};
+  if (hp < 80)  return { powerto: 90 };
+  if (hp < 110) return { powerfrom: 70, powerto: 120 };
+  if (hp < 140) return { powerfrom: 100, powerto: 150 };
+  if (hp < 180) return { powerfrom: 130, powerto: 190 };
+  if (hp < 250) return { powerfrom: 170, powerto: 260 };
+  if (hp < 350) return { powerfrom: 240, powerto: 360 };
+  return { powerfrom: 340 };
+}
+
+/**
+ * Returns AS24 mileage search params {kmfrom, kmto} based on km.
+ * Same bands as LBC getMileageRange() for consistency.
+ * @param {number} km
+ * @returns {object} e.g. {kmfrom: 20000, kmto: 80000}
+ */
+export function getAs24KmParams(km) {
+  if (!km || km <= 0) return {};
+  if (km <= 10000) return { kmto: 20000 };
+  if (km <= 30000) return { kmto: 50000 };
+  if (km <= 60000) return { kmfrom: 20000, kmto: 80000 };
+  if (km <= 120000) return { kmfrom: 50000, kmto: 150000 };
+  return { kmfrom: 100000 };
+}
+
+/**
+ * Returns hp_range string for the backend payload (same format as LBC).
+ * @param {number} hp
+ * @returns {string|null} e.g. '170-260'
+ */
+export function getHpRangeString(hp) {
+  if (!hp || hp <= 0) return null;
+  if (hp < 80)  return 'min-90';
+  if (hp < 110) return '70-120';
+  if (hp < 140) return '100-150';
+  if (hp < 180) return '130-190';
+  if (hp < 250) return '170-260';
+  if (hp < 350) return '240-360';
+  return '340-max';
+}
+
+/**
+ * Parses an hp_range string (e.g. '170-260', 'min-90', '340-max')
+ * into AS24 power search params {powerfrom, powerto}.
+ * @param {string} hpRange
+ * @returns {object} e.g. {powerfrom: 170, powerto: 260}
+ */
+export function parseHpRange(hpRange) {
+  if (!hpRange) return {};
+  const parts = hpRange.split('-');
+  if (parts.length !== 2) return {};
+  const result = {};
+  if (parts[0] !== 'min') result.powerfrom = parseInt(parts[0], 10);
+  if (parts[1] !== 'max') result.powerto = parseInt(parts[1], 10);
+  return result;
+}
+
+// Canton center ZIP codes for geo-targeted searches (chef-lieu)
+const CANTON_CENTER_ZIP = {
+  'Zurich': '8000', 'Berne': '3000', 'Lucerne': '6000', 'Uri': '6460',
+  'Schwyz': '6430', 'Obwald': '6060', 'Nidwald': '6370', 'Glaris': '8750',
+  'Zoug': '6300', 'Fribourg': '1700', 'Soleure': '4500', 'Bale-Ville': '4000',
+  'Bale-Campagne': '4410', 'Schaffhouse': '8200',
+  'Appenzell Rhodes-Exterieures': '9100', 'Appenzell Rhodes-Interieures': '9050',
+  'Saint-Gall': '9000', 'Grisons': '7000', 'Argovie': '5000', 'Thurgovie': '8500',
+  'Tessin': '6500', 'Vaud': '1000', 'Valais': '1950', 'Neuchatel': '2000',
+  'Geneve': '1200', 'Jura': '2800',
+};
+
+/**
+ * Returns the center ZIP for a canton (for geo-targeted AS24 searches).
+ * @param {string} canton
+ * @returns {string|null}
+ */
+export function getCantonCenterZip(canton) {
+  return CANTON_CENTER_ZIP[canton] || null;
+}
+
+// ── RSC payload parsing (DOM-dependent) ─────────────────────────────
+
+/**
+ * Extracts balanced JSON objects from a string starting at each '{'.
+ * Uses a brace counter to handle nested objects correctly.
+ * @param {string} text
+ * @returns {Generator<string>}
+ */
+function* extractJsonObjects(text) {
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '{') { i++; continue; }
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    const start = i;
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\' && inString) { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          yield text.slice(start, j + 1);
+          i = j + 1;
+          break;
+        }
+      }
+      if (j === text.length - 1) i = j + 1; // unbalanced, skip
+    }
+    if (depth !== 0) break; // unbalanced remainder, stop
+  }
+}
+
+/**
+ * Recursively finds a vehicle-like node in nested payloads.
+ * @param {unknown} input
+ * @param {number} depth
+ * @returns {object|null}
+ */
+function findVehicleNode(input, depth = 0) {
+  if (!input || depth > 12) return null;
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = findVehicleNode(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof input !== 'object') return null;
+
+  const obj = input;
+  const hasMake = !!(typeof obj.make === 'string' || obj.make?.name);
+  const hasModel = !!(typeof obj.model === 'string' || obj.model?.name);
+  // Require at least one real vehicle field to avoid matching i18n translation
+  // objects that also have make/model keys but as label strings like "Marque"/"Modèle".
+  // Real vehicle nodes always have vehicleCategory as a string ("car"), price as a number,
+  // or firstRegistrationDate as a string.
+  const isRealVehicle = (
+    typeof obj.vehicleCategory === 'string'
+    || typeof obj.price === 'number'
+    || typeof obj.firstRegistrationDate === 'string'
+    || typeof obj.mileage === 'number'
+  );
+  if (hasMake && hasModel && isRealVehicle) return obj;
+
+  for (const value of Object.values(obj)) {
+    const found = findVehicleNode(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Recursively searches for listing date fields (createdDate, lastModifiedDate)
+ * in a parsed RSC tree. On AS24, these dates may live at a parent/sibling level
+ * rather than inside the vehicle node itself.
+ * @param {unknown} input
+ * @param {number} depth
+ * @returns {{createdDate: string, lastModifiedDate: string|null}|null}
+ */
+function _findListingDates(input, depth = 0) {
+  if (!input || depth > 12) return null;
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = _findListingDates(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof input !== 'object') return null;
+
+  // Match an object that has createdDate as an ISO date string (contains 'T')
+  if (typeof input.createdDate === 'string' && input.createdDate.includes('T')) {
+    return {
+      createdDate: input.createdDate,
+      lastModifiedDate: typeof input.lastModifiedDate === 'string' ? input.lastModifiedDate : null,
+    };
+  }
+
+  for (const value of Object.values(input)) {
+    const found = _findListingDates(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function parseLooselyJsonLd(text) {
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/^<!--\s*/, '')
+    .replace(/\s*-->$/, '')
+    .trim();
+
+  if (!cleaned) return null;
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+
+function isVehicleLikeLdNode(node) {
+  if (!node || typeof node !== 'object') return false;
+
+  const type = String(node['@type'] || '').toLowerCase();
+  if (type === 'car') return true;
+
+  const hasMake = !!(node.brand?.name || node.brand);
+  const hasModel = !!node.model;
+  if (type === 'vehicle') return hasMake && hasModel;
+
+  const hasSignals = !!(node.offers || node.vehicleModelDate || node.mileageFromOdometer || node.vehicleEngine);
+  return hasMake && hasModel && hasSignals;
+}
+
+function findVehicleLikeLdNode(input, depth = 0) {
+  if (!input || depth > 12) return null;
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = findVehicleLikeLdNode(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof input !== 'object') return null;
+  if (isVehicleLikeLdNode(input)) return input;
+
+  if (Array.isArray(input['@graph'])) {
+    for (const item of input['@graph']) {
+      const found = findVehicleLikeLdNode(item, depth + 1);
+      if (found) return found;
+    }
+  }
+
+  for (const value of Object.values(input)) {
+    const found = findVehicleLikeLdNode(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function extractMakeModelFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const match = u.pathname.match(/\/d\/([^/]+)-(\d+)(?:\/|$)/i);
+    if (!match) return { make: null, model: null };
+
+    const slug = decodeURIComponent(match[1] || '');
+    const tokens = slug.split('-').filter(Boolean);
+    if (!tokens.length) return { make: null, model: null };
+
+    return {
+      make: tokens[0] ? tokens[0].toUpperCase() : null,
+      model: tokens[1] ? tokens[1].toUpperCase() : null,
+    };
+  } catch {
+    return { make: null, model: null };
+  }
+}
+
+/**
+ * Extracts listing dates from the DOM as a last resort.
+ * Searches for RSC-like scripts that contain createdDate but were missed by
+ * parseRSCPayload (e.g. the vehicle node was not found but dates exist).
+ * @param {Document} doc
+ * @returns {{createdDate: string|null, lastModifiedDate: string|null}}
+ */
+function _extractDatesFromDom(doc) {
+  // Strategy 1: search all scripts for createdDate pattern
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    const text = script.textContent || '';
+    if (!text.includes('createdDate')) continue;
+
+    const searchText = text.includes('self.__next_f')
+      ? text.replace(/\\+"/g, '"')
+      : text;
+
+    // Quick regex extraction — faster than full JSON parse
+    const createdMatch = searchText.match(/"createdDate"\s*:\s*"([^"]+T[^"]+)"/);
+    if (createdMatch) {
+      const modifiedMatch = searchText.match(/"lastModifiedDate"\s*:\s*"([^"]+T[^"]+)"/);
+      return {
+        createdDate: createdMatch[1],
+        lastModifiedDate: modifiedMatch ? modifiedMatch[1] : null,
+      };
+    }
+  }
+
+  return { createdDate: null, lastModifiedDate: null };
+}
+
+function fallbackAdDataFromDom(doc, url) {
+  const h1 = doc.querySelector('h1')?.textContent?.trim() || null;
+  const title = h1 || doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || doc.title || null;
+  const priceMeta = doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content');
+  const price = priceMeta ? Number(String(priceMeta).replace(/[^\d.]/g, '')) : null;
+  const currency = doc.querySelector('meta[property="product:price:currency"]')?.getAttribute('content') || null;
+  const fromUrl = extractMakeModelFromUrl(url);
+  const domDates = _extractDatesFromDom(doc);
+
+  return {
+    title,
+    price_eur: Number.isFinite(price) ? price : null,
+    currency,
+    make: fromUrl.make,
+    model: fromUrl.model,
+    year_model: null,
+    mileage_km: null,
+    fuel: null,
+    gearbox: null,
+    doors: null,
+    seats: null,
+    first_registration: null,
+    color: null,
+    power_fiscal_cv: null,
+    power_din_hp: null,
+    location: {
+      city: null,
+      zipcode: null,
+      department: null,
+      region: null,
+      lat: null,
+      lng: null,
+    },
+    phone: null,
+    description: null,
+    owner_type: 'private',
+    owner_name: null,
+    siret: null,
+    raw_attributes: {},
+    image_count: 0,
+    has_phone: false,
+    has_urgent: false,
+    has_highlight: false,
+    has_boost: false,
+    publication_date: domDates.createdDate || null,
+    days_online: _daysOnline(domDates.createdDate),
+    index_date: domDates.lastModifiedDate || null,
+    days_since_refresh: _daysSinceRefresh(domDates.createdDate, domDates.lastModifiedDate),
+    republished: _isRepublished(domDates.createdDate, domDates.lastModifiedDate),
+    lbc_estimation: null,
+  };
+}
+
+/**
+ * Parses the RSC (React Server Components) payload from the page.
+ * Searches all script tags for JSON containing vehicle data.
+ * Uses balanced brace extraction for robust nested JSON handling.
+ * @param {Document} doc
+ * @returns {object|null}
+ */
+export function parseRSCPayload(doc) {
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    const text = script.textContent || '';
+    // Pre-filter: check keywords without quotes to handle both raw JSON
+    // and RSC Flight format where quotes are escaped as \"
+    if (!text.includes('vehicleCategory') && !text.includes('firstRegistrationDate')) {
+      continue;
+    }
+
+    // Next.js RSC Flight payloads wrap data in self.__next_f.push([1,"..."])
+    // where JSON quotes are double-escaped as \\" (or sometimes \") in textContent.
+    // Strip all backslashes preceding a quote so extractJsonObjects can properly
+    // track string boundaries and extract balanced JSON objects.
+    const searchText = text.includes('self.__next_f')
+      ? text.replace(/\\+"/g, '"')
+      : text;
+
+    for (const candidate of extractJsonObjects(searchText)) {
+      if (!candidate.includes('"vehicleCategory"') && !candidate.includes('"firstRegistrationDate"')) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(candidate);
+        const vehicle = findVehicleNode(parsed);
+        if (vehicle) {
+          // AS24 RSC may store createdDate/lastModifiedDate at a parent level,
+          // not inside the vehicle node. Search the broader tree if missing.
+          if (!vehicle.createdDate) {
+            const dates = _findListingDates(parsed);
+            if (dates) {
+              vehicle.createdDate = dates.createdDate;
+              if (!vehicle.lastModifiedDate) {
+                vehicle.lastModifiedDate = dates.lastModifiedDate;
+              }
+            }
+          }
+          return vehicle;
+        }
+      } catch {
+        // Not valid JSON, try next candidate
+      }
+    }
+  }
+  return null;
+}
+
+// ── JSON-LD parsing (DOM-dependent) ─────────────────────────────────
+
+/**
+ * Parses JSON-LD structured data from the page.
+ * @param {Document} doc
+ * @returns {object|null}
+ */
+export function parseJsonLd(doc) {
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    const data = parseLooselyJsonLd(script.textContent || '');
+    if (!data) continue;
+    const vehicle = findVehicleLikeLdNode(data);
+    if (vehicle) return vehicle;
+  }
+  return null;
+}
+
+/**
+ * SPA guard helper: find a JSON-LD vehicle node matching the expected make.
+ * When AS24 SPA navigation leaves stale scripts in the DOM, multiple JSON-LD
+ * blocks may coexist. This picks the one whose brand matches the URL.
+ */
+function _findJsonLdByMake(doc, expectedMake) {
+  const target = (expectedMake || '').toLowerCase();
+  if (!target) return null;
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    const data = parseLooselyJsonLd(script.textContent || '');
+    if (!data) continue;
+    const vehicle = findVehicleLikeLdNode(data);
+    if (!vehicle) continue;
+    const brand = (vehicle.brand?.name || '').toLowerCase();
+    if (brand === target) return vehicle;
+  }
+  return null;
+}
+
+// ── Normalize to ad_data ────────────────────────────────────────────
+
+/**
+ * Normalizes RSC and/or JSON-LD data into the extract_ad_data() format
+ * expected by the backend /api/analyze endpoint.
+ *
+ * @param {object|null} rsc - RSC vehicle payload
+ * @param {object|null} jsonLd - JSON-LD structured data
+ * @returns {object}
+ */
+
+/** Compute days since a given ISO date string. */
+function _daysOnline(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.max(Math.floor((Date.now() - d.getTime()) / 86_400_000), 0);
+}
+
+/** Compute days since last refresh (index_date). */
+function _daysSinceRefresh(createdStr, modifiedStr) {
+  if (!createdStr || !modifiedStr) return null;
+  const modified = new Date(modifiedStr);
+  if (Number.isNaN(modified.getTime())) return null;
+  return Math.max(Math.floor((Date.now() - modified.getTime()) / 86_400_000), 0);
+}
+
+/** Detect republication: created and modified differ by > 1 day. */
+function _isRepublished(createdStr, modifiedStr) {
+  if (!createdStr || !modifiedStr) return false;
+  const created = new Date(createdStr);
+  const modified = new Date(modifiedStr);
+  if (Number.isNaN(created.getTime()) || Number.isNaN(modified.getTime())) return false;
+  return Math.abs(modified.getTime() - created.getTime()) > 86_400_000;
+}
+
+export function normalizeToAdData(rsc, jsonLd) {
+  const ld = jsonLd || {};
+  const offers = ld.offers || {};
+  const seller = offers.seller || {};
+  const sellerAddress = seller.address || {};
+  const engine = ld.vehicleEngine || {};
+
+  // Determine owner_type: pro if sellerId exists (RSC) or seller is AutoDealer (JSON-LD)
+  function resolveOwnerType() {
+    if (rsc && rsc.sellerId) return 'pro';
+    if (seller['@type'] === 'AutoDealer') return 'pro';
+    return 'private';
+  }
+
+  // Resolve make/model: RSC can return string ("AUDI") or object ({name: "AUDI"})
+  function resolveMake() {
+    if (rsc) {
+      const m = typeof rsc.make === 'string' ? rsc.make : rsc.make?.name;
+      if (m) return m;
+    }
+    return ld.brand?.name || (typeof ld.brand === 'string' ? ld.brand : null) || null;
+  }
+  function resolveModel() {
+    if (rsc) {
+      const m = typeof rsc.model === 'string' ? rsc.model : rsc.model?.name;
+      if (m) return m;
+    }
+    return ld.model || null;
+  }
+
+  // Dealer rating from JSON-LD aggregateRating
+  const rating = seller.aggregateRating || {};
+  const dealerRating = rating.ratingValue ?? null;
+  const dealerReviewCount = rating.reviewCount ?? null;
+
+  // Derive region from ZIP for Swiss ads (canton = region equivalent)
+  const zipcode = sellerAddress.postalCode || null;
+  const tld = typeof window !== 'undefined' ? extractTld(window.location.href) : null;
+  const countryCode = tld ? (TLD_TO_COUNTRY_CODE[tld] || null) : null;
+  const derivedRegion = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
+
+  // Currency: prefer JSON-LD offers, fallback to TLD-based (AS24.ch Car node lacks offers)
+  const resolvedCurrency = offers.priceCurrency
+    || (tld ? (TLD_TO_CURRENCY[tld] || null) : null)
+    || null;
+
+  // RSC-first extraction with JSON-LD fallback
+  if (rsc) {
+    return {
+      title: rsc.versionFullName || ld.name || null,
+      price_eur: rsc.price ?? offers.price ?? null,
+      currency: resolvedCurrency,
+      make: resolveMake(),
+      model: resolveModel(),
+      year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || null,
+      mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
+      fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : (engine.fuelType || null),
+      gearbox: rsc.transmissionType
+        ? mapTransmission(rsc.transmissionType)
+        : (ld.vehicleTransmission || null),
+      doors: rsc.doors ?? ld.numberOfDoors ?? null,
+      seats: rsc.seats ?? ld.vehicleSeatingCapacity ?? null,
+      first_registration: rsc.firstRegistrationDate || null,
+      color: rsc.bodyColor || ld.color || null,
+      power_fiscal_cv: null,
+      power_din_hp: rsc.horsePower ?? engine.enginePower?.value ?? null,
+      country: countryCode,
+      location: {
+        city: sellerAddress.addressLocality || null,
+        zipcode,
+        department: null,
+        region: derivedRegion,
+        lat: null,
+        lng: null,
+      },
+      phone: seller.telephone || null,
+      description: rsc.teaser || null,
+      owner_type: resolveOwnerType(),
+      owner_name: seller.name || null,
+      siret: null,
+      dealer_rating: dealerRating,
+      dealer_review_count: dealerReviewCount,
+      raw_attributes: {},
+      image_count: Array.isArray(rsc.images) && rsc.images.length > 0
+        ? rsc.images.length
+        : (Array.isArray(ld.image) ? ld.image.length : 0),
+      has_phone: Boolean(seller.telephone),
+      has_urgent: false,
+      has_highlight: false,
+      has_boost: false,
+      publication_date: rsc.createdDate || null,
+      days_online: _daysOnline(rsc.createdDate),
+      index_date: rsc.lastModifiedDate || null,
+      days_since_refresh: _daysSinceRefresh(rsc.createdDate, rsc.lastModifiedDate),
+      republished: _isRepublished(rsc.createdDate, rsc.lastModifiedDate),
+      lbc_estimation: null,
+    };
+  }
+
+  // JSON-LD only (no RSC)
+  return {
+    title: ld.name || null,
+    price_eur: offers.price ?? null,
+    currency: resolvedCurrency,
+    make: ld.brand?.name || null,
+    model: ld.model || null,
+    year_model: ld.vehicleModelDate || null,
+    mileage_km: ld.mileageFromOdometer?.value ?? null,
+    fuel: engine.fuelType || null,
+    gearbox: ld.vehicleTransmission || null,
+    doors: ld.numberOfDoors ?? null,
+    seats: ld.vehicleSeatingCapacity ?? null,
+    first_registration: null,
+    color: ld.color || null,
+    power_fiscal_cv: null,
+    power_din_hp: engine.enginePower?.value ?? null,
+    country: countryCode,
+    location: {
+      city: sellerAddress.addressLocality || null,
+      zipcode,
+      department: null,
+      region: derivedRegion,
+      lat: null,
+      lng: null,
+    },
+    phone: seller.telephone || null,
+    description: null,
+    owner_type: resolveOwnerType(),
+    owner_name: seller.name || null,
+    siret: null,
+    dealer_rating: dealerRating,
+    dealer_review_count: dealerReviewCount,
+    raw_attributes: {},
+    image_count: Array.isArray(ld.image) ? ld.image.length : 0,
+    has_phone: Boolean(seller.telephone),
+    has_urgent: false,
+    has_highlight: false,
+    has_boost: false,
+    publication_date: null,
+    days_online: null,
+    index_date: null,
+    days_since_refresh: null,
+    republished: false,
+    lbc_estimation: null,
+  };
+}
+
+// ── Bonus signals ───────────────────────────────────────────────────
+
+/**
+ * Builds bonus signals from RSC and JSON-LD data.
+ * Each signal has {label, value, status}.
+ *
+ * @param {object|null} rsc
+ * @param {object|null} jsonLd
+ * @returns {Array<{label: string, value: string, status: string}>}
+ */
+export function buildBonusSignals(rsc, jsonLd) {
+  const signals = [];
+  if (!rsc) return signals;
+
+  // Accident
+  if (typeof rsc.hadAccident === 'boolean') {
+    signals.push({
+      label: 'Accident',
+      value: rsc.hadAccident ? 'Oui' : 'Non',
+      status: rsc.hadAccident ? 'fail' : 'pass',
+    });
+  }
+
+  // CT (inspected)
+  if (typeof rsc.inspected === 'boolean') {
+    signals.push({
+      label: 'CT',
+      value: rsc.inspected ? 'Passe' : 'Non communique',
+      status: rsc.inspected ? 'pass' : 'warning',
+    });
+  }
+
+  // Warranty
+  if (rsc.warranty && rsc.warranty.duration) {
+    signals.push({
+      label: 'Garantie',
+      value: `${rsc.warranty.duration} mois / ${rsc.warranty.mileage || '?'} km`,
+      status: 'pass',
+    });
+  }
+
+  // List price + decote
+  if (rsc.listPrice && rsc.price) {
+    signals.push({
+      label: 'Prix catalogue',
+      value: `${rsc.listPrice} EUR`,
+      status: 'info',
+    });
+    const decote = Math.round((1 - rsc.price / rsc.listPrice) * 100);
+    signals.push({
+      label: 'Decote',
+      value: `${decote}%`,
+      status: 'info',
+    });
+  }
+
+  // Google rating from seller
+  const ld = jsonLd || {};
+  const seller = ld.offers?.seller || {};
+  const rating = seller.aggregateRating;
+  if (rating && rating.ratingValue) {
+    signals.push({
+      label: 'Note Google',
+      value: `${rating.ratingValue}/5 (${rating.reviewCount} avis)`,
+      status: 'info',
+    });
+  }
+
+  // Direct import
+  if (rsc.directImport === true) {
+    signals.push({
+      label: 'Import',
+      value: 'Import direct',
+      status: 'warning',
+    });
+  }
+
+  return signals;
+}
+
+// ── Search helpers for market price collection ──────────────────────
+
+/**
+ * Extracts the TLD from an AutoScout24 URL.
+ * @param {string} url
+ * @returns {string} e.g. 'ch', 'de', 'fr'
+ */
+export function extractTld(url) {
+  const match = url.match(/autoscout24\.(\w+)/);
+  return match ? match[1] : 'de';
+}
+
+/**
+ * Extracts the language prefix from an AS24 URL.
+ * AS24.ch uses /fr/, /de/, /it/ ; AS24.be uses /fr/, /nl/.
+ * Monolingual TLDs (de, fr, it, at, nl, es) may not have a prefix.
+ * @param {string} url
+ * @returns {string|null} e.g. 'fr', 'de', 'it', or null
+ */
+export function extractLang(url) {
+  const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
+  return match ? match[1] : null;
+}
+
+// TLDs using the Swiss Marketplace Group platform (different URL structure)
+const SMG_TLDS = new Set(['ch']);
+
+/**
+ * Converts a make/model name to a URL slug for AS24 search paths.
+ * "a 35 amg" → "a-35-amg", "mercedes-benz" → "mercedes-benz"
+ * @param {string} name
+ * @returns {string}
+ */
+export function toAs24Slug(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '');
+}
+
+/**
+ * Extrait les slugs make/model depuis une URL de recherche AS24.
+ * Utile pour auto-apprendre les slugs canoniques après redirection.
+ *
+ * @param {string} url
+ * @param {string|null} [tldHint]
+ * @returns {{makeSlug: string|null, modelSlug: string|null}}
+ */
+export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
+  try {
+    const u = new URL(url);
+    const hostMatch = u.hostname.match(/autoscout24\.(\w+)$/i);
+    const tld = (tldHint || (hostMatch ? hostMatch[1] : '') || '').toLowerCase();
+    const path = decodeURIComponent(u.pathname || '');
+
+    if (SMG_TLDS.has(tld)) {
+      // .ch (SMG): /fr/s/mo-{model}/mk-{make} ou /fr/s/mk-{make}
+      const smg = path.match(/\/s\/(?:mo-([^/]+)\/)?mk-([^/?#]+)/i);
+      if (!smg) return { makeSlug: null, modelSlug: null };
+      const modelSlug = smg[1] ? toAs24Slug(smg[1]) : null;
+      const makeSlug = smg[2] ? toAs24Slug(smg[2]) : null;
+      return { makeSlug, modelSlug };
+    }
+
+    // GmbH: /lst/{make}/{model} (avec prefixe langue optionnel)
+    const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, '');
+    const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
+    if (!gmbh) return { makeSlug: null, modelSlug: null };
+    const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;
+    const modelSlug = gmbh[2] ? toAs24Slug(gmbh[2]) : null;
+    return { makeSlug, modelSlug };
+  } catch {
+    return { makeSlug: null, modelSlug: null };
+  }
+}
+
+/**
+ * Builds an AutoScout24 search URL for similar vehicles.
+ * Handles two distinct platforms:
+ * - .ch (Swiss Marketplace Group): /fr/s/mk-{make} or /fr/s/mo-{model}/mk-{make}
+ * - .de/.fr/.be/etc (AS24 GmbH): /lst/{make} or /lst/{make}/{model}
+ *
+ * @param {string} makeKey - Make slug (e.g. 'mercedes-benz')
+ * @param {string} modelKey - Model slug (e.g. 'a-35-amg'), or empty for brand-only
+ * @param {number} year - Target year
+ * @param {string} tld - TLD (e.g. 'ch', 'de')
+ * @param {object} [options]
+ * @param {number} [options.yearSpread=1] - Year range (+/-)
+ * @param {string} [options.fuel] - AS24 fuel code (e.g. 'D', 'B')
+ * @param {string} [options.gear] - 'A' or 'M'
+ * @param {number} [options.powerfrom] - Min power in PS
+ * @param {number} [options.powerto] - Max power in PS
+ * @param {number} [options.kmfrom] - Min mileage
+ * @param {number} [options.kmto] - Max mileage
+ * @param {string} [options.zip] - ZIP code for geo search
+ * @param {number} [options.radius] - Radius in km (requires zip)
+ * @param {string} [options.lang] - Language prefix (e.g. 'fr', 'de')
+ * @param {boolean} [options.brandOnly] - Force brand-only search (no model in path)
+ * @returns {string}
+ */
+export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
+  const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang, brandOnly } = options;
+
+  const makeSlug = toAs24Slug(makeKey);
+  const modelSlug = brandOnly ? '' : toAs24Slug(modelKey);
+
+  let base;
+
+  if (SMG_TLDS.has(tld)) {
+    // Swiss Marketplace Group: /fr/s/mo-{model}/mk-{make} or /fr/s/mk-{make}
+    const langPrefix = lang ? `/${lang}` : '/fr';
+    if (modelSlug) {
+      base = `https://www.autoscout24.${tld}${langPrefix}/s/mo-${modelSlug}/mk-${makeSlug}`;
+    } else {
+      base = `https://www.autoscout24.${tld}${langPrefix}/s/mk-${makeSlug}`;
+    }
+  } else {
+    // AutoScout24 GmbH: /{lang?}/lst/{make}/{model}
+    const langSegment = lang ? `/${lang}` : '';
+    if (modelSlug) {
+      base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}/${modelSlug}`;
+    } else {
+      base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}`;
+    }
+  }
+
+  const params = new URLSearchParams({
+    fregfrom: String(year - yearSpread),
+    fregto: String(year + yearSpread),
+    sort: 'standard',
+    desc: '0',
+    atype: 'C',
+    ustate: 'N,U',
+  });
+  if (fuel) params.set('fuel', fuel);
+  if (gear) params.set('gear', gear);
+  if (powerfrom) { params.set('powerfrom', String(powerfrom)); params.set('powertype', 'ps'); }
+  if (powerto) { params.set('powerto', String(powerto)); params.set('powertype', 'ps'); }
+  if (kmfrom) params.set('kmfrom', String(kmfrom));
+  if (kmto) params.set('kmto', String(kmto));
+  if (zip) { params.set('zip', String(zip)); params.set('zipr', String(radius || 50)); }
+  return `${base}?${params}`;
+}
+
+/** Normalise un nom de marque pour comparaison (minuscule, sans accent, sans tiret). */
+function _normalizeBrand(brand) {
+  if (!brand) return '';
+  return brand.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_]/g, ' ')
+    .trim();
+}
+
+/** Verifie si la marque d'une annonce correspond a la marque cible. */
+export function brandMatchesAs24(adBrand, targetMake) {
+  if (!adBrand || !targetMake) return true;
+  const a = _normalizeBrand(adBrand);
+  const t = _normalizeBrand(targetMake);
+  if (!a || !t) return true;
+  if (a === t) return true;
+  if ((a === 'vw' && t === 'volkswagen') || (a === 'volkswagen' && t === 'vw')) return true;
+  if (a.startsWith('mercedes') && t.startsWith('mercedes')) return true;
+  if (a.includes(t) || t.includes(a)) return true;
+  return false;
+}
+
+/** Extrait le nom de marque depuis un item JSON-LD Product. */
+function _extractJsonLdBrand(item) {
+  return item?.brand?.name
+    || item?.offers?.itemOffered?.brand?.name
+    || null;
+}
+
+/**
+ * Parses AS24 search result page to extract vehicle prices.
+ * Supports two formats:
+ *   1. RSC/Next.js chunks (AS24 GmbH: .de, .fr, .be, etc.) — regex on "price"/"mileage"
+ *   2. JSON-LD OfferCatalog (AS24 SMG: .ch) — structured schema.org data
+ * @param {string} html - Raw HTML of search page
+ * @param {string|null} targetMake - Marque cible pour filtrer les annonces sponsorisees
+ * @returns {Array<{price: number, year: number|null, km: number|null, fuel: string|null}>}
+ */
+export function parseSearchPrices(html, targetMake = null) {
+  // Strategy 1: RSC regex (GmbH sites) — no brand data available in regex
+  const results = _parseSearchPricesRSC(html);
+
+  // Strategy 2: JSON-LD fallback (SMG sites like .ch)
+  if (results.length === 0) {
+    const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
+    if (jsonLdResults.length > 0) return jsonLdResults;
+  }
+
+  return results;
+}
+
+/** RSC/Next.js regex strategy — works for AS24 GmbH (.de, .fr, .be). */
+function _parseSearchPricesRSC(html) {
+  const results = [];
+  const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
+  let match;
+  while ((match = listingPattern.exec(html)) !== null) {
+    const price = parseInt(match[1], 10);
+    const mileage = parseInt(match[2], 10);
+    if (price > 500 && price < 500000) {
+      results.push({ price, year: null, km: mileage, fuel: null });
+    }
+  }
+  return _dedup(results);
+}
+
+/** JSON-LD OfferCatalog strategy — works for AS24 SMG (.ch).
+ *  Si targetMake est fourni, filtre les annonces dont la marque ne correspond pas. */
+function _parseSearchPricesJsonLd(html, targetMake = null) {
+  const results = [];
+  const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let scriptMatch;
+  while ((scriptMatch = scriptPattern.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(scriptMatch[1]);
+      const items = _extractOfferCatalogItems(data);
+      for (const item of items) {
+        const price = _extractJsonLdPrice(item);
+        const km = _extractJsonLdMileage(item);
+        const fuel = _extractJsonLdFuel(item);
+        const year = _extractJsonLdYear(item);
+        const uid = _extractJsonLdUid(item);
+        if (price && price > 500 && price < 500000) {
+          if (targetMake) {
+            const adBrand = _extractJsonLdBrand(item);
+            if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+              console.debug('[CoPilot] AS24 brand safety: rejet %s (cible: %s)', adBrand, targetMake);
+              continue;
+            }
+          }
+          results.push({ price, year, km, fuel, _uid: uid });
+        }
+      }
+    } catch (_) {
+      // Malformed JSON-LD block, skip
+    }
+  }
+  return _dedup(results);
+}
+
+/** Navigate the JSON-LD graph to find OfferCatalog items. */
+function _extractOfferCatalogItems(data) {
+  if (data?.['@type'] === 'OfferCatalog' && Array.isArray(data.itemListElement)) {
+    return data.itemListElement;
+  }
+  const offers = data?.mainEntity?.offers || data?.offers;
+  if (offers?.['@type'] === 'OfferCatalog' && Array.isArray(offers.itemListElement)) {
+    return offers.itemListElement;
+  }
+  if (Array.isArray(data?.['@graph'])) {
+    for (const node of data['@graph']) {
+      const items = _extractOfferCatalogItems(node);
+      if (items.length > 0) return items;
+    }
+  }
+  return [];
+}
+
+function _extractJsonLdPrice(item) {
+  const price = item?.offers?.price ?? item?.price;
+  if (typeof price === 'number') return price;
+  if (typeof price === 'string') return parseInt(price, 10) || null;
+  return null;
+}
+
+function _extractJsonLdMileage(item) {
+  const car = item?.offers?.itemOffered || item;
+  const odometer = car?.mileageFromOdometer;
+  if (!odometer) return null;
+  const val = odometer?.value ?? odometer;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') return parseInt(val, 10) || null;
+  return null;
+}
+
+function _extractJsonLdFuel(item) {
+  const car = item?.offers?.itemOffered || item;
+  return car?.vehicleEngine?.fuelType || null;
+}
+
+function _extractJsonLdYear(item) {
+  const car = item?.offers?.itemOffered || item;
+  const date = car?.vehicleModelDate;
+  if (!date) return null;
+  const y = parseInt(String(date).slice(0, 4), 10);
+  return (y > 1900 && y < 2100) ? y : null;
+}
+
+/** Extract a unique identifier (listing ID from URL) for dedup. */
+function _extractJsonLdUid(item) {
+  const url = item?.url || item?.offers?.url;
+  if (!url) return null;
+  // Extract numeric listing ID from AS24 URLs like /d/peugeot-3008-...-20230757
+  const m = url.match(/(\d{6,})(?:[/?#]|$)/);
+  return m ? m[1] : url;
+}
+
+/** Deduplicate: prefer _uid (listing ID), fallback to price+km. Strip _uid from output. */
+function _dedup(results) {
+  const seen = new Set();
+  return results.filter((r) => {
+    const key = r._uid || `${r.price}-${r.km}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map(({ _uid, ...rest }) => rest);
+}
+
+// ── AutoScout24Extractor class ──────────────────────────────────────
+
+export class AutoScout24Extractor extends SiteExtractor {
+  static SITE_ID = 'autoscout24';
+  static URL_PATTERNS = AS24_URL_PATTERNS;
+
+  /** @type {object|null} Cached RSC data */
+  _rsc = null;
+  /** @type {object|null} Cached JSON-LD data */
+  _jsonLd = null;
+  /** @type {object|null} Cached ad_data */
+  _adData = null;
+
+  /**
+   * @param {string} url
+   * @returns {boolean}
+   */
+  isAdPage(url) {
+    return AD_PAGE_PATTERN.test(url);
+  }
+
+  /**
+   * Extracts vehicle data from the current page.
+   * @returns {Promise<{type: string, source: string, ad_data: object}|null>}
+   */
+  async extract() {
+    this._rsc = parseRSCPayload(document);
+    this._jsonLd = parseJsonLd(document);
+
+    if (!this._rsc && !this._jsonLd) {
+      this._adData = fallbackAdDataFromDom(document, window.location.href);
+      const hasSomeData = Boolean(this._adData.title || this._adData.make || this._adData.model);
+      if (!hasSomeData) return null;
+      return {
+        type: 'normalized',
+        source: 'autoscout24',
+        ad_data: this._adData,
+      };
+    }
+
+    this._adData = normalizeToAdData(this._rsc, this._jsonLd);
+
+    // SPA guard: AS24 is a React SPA. When navigating between listings,
+    // stale RSC/JSON-LD <script> tags from the previous page may still be
+    // in the DOM. Cross-validate extracted make/model against the URL slug.
+    const urlHint = extractMakeModelFromUrl(window.location.href);
+    if (urlHint.make && this._adData.make) {
+      const extractedMake = (this._adData.make || '').toLowerCase();
+      const urlMake = (urlHint.make || '').toLowerCase();
+      if (extractedMake && urlMake && extractedMake !== urlMake) {
+        console.warn(
+          '[CoPilot] AS24 SPA stale data: extracted make=%s but URL says make=%s',
+          this._adData.make, urlHint.make
+        );
+        // Try to find a JSON-LD node matching the URL's make
+        const freshLd = _findJsonLdByMake(document, urlHint.make);
+        if (freshLd) {
+          console.log('[CoPilot] Found fresh JSON-LD for %s, using it', urlHint.make);
+          this._rsc = null;
+          this._jsonLd = freshLd;
+          this._adData = normalizeToAdData(null, freshLd);
+        } else {
+          console.log('[CoPilot] No matching JSON-LD, falling back to DOM');
+          this._rsc = null;
+          this._jsonLd = null;
+          this._adData = fallbackAdDataFromDom(document, window.location.href);
+        }
+      }
+    }
+
+    // Final fallback: if dates are still missing, search DOM scripts directly.
+    // AS24 RSC may store createdDate at a parent level that findVehicleNode() missed,
+    // or the normalizeToAdData JSON-LD path may not have dates.
+    if (!this._adData.publication_date) {
+      const domDates = _extractDatesFromDom(document);
+      if (domDates.createdDate) {
+        this._adData.publication_date = domDates.createdDate;
+        this._adData.days_online = _daysOnline(domDates.createdDate);
+        this._adData.index_date = domDates.lastModifiedDate || this._adData.index_date;
+        this._adData.days_since_refresh = _daysSinceRefresh(domDates.createdDate, domDates.lastModifiedDate);
+        this._adData.republished = _isRepublished(domDates.createdDate, domDates.lastModifiedDate);
+      }
+    }
+
+    return {
+      type: 'normalized',
+      source: 'autoscout24',
+      ad_data: this._adData,
+    };
+  }
+
+  /**
+   * @returns {{make: string, model: string, year: string}|null}
+   */
+  getVehicleSummary() {
+    if (!this._adData) return null;
+    return {
+      make: this._adData.make || '',
+      model: this._adData.model || '',
+      year: String(this._adData.year_model || ''),
+    };
+  }
+
+  /**
+   * AS24 phone data is public (JSON-LD), no login needed.
+   * @returns {boolean}
+   */
+  isLoggedIn() {
+    return true;
+  }
+
+  /**
+   * Returns the phone number already extracted from JSON-LD.
+   * No DOM interaction needed (unlike LBC where a button click reveals it).
+   * @returns {Promise<string|null>}
+   */
+  async revealPhone() {
+    return this._adData?.phone || null;
+  }
+
+  /**
+   * AS24 ads include the phone in JSON-LD (seller.telephone).
+   * @returns {boolean}
+   */
+  hasPhone() {
+    return Boolean(this._adData?.phone);
+  }
+
+  /**
+   * @returns {Array<{label: string, value: string, status: string}>}
+   */
+  getBonusSignals() {
+    return buildBonusSignals(this._rsc, this._jsonLd);
+  }
+
+  /**
+   * Collects market prices from AS24 search results.
+   * Full next-job integration:
+   *   1. Ask server which vehicle to collect (next-job API)
+   *   2. Run 7-strategy cascade for the target vehicle
+   *   3. Submit prices or report failure
+   *   4. Execute bonus jobs from the collection queue
+   *
+   * @param {object} progress - Progress tracker for UI updates
+   * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
+   */
+  async collectMarketPrices(progress) {
+    if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    if (!this._fetch || !this._apiUrl) {
+      console.warn('[CoPilot] AS24 collectMarketPrices: deps not injected');
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    const tld = extractTld(window.location.href);
+    const lang = extractLang(window.location.href);
+    const countryName = TLD_TO_COUNTRY[tld] || 'Europe';
+    const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
+    const currency = TLD_TO_CURRENCY[tld] || 'EUR';
+    const year = parseInt(this._adData.year_model, 10);
+    const fuelKey = this._rsc?.fuelType || null;
+
+    // Vehicle specs for search filters
+    const hp = parseInt(this._adData.power_din_hp, 10) || 0;
+    const km = parseInt(this._adData.mileage_km, 10) || 0;
+    const gearRaw = this._rsc?.transmissionType || '';
+    const gearCode = getAs24GearCode(gearRaw);
+    const hpRangeStr = getHpRangeString(hp);
+
+    // Region = canton for CH, country name for others
+    const zipcode = this._adData?.location?.zipcode;
+    const canton = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
+    const region = canton || countryName;
+
+    // ── 1. Call next-job API ──────────────────────────────────────
+    if (progress) progress.update('job', 'running');
+
+    const fuelForJob = this._adData.fuel ? this._adData.fuel.toLowerCase() : '';
+    const gearboxForJob = this._adData.gearbox ? this._adData.gearbox.toLowerCase() : '';
+    // Slugs for expansion: prefer learned slugs from server, else derive from name
+    const slugMakeForJob = toAs24Slug(this._adData.make);
+    const slugModelForJob = toAs24Slug(this._adData.model);
+    const jobUrl = this._apiUrl.replace('/analyze', '/market-prices/next-job')
+      + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}`
+      + `&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}`
+      + `&country=${encodeURIComponent(countryCode)}`
+      + `&site=as24&tld=${encodeURIComponent(tld)}`
+      + `&slug_make=${encodeURIComponent(slugMakeForJob)}&slug_model=${encodeURIComponent(slugModelForJob)}`
+      + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : '')
+      + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : '')
+      + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : '');
+
+    let jobResp;
+    try {
+      console.log('[CoPilot] AS24 next-job →', jobUrl);
+      jobResp = await this._fetch(jobUrl).then((r) => r.json());
+      console.log('[CoPilot] AS24 next-job ←', JSON.stringify(jobResp));
+    } catch (err) {
+      console.warn('[CoPilot] AS24 next-job error:', err);
+      if (progress) {
+        progress.update('job', 'error', 'Serveur injoignable');
+        progress.update('collect', 'skip');
+        progress.update('submit', 'skip');
+        progress.update('bonus', 'skip');
+      }
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    // ── 2. Handle collect=false ───────────────────────────────────
+    if (!jobResp?.data?.collect) {
+      const queuedJobs = jobResp?.data?.bonus_jobs || [];
+      if (queuedJobs.length === 0) {
+        if (progress) {
+          progress.update('job', 'done', 'Données déjà à jour');
+          progress.update('collect', 'skip', 'Non nécessaire');
+          progress.update('submit', 'skip');
+          progress.update('bonus', 'skip');
+        }
+        return { submitted: false, isCurrentVehicle: false };
+      }
+      if (progress) {
+        progress.update('job', 'done', `À jour — ${queuedJobs.length} jobs en attente`);
+        progress.update('collect', 'skip', 'Véhicule déjà à jour');
+        progress.update('submit', 'skip');
+      }
+      await this._executeBonusJobs(queuedJobs, tld, progress, lang);
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    // ── 3. Determine target vehicle ───────────────────────────────
+    const target = jobResp.data.vehicle;
+    const targetRegion = jobResp.data.region;
+    const isRedirect = !!jobResp.data.redirect;
+    const bonusJobs = jobResp.data.bonus_jobs || [];
+
+    const isCurrentVehicle =
+      target.make.toLowerCase() === this._adData.make.toLowerCase()
+      && target.model.toLowerCase() === this._adData.model.toLowerCase();
+
+    // Cooldown 24h for OTHER vehicles only
+    if (!isCurrentVehicle) {
+      const lastCollect = parseInt(localStorage.getItem('copilot_last_collect') || '0', 10);
+      if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) {
+        if (progress) {
+          progress.update('job', 'done', 'Cooldown actif (autre véhicule collecté récemment)');
+          progress.update('collect', 'skip', 'Cooldown 24h');
+          progress.update('submit', 'skip');
+        }
+        if (bonusJobs.length > 0) {
+          await this._executeBonusJobs(bonusJobs, tld, progress, lang);
+        } else if (progress) {
+          progress.update('bonus', 'skip');
+        }
+        return { submitted: false, isCurrentVehicle: false };
+      }
+    }
+
+    // Use AS24 slugs from Vehicle table when available, else slugify the name
+    const targetMakeKey = target.as24_slug_make || toAs24Slug(target.make);
+    const targetModelKey = target.as24_slug_model || toAs24Slug(target.model);
+    const targetYear = parseInt(target.year, 10);
+    const targetLabel = `${target.make} ${target.model} ${targetYear}`;
+
+    if (progress) {
+      progress.update('job', 'done', targetLabel
+        + (isCurrentVehicle ? ` (${targetRegion})` : ' (autre véhicule)'));
+    }
+
+    // ── 4. Build cascade strategies ───────────────────────────────
+    const fuelCode = fuelKey ? getAs24FuelCode(fuelKey) : null;
+    const targetCantonZip = getCantonCenterZip(targetRegion);
+    const strategies = [];
+
+    // Helper: derive filters_applied list from strategy search options
+    function _filtersApplied(opts) {
+      const f = [];
+      if (opts.fuel) f.push('fuel');
+      if (opts.gear) f.push('gearbox');
+      if (opts.powerfrom || opts.powerto) f.push('hp');
+      if (opts.kmfrom || opts.kmto) f.push('km');
+      return f;
+    }
+
+    if (isCurrentVehicle) {
+      // Full 7-strategy cascade with all vehicle-specific filters
+      const powerParams = getAs24PowerParams(hp);
+      const kmParams = getAs24KmParams(km);
+
+      if (zipcode) {
+        const opts = { yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams, zip: zipcode, radius: 30 };
+        strategies.push({ ...opts, precision: 5, label: `ZIP ${zipcode} +30km`, location_type: 'zip', filters_applied: _filtersApplied(opts) });
+      }
+      if (targetCantonZip) {
+        const opts1 = { yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams, ...kmParams, zip: targetCantonZip, radius: 50 };
+        strategies.push({ ...opts1, precision: 4, label: `${targetRegion} ±1an`, location_type: 'canton', filters_applied: _filtersApplied(opts1) });
+        const opts2 = { yearSpread: 2, fuel: fuelCode, gear: gearCode, ...powerParams, zip: targetCantonZip, radius: 50 };
+        strategies.push({ ...opts2, precision: 4, label: `${targetRegion} ±2ans`, location_type: 'canton', filters_applied: _filtersApplied(opts2) });
+      }
+      const opts3 = { yearSpread: 1, fuel: fuelCode, gear: gearCode, ...powerParams };
+      strategies.push({ ...opts3, precision: 3, label: 'National ±1an', location_type: 'national', filters_applied: _filtersApplied(opts3) });
+      const opts4 = { yearSpread: 2, fuel: fuelCode, gear: gearCode };
+      strategies.push({ ...opts4, precision: 3, label: 'National ±2ans', location_type: 'national', filters_applied: _filtersApplied(opts4) });
+      const opts5 = { yearSpread: 2, fuel: fuelCode };
+      strategies.push({ ...opts5, precision: 2, label: 'National fuel', location_type: 'national', filters_applied: _filtersApplied(opts5) });
+      strategies.push({ yearSpread: 3, precision: 1, label: 'National large', location_type: 'national', filters_applied: [] });
+      // Fallback brand-only: si le slug modele donne 404, au moins la marque marchera
+      strategies.push({ yearSpread: 2, fuel: fuelCode, brandOnly: true, precision: 0, label: 'Marque seule + fuel', location_type: 'national', filters_applied: fuelCode ? ['fuel'] : [] });
+    } else {
+      // Simplified cascade for redirect (vehicle specs unknown)
+      if (targetCantonZip) {
+        strategies.push({
+          yearSpread: 1, zip: targetCantonZip, radius: 50,
+          precision: 3, label: `${targetRegion} ±1an`, location_type: 'canton', filters_applied: [],
+        });
+      }
+      strategies.push({ yearSpread: 1, precision: 2, label: 'National ±1an', location_type: 'national', filters_applied: [] });
+      strategies.push({ yearSpread: 2, precision: 1, label: 'National ±2ans', location_type: 'national', filters_applied: [] });
+      strategies.push({ yearSpread: 2, brandOnly: true, precision: 0, label: 'Marque seule', location_type: 'national', filters_applied: [] });
+    }
+
+    // ── 5. Execute cascade ────────────────────────────────────────
+    let prices = [];
+    let usedPrecision = null;
+    const searchLog = [];
+    let learnedSlugMake = null;
+    let learnedSlugModel = null;
+    let slugSource = null;
+
+    function rememberSlugs(url, source) {
+      const parsed = extractAs24SlugsFromSearchUrl(url, tld);
+      if (parsed.makeSlug) learnedSlugMake = parsed.makeSlug;
+      if (parsed.modelSlug) learnedSlugModel = parsed.modelSlug;
+      if ((parsed.makeSlug || parsed.modelSlug) && source) slugSource = source;
+    }
+
+    if (progress) progress.update('collect', 'running');
+
+    const MAX_PRICES_CAP = 100;
+
+    for (let i = 0; i < strategies.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
+
+      const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
+      const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
+      const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
+      rememberSlugs(searchUrl, 'as24_generated_url');
+
+      try {
+        const resp = await fetch(searchUrl, { credentials: 'same-origin' });
+        if (!resp.ok) {
+          searchLog.push({ ...logBase, ads_found: 0, url: searchUrl, was_selected: false, reason: `HTTP ${resp.status}` });
+          if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', `HTTP ${resp.status}`);
+          continue;
+        }
+
+        // URL canonique finale après redirects éventuels (source plus fiable)
+        if (resp.url) rememberSlugs(resp.url, 'as24_response_url');
+
+        const html = await resp.text();
+        const newPrices = parseSearchPrices(html, target.make);
+
+        // Accumulation cumulative (comme LBC) avec dedup par price+km
+        const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+        const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+        prices = [...prices, ...unique];
+
+        const enough = prices.length >= MIN_PRICES;
+
+        console.log('[CoPilot] AS24 strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s',
+          i + 1, precision, newPrices.length, unique.length, prices.length, searchUrl.substring(0, 120));
+
+        searchLog.push({
+          ...logBase, ads_found: newPrices.length,
+          url: searchUrl, was_selected: enough && usedPrecision === null,
+          reason: enough ? `total ${prices.length} >= ${MIN_PRICES}` : `total ${prices.length} < ${MIN_PRICES}`,
+        });
+
+        if (progress) {
+          progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`,
+            unique.length > 0 ? 'done' : 'skip', `${newPrices.length} annonces`);
+        }
+
+        // Note la precision au premier seuil atteint, puis continue d'accumuler
+        if (enough && usedPrecision === null) {
+          usedPrecision = precision;
+        }
+
+        if (prices.length >= MAX_PRICES_CAP) {
+          console.log('[CoPilot] AS24 cap %d atteint, arret', MAX_PRICES_CAP);
+          break;
+        }
+      } catch (err) {
+        console.error('[CoPilot] AS24 search error:', err);
+        searchLog.push({ ...logBase, ads_found: 0, url: searchUrl, was_selected: false, reason: err.message });
+        if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', 'Erreur');
+      }
+    }
+
+    // ── 6. Submit or report failure ───────────────────────────────
+    let submitted = false;
+
+    if (prices.length >= MIN_PRICES) {
+      let priceInts = prices.map((p) => p.price);
+      let priceDetails = prices;
+      if (currency === 'CHF') {
+        priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+        priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
+      }
+
+      if (progress) {
+        progress.update('collect', 'done', `${priceInts.length} prix (précision ${usedPrecision})`);
+        progress.update('submit', 'running');
+      }
+
+      const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
+      const payload = {
+        make: target.make,
+        model: target.model,
+        year: targetYear,
+        region: targetRegion,
+        prices: priceInts,
+        price_details: priceDetails,
+        fuel: isCurrentVehicle && this._adData.fuel ? this._adData.fuel.toLowerCase() : null,
+        precision: usedPrecision,
+        country: countryCode,
+        hp_range: isCurrentVehicle ? hpRangeStr : null,
+        gearbox: isCurrentVehicle && this._adData.gearbox ? this._adData.gearbox.toLowerCase() : null,
+        search_log: searchLog,
+        as24_slug_make: learnedSlugMake || targetMakeKey,
+        as24_slug_model: learnedSlugModel || (!searchLog.some((s) => (s.reason || '').startsWith('HTTP 404')) ? targetModelKey : null),
+      };
+
+      console.log('[CoPilot] AS24 submit payload:', JSON.stringify({
+        make: payload.make, model: payload.model, year: payload.year,
+        region: payload.region, precision: payload.precision, country: payload.country,
+        fuel: payload.fuel, hp_range: payload.hp_range, gearbox: payload.gearbox,
+        prices_count: payload.prices.length, prices_sample: payload.prices.slice(0, 3),
+        price_details_sample: payload.price_details?.slice(0, 2),
+        search_log_count: payload.search_log?.length,
+        search_log_sample: payload.search_log?.slice(0, 2),
+        as24_slug_make: payload.as24_slug_make, as24_slug_model: payload.as24_slug_model,
+      }));
+
+      try {
+        const resp = await this._fetch(marketUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (resp.ok) {
+          if (progress) progress.update('submit', 'done', `${priceInts.length} prix envoyés (${targetRegion})`);
+          submitted = true;
+        } else {
+          const errBody = await resp.text().catch(() => '');
+          console.error('[CoPilot] AS24 market-prices POST %d: %s', resp.status, errBody);
+          const errMsg = (() => {
+            try { return JSON.parse(errBody)?.message || `HTTP ${resp.status}`; } catch { return `HTTP ${resp.status}`; }
+          })();
+          if (progress) progress.update('submit', 'error', errMsg);
+        }
+      } catch (err) {
+        console.error('[CoPilot] AS24 market-prices POST error:', err);
+        if (progress) progress.update('submit', 'error', 'Erreur réseau');
+      }
+    } else {
+      if (progress) {
+        progress.update('collect', 'warning', `${prices.length} annonces (min ${MIN_PRICES})`);
+        progress.update('submit', 'skip', 'Pas assez de données');
+      }
+      // Report failed search
+      try {
+        const failedUrl = this._apiUrl.replace('/analyze', '/market-prices/failed-search');
+        await this._fetch(failedUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            make: target.make, model: target.model, year: targetYear,
+            region: targetRegion,
+            fuel: isCurrentVehicle ? (fuelKey || null) : null,
+            hp_range: isCurrentVehicle ? hpRangeStr : null,
+            country: countryCode, search_log: searchLog,
+            site: 'as24',
+            tld,
+            slug_make_used: learnedSlugMake || targetMakeKey,
+            slug_model_used: learnedSlugModel || targetModelKey,
+            slug_source: slugSource || 'as24_generated_url',
+            // Persist learned slugs even on failure (auto-learning)
+            as24_slug_make: learnedSlugMake || null,
+            as24_slug_model: learnedSlugModel || null,
+          }),
+        });
+      } catch { /* ignore */ }
+    }
+
+    // ── 7. Execute bonus jobs ─────────────────────────────────────
+    if (bonusJobs.length > 0) {
+      await this._executeBonusJobs(bonusJobs, tld, progress, lang);
+    } else if (progress) {
+      progress.update('bonus', 'skip', 'Pas de jobs bonus');
+    }
+
+    // Update cooldown for redirected vehicles
+    if (!isCurrentVehicle) {
+      localStorage.setItem('copilot_last_collect', String(Date.now()));
+    }
+
+    return { submitted, isCurrentVehicle };
+  }
+
+  /**
+   * Executes bonus collection jobs from the server queue.
+   * Each job specifies a vehicle+region to collect prices for.
+   * Only executes jobs matching the current site's country.
+   *
+   * @param {Array} bonusJobs - Jobs from next-job response
+   * @param {string} tld - Current site TLD (ch, de, etc.)
+   * @param {object} progress - Progress tracker
+   */
+  async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
+    const MIN_BONUS_PRICES = 5;
+    const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
+    const jobDoneUrl = this._apiUrl.replace('/analyze', '/market-prices/job-done');
+    const currency = TLD_TO_CURRENCY[tld] || 'EUR';
+    const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
+
+    if (progress) progress.update('bonus', 'running', `${bonusJobs.length} jobs`);
+
+    for (const job of bonusJobs) {
+      // Only execute jobs for the current country
+      if ((job.country || 'FR') !== countryCode) {
+        console.log('[CoPilot] AS24 bonus skip: country %s != %s', job.country, countryCode);
+        await this._reportJobDone(jobDoneUrl, job.job_id, false);
+        if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model}`, 'skip', 'Pays différent');
+        continue;
+      }
+
+      try {
+        await new Promise((r) => setTimeout(r, 800 + Math.random() * 600));
+
+        const jobMakeKey = job.slug_make || toAs24Slug(job.make);
+        const jobModelKey = job.slug_model || toAs24Slug(job.model);
+        const jobYear = parseInt(job.year, 10);
+        const cantonZip = getCantonCenterZip(job.region);
+
+        // Build search options from job data
+        const searchOpts = { yearSpread: 1 };
+        if (job.fuel) {
+          const fc = getAs24FuelCode(job.fuel);
+          if (fc) searchOpts.fuel = fc;
+        }
+        if (job.gearbox) {
+          const gc = getAs24GearCode(job.gearbox);
+          if (gc) searchOpts.gear = gc;
+        }
+        if (job.hp_range) {
+          const pp = parseHpRange(job.hp_range);
+          Object.assign(searchOpts, pp);
+        }
+        if (cantonZip) {
+          searchOpts.zip = cantonZip;
+          searchOpts.radius = 50;
+        }
+
+        const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
+        const resp = await fetch(searchUrl, { credentials: 'same-origin' });
+        const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
+
+        if (!resp.ok) {
+          await this._reportJobDone(jobDoneUrl, job.job_id, false);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `HTTP ${resp.status}`);
+          continue;
+        }
+
+        const html = await resp.text();
+        const prices = parseSearchPrices(html, job.make);
+
+        console.log('[CoPilot] AS24 bonus %s %s %d %s: %d prix', job.make, job.model, jobYear, job.region, prices.length);
+
+        if (prices.length >= MIN_BONUS_PRICES) {
+          let priceInts = prices.map((p) => p.price);
+          let priceDetails = prices;
+          if (currency === 'CHF') {
+            priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
+            priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
+          }
+
+          const bonusPrecision = prices.length >= 20 ? 4 : 2;
+          const bonusPayload = {
+            make: job.make, model: job.model, year: jobYear,
+            region: job.region, prices: priceInts, price_details: priceDetails,
+            fuel: job.fuel || null, hp_range: job.hp_range || null,
+            precision: bonusPrecision, country: countryCode,
+            as24_slug_make: learned.makeSlug || jobMakeKey,
+            as24_slug_model: learned.modelSlug || (searchOpts.brandOnly ? null : jobModelKey),
+            search_log: [{
+              step: 1, precision: bonusPrecision,
+              location_type: cantonZip ? 'canton' : 'national',
+              year_spread: 1,
+              filters_applied: [
+                ...(searchOpts.fuel ? ['fuel'] : []),
+                ...(searchOpts.gear ? ['gearbox'] : []),
+                ...(searchOpts.powerfrom || searchOpts.powerto ? ['hp'] : []),
+              ],
+              ads_found: prices.length, url: searchUrl,
+              was_selected: true, reason: `bonus job: ${prices.length} annonces`,
+            }],
+          };
+
+          const postResp = await this._fetch(marketUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bonusPayload),
+          });
+          if (!postResp.ok) {
+            const errBody = await postResp.text().catch(() => '');
+            console.error('[CoPilot] AS24 bonus POST %d for %s %s: %s', postResp.status, job.make, job.model, errBody);
+          }
+          await this._reportJobDone(jobDoneUrl, job.job_id, postResp.ok);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, postResp.ok ? 'done' : 'error', postResp.ok ? `${priceInts.length} prix` : `HTTP ${postResp.status}`);
+        } else {
+          await this._reportJobDone(jobDoneUrl, job.job_id, false);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `${prices.length} annonces`);
+        }
+      } catch (err) {
+        console.warn('[CoPilot] AS24 bonus job error:', err);
+        await this._reportJobDone(jobDoneUrl, job.job_id, false);
+        if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', 'Erreur');
+      }
+    }
+
+    if (progress) progress.update('bonus', 'done');
+  }
+
+  /**
+   * Reports a bonus job as done/failed to the server.
+   * @param {string} jobDoneUrl
+   * @param {number} jobId
+   * @param {boolean} success
+   */
+  async _reportJobDone(jobDoneUrl, jobId, success) {
+    if (!jobId) return;
+    try {
+      await this._fetch(jobDoneUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, success, site: 'as24' }),
+      });
+    } catch { /* ignore */ }
+  }
+}

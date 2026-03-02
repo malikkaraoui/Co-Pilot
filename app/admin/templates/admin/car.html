@@ -176,10 +176,10 @@
               {% endif %}
             </td>
             <td style="font-size:12px; white-space:nowrap">
-              {{ item.first_seen.strftime('%d/%m/%Y') if item.first_seen else '-' }}
+              {{ item.first_seen|localdatetime('%d/%m/%Y') }}
             </td>
             <td style="font-size:12px; white-space:nowrap">
-              {{ item.last_seen.strftime('%d/%m/%Y') if item.last_seen else '-' }}
+              {{ item.last_seen|localdatetime('%d/%m/%Y') }}
             </td>
             <td>
               {% if item.trend is none %}

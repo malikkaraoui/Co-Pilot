@@ -34,7 +34,7 @@ _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
 
 def _lookup_site_tokens(make: str, model: str) -> dict:
-    """Retourne les tokens LBC stockes pour un vehicule (ou dict vide)."""
+    """Retourne les tokens LBC et slugs AS24 stockes pour un vehicule (ou dict vide)."""
     from app.services.vehicle_lookup import find_vehicle
 
     vehicle = find_vehicle(make, model)
@@ -44,12 +44,45 @@ def _lookup_site_tokens(make: str, model: str) -> dict:
             result["site_brand_token"] = vehicle.site_brand_token
         if vehicle.site_model_token:
             result["site_model_token"] = vehicle.site_model_token
+        if vehicle.as24_slug_make:
+            result["as24_slug_make"] = vehicle.as24_slug_make
+        if vehicle.as24_slug_model:
+            result["as24_slug_model"] = vehicle.as24_slug_model
     return result
 
 
-def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
+def _pick_and_serialize_bonus(
+    site: str = "lbc", country: str = "FR", tld: str = "", max_jobs: int = 3
+) -> list[dict]:
     """Pick pending jobs from the queue and serialize them for the API response."""
-    picked = pick_bonus_jobs(max_jobs=max_jobs)
+    if site == "as24":
+        from app.services.collection_job_as24_service import pick_bonus_jobs_as24
+
+        picked = pick_bonus_jobs_as24(country=country, tld=tld, max_jobs=max_jobs)
+        result = []
+        for j in picked:
+            result.append(
+                {
+                    "make": j.make,
+                    "model": j.model,
+                    "year": j.year,
+                    "region": j.region,
+                    "fuel": j.fuel,
+                    "gearbox": j.gearbox,
+                    "hp_range": j.hp_range,
+                    "country": j.country,
+                    "tld": j.tld,
+                    "slug_make": j.slug_make,
+                    "slug_model": j.slug_model,
+                    "search_strategy": j.search_strategy,
+                    "currency": j.currency,
+                    "job_id": j.id,
+                }
+            )
+        return result
+
+    # LBC (default) — filter by country to avoid serving CH jobs to FR extension
+    picked = pick_bonus_jobs(max_jobs=max_jobs, country=country)
     result = []
     for j in picked:
         entry = {
@@ -60,6 +93,7 @@ def _pick_and_serialize_bonus(max_jobs: int = 3) -> list[dict]:
             "fuel": j.fuel,
             "gearbox": j.gearbox,
             "hp_range": j.hp_range,
+            "country": j.country or "FR",
             "job_id": j.id,
         }
         tokens = _lookup_site_tokens(j.make, j.model)
@@ -80,8 +114,8 @@ class PriceDetail(BaseModel):
 class SearchStep(BaseModel):
     """Un pas de la cascade de recherche argus."""
 
-    step: int = Field(ge=1, le=10)
-    precision: int = Field(ge=1, le=5)
+    step: int = Field(ge=1, le=15)
+    precision: int = Field(ge=0, le=5)
     location_type: str = Field(max_length=20)
     year_spread: int = Field(ge=1, le=5)
     filters_applied: list[str] = Field(default_factory=list)
@@ -89,6 +123,8 @@ class SearchStep(BaseModel):
     url: str = Field(max_length=500)
     was_selected: bool = False
     reason: str = Field(default="", max_length=200)
+    # Label optionnel pour lisibilite UI (pas utilise cote backend)
+    label: str | None = Field(default=None, max_length=100)
 
 
 class MarketPricesRequest(BaseModel):
@@ -101,8 +137,8 @@ class MarketPricesRequest(BaseModel):
     prices: list[int] = Field(min_length=MIN_SAMPLE_ABSOLUTE)
     price_details: list[PriceDetail] | None = None
     category: str | None = Field(default=None, max_length=40)
-    fuel: str | None = Field(default=None, max_length=30)
-    precision: int | None = Field(default=None, ge=1, le=5)
+    fuel: str | None = Field(default=None, max_length=60)
+    precision: int | None = Field(default=None, ge=0, le=5)
     search_log: list[SearchStep] | None = None
     hp_range: str | None = Field(default=None, max_length=20)
     fiscal_hp: int | None = Field(default=None, ge=1, le=100)
@@ -111,6 +147,11 @@ class MarketPricesRequest(BaseModel):
     # Tokens LBC auto-appris depuis le DOM (accents corrects pour les URLs de recherche)
     site_brand_token: str | None = Field(default=None, max_length=120)
     site_model_token: str | None = Field(default=None, max_length=200)
+    # Slugs AS24 auto-appris depuis les URLs de recherche reelles
+    as24_slug_make: str | None = Field(default=None, max_length=120)
+    as24_slug_model: str | None = Field(default=None, max_length=200)
+    # Code pays ISO 2 lettres (FR, CH, DE, AT, IT, BE, NL, ES). Default FR.
+    country: str | None = Field(default=None, max_length=5)
 
 
 @api_bp.route("/market-prices", methods=["POST"])
@@ -139,11 +180,15 @@ def submit_market_prices():
         req = MarketPricesRequest.model_validate(json_data)
     except PydanticValidationError as exc:
         logger.warning("Market prices validation error: %s", exc)
+        # Extraire les champs en erreur pour le debug
+        field_errors = [
+            f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
+        ]
         return jsonify(
             {
                 "success": False,
                 "error": "VALIDATION_ERROR",
-                "message": "Donnees invalides. Verifiez le format du payload.",
+                "message": "; ".join(field_errors) if field_errors else "Donnees invalides.",
                 "data": None,
             }
         ), 400
@@ -177,8 +222,8 @@ def submit_market_prices():
     # Filtrer les prix aberrants (< 500 EUR probablement des erreurs)
     valid_prices = [p for p in req.prices if p >= 500]
 
-    # Seuil dynamique selon la puissance du vehicule (niche = moins d'annonces)
-    min_required = get_min_sample_count(req.make, req.model)
+    # Seuil dynamique selon la puissance du vehicule et le pays (niche / petit marche)
+    min_required = get_min_sample_count(req.make, req.model, country=req.country or "FR")
     if len(valid_prices) < min_required:
         return jsonify(
             {
@@ -210,6 +255,7 @@ def submit_market_prices():
             fiscal_hp=req.fiscal_hp,
             lbc_estimate_low=req.lbc_estimate_low,
             lbc_estimate_high=req.lbc_estimate_high,
+            country=req.country,
         )
     except (ValueError, TypeError, OSError) as exc:
         logger.error("Failed to store market prices: %s", exc)
@@ -227,6 +273,10 @@ def submit_market_prices():
     # et sont necessaires pour construire les URLs de recherche LBC.
     if req.site_brand_token or req.site_model_token:
         _persist_site_tokens(req.make, req.model, req.site_brand_token, req.site_model_token)
+
+    # Auto-apprentissage AS24 : slugs canoniques vus dans les URLs de recherche.
+    if req.as24_slug_make or req.as24_slug_model:
+        _persist_as24_slugs(req.make, req.model, req.as24_slug_make, req.as24_slug_model)
 
     return jsonify(
         {
@@ -277,14 +327,44 @@ def _persist_site_tokens(
         )
 
 
+def _persist_as24_slugs(
+    make: str, model: str, slug_make: str | None, slug_model: str | None
+) -> None:
+    """Persiste les slugs AS24 canoniques sur le Vehicle correspondant."""
+    from app.services.vehicle_lookup import find_vehicle
+
+    vehicle = find_vehicle(make, model)
+    if not vehicle:
+        return
+
+    updated = False
+    if slug_make and vehicle.as24_slug_make != slug_make:
+        vehicle.as24_slug_make = slug_make
+        updated = True
+    if slug_model and vehicle.as24_slug_model != slug_model:
+        vehicle.as24_slug_model = slug_model
+        updated = True
+
+    if updated:
+        db.session.commit()
+        logger.info(
+            "Auto-learned AS24 slugs for %s %s: make=%s model=%s",
+            make,
+            model,
+            slug_make,
+            slug_model,
+        )
+
+
 @api_bp.route("/market-prices/job-done", methods=["POST"])
 @limiter.limit("60/minute")
 def mark_job_complete():
     """Callback de l'extension pour signaler qu'un job de collecte est termine.
 
     Body JSON :
-        { job_id: int, success: bool }
+        { job_id: int, success: bool, site: "lbc"|"as24" (default "lbc") }
     """
+    from app.services.collection_job_as24_service import mark_job_done_as24
     from app.services.collection_job_service import mark_job_done
 
     data = request.get_json(silent=True)
@@ -310,9 +390,17 @@ def mark_job_complete():
         ), 400
 
     success = data.get("success", True)
+    site = data.get("site", "lbc")
 
     try:
-        mark_job_done(job_id, success=success)
+        if site == "as24":
+            mark_job_done_as24(job_id, success=success)
+        else:
+            try:
+                mark_job_done(job_id, success=success)
+            except (ValueError, TypeError):
+                # Fallback : tenter la table AS24 si le job n'est pas dans LBC
+                mark_job_done_as24(job_id, success=success)
     except (ValueError, TypeError) as exc:
         return jsonify(
             {
@@ -355,27 +443,58 @@ def next_market_job():
     fuel = request.args.get("fuel")
     gearbox = request.args.get("gearbox")
     hp_range = request.args.get("hp_range")
+    country = request.args.get("country") or "FR"
+    site = request.args.get("site", "lbc")  # "lbc" | "as24"
+    tld = request.args.get("tld", "")
 
-    if not all([make, model, region]):
+    if not all([make, model, year, region]):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
     # Ne pas collecter de prix pour les modeles generiques
     if model and model.strip().lower() in _GENERIC_MODELS:
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
-    if year is not None and not (1990 <= year <= 2030):
+    if not (1990 <= year <= 2030):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
+    # Canonicaliser make/model pour les comparaisons DB (meme aliases que store/get).
+    # IMPORTANT: on conserve make/model bruts pour la reponse API vers l'extension,
+    # afin de ne pas casser la construction d'URL cote navigateur.
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    lookup_make = display_brand(make)
+    lookup_model = display_model(model)
+
     # Expand collection jobs pour ce vehicule (dedup gere les repetitions)
-    expand_collection_jobs(
-        make=make,
-        model=model,
-        year=year,
-        region=region,
-        fuel=fuel,
-        gearbox=gearbox,
-        hp_range=hp_range,
-    )
+    if site == "as24":
+        from app.services.collection_job_as24_service import expand_collection_jobs_as24
+
+        slug_make = request.args.get("slug_make", "")
+        slug_model = request.args.get("slug_model", "")
+        expand_collection_jobs_as24(
+            make=make,
+            model=model,
+            year=year,
+            region=region,
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            country=country,
+            tld=tld,
+            slug_make=slug_make,
+            slug_model=slug_model,
+        )
+    else:
+        expand_collection_jobs(
+            make=make,
+            model=model,
+            year=year,
+            region=region,
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            country=country,
+        )
 
     # Comparaisons en naive UTC (SQLite ne conserve pas le tzinfo)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -385,11 +504,13 @@ def next_market_job():
     # Priorite absolue au vehicule scanne : si l'extension fournit fuel/hp_range,
     # on exige cette variante exacte (sinon un record generique frais pourrait
     # masquer l'absence de donnees reellement utiles pour L4).
+    country_upper = country.upper().strip()
     current_filters = [
-        market_text_key_expr(MarketPrice.make) == market_text_key(make),
-        market_text_key_expr(MarketPrice.model) == market_text_key(model),
+        market_text_key_expr(MarketPrice.make) == market_text_key(lookup_make),
+        market_text_key_expr(MarketPrice.model) == market_text_key(lookup_model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
+        func.coalesce(MarketPrice.country, "FR") == country_upper,
     ]
     if fuel:
         fuel_key = normalize_market_text(fuel).lower()
@@ -400,7 +521,7 @@ def next_market_job():
     current = MarketPrice.query.filter(*current_filters).first()
 
     if not current or current.collected_at < cutoff:
-        bonus = _pick_and_serialize_bonus()
+        bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
         tokens = _lookup_site_tokens(make, model)
         logger.info(
             "next-job: vehicule courant %s %s %s a collecter (+%d bonus)",
@@ -421,6 +542,7 @@ def next_market_job():
                         **tokens,
                     },
                     "region": region,
+                    "country": country_upper,
                     "bonus_jobs": bonus,
                 },
             }
@@ -436,7 +558,10 @@ def next_market_job():
             func.lower(MarketPrice.model).label("mp_model"),
             func.max(MarketPrice.collected_at).label("latest_at"),
         )
-        .filter(market_text_key_expr(MarketPrice.region) == market_text_key(region))
+        .filter(
+            market_text_key_expr(MarketPrice.region) == market_text_key(region),
+            func.coalesce(MarketPrice.country, "FR") == country_upper,
+        )
         .group_by(func.lower(MarketPrice.make), func.lower(MarketPrice.model))
         .subquery()
     )
@@ -483,7 +608,7 @@ def next_market_job():
             best_candidate = (c.brand, c.model, mid_year)
 
     if best_candidate:
-        bonus = _pick_and_serialize_bonus()
+        bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
         tokens = _lookup_site_tokens(best_candidate[0], best_candidate[1])
         logger.info(
             "next-job: redirection vers %s %s pour region %s (+%d bonus)",
@@ -505,13 +630,14 @@ def next_market_job():
                         **tokens,
                     },
                     "region": region,
+                    "country": country_upper,
                     "bonus_jobs": bonus,
                 },
             }
         )
 
     # 3. Tout est a jour dans cette region
-    bonus = _pick_and_serialize_bonus()
+    bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
     logger.info("next-job: tout est a jour pour la region %s (+%d bonus)", region, len(bonus))
     return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": bonus}})
 
@@ -555,6 +681,31 @@ def report_failed_search():
     search_log = data.get("search_log")
     total_ads = sum(s.get("ads_found", 0) for s in search_log) if search_log else 0
 
+    # Compter les occurrences precedentes pour auto-calculer la severite
+    from sqlalchemy import func as sqla_func
+
+    occurrence_count = FailedSearch.query.filter(
+        sqla_func.lower(FailedSearch.make) == make.strip().lower(),
+        sqla_func.lower(FailedSearch.model) == model_name.strip().lower(),
+    ).count()
+
+    # Compat LBC + AS24:
+    # - LBC legacy: brand_token_used/model_token_used/token_source
+    # - AS24: slug_make_used/slug_model_used/slug_source + site/tld
+    site = (data.get("site") or "").strip().lower()
+    brand_token_used = data.get("brand_token_used") or data.get("slug_make_used")
+    model_token_used = data.get("model_token_used") or data.get("slug_model_used")
+    token_source = data.get("token_source") or data.get("slug_source")
+
+    if not token_source and site == "as24":
+        token_source = "as24_generated_url"
+
+    severity_source = token_source
+    if token_source and "fallback" in token_source.lower():
+        severity_source = "fallback"
+
+    severity = FailedSearch.compute_severity(occurrence_count + 1, severity_source)
+
     entry = FailedSearch(
         make=make,
         model=model_name,
@@ -562,23 +713,38 @@ def report_failed_search():
         region=region,
         fuel=data.get("fuel"),
         hp_range=data.get("hp_range"),
-        brand_token_used=data.get("brand_token_used"),
-        model_token_used=data.get("model_token_used"),
-        token_source=data.get("token_source"),
+        country=data.get("country", "FR"),
+        brand_token_used=brand_token_used,
+        model_token_used=model_token_used,
+        token_source=token_source,
         search_log=json_mod.dumps(search_log) if search_log else None,
         total_ads_found=total_ads,
+        severity=severity,
     )
     db.session.add(entry)
     db.session.commit()
 
+    # Auto-learn tokens meme en echec (le DOM peut avoir les bons tokens
+    # meme si la recherche n'a rien retourne — ex: vehicule niche, annee rare)
+    _site_bt = data.get("site_brand_token")
+    _site_mt = data.get("site_model_token")
+    if _site_bt or _site_mt:
+        _persist_site_tokens(make, model_name, _site_bt, _site_mt)
+
+    _as24_sm = data.get("as24_slug_make")
+    _as24_smod = data.get("as24_slug_model")
+    if _as24_sm or _as24_smod:
+        _persist_as24_slugs(make, model_name, _as24_sm, _as24_smod)
+
     logger.warning(
-        "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d)",
+        "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d, severity=%s)",
         make,
         model_name,
         entry.year,
         region,
-        entry.token_source,
+        token_source,
         total_ads,
+        severity,
     )
 
     return jsonify(

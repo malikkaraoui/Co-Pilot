@@ -199,11 +199,12 @@ class TestScenarioIncomplet:
         assert l1["status"] in ("warning", "fail")
         assert l1["score"] < 1.0
 
-    def test_l6_skips_no_phone(self, client):
+    def test_l6_neutral_no_phone_private(self, client):
+        """Particulier sans tel → neutral (exclu du scoring)."""
         resp = _analyze(client, SCENARIO_INCOMPLET)
         body = resp.get_json()
         l6 = _get_filter(body["data"]["filters"], "L6")
-        assert l6["status"] == "skip"
+        assert l6["status"] == "neutral"
 
     def test_l9_low_score(self, client):
         """L'evaluation globale penalise le manque d'infos."""

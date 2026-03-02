@@ -109,7 +109,7 @@
     </div>
     <div class="col-md-3">
       <div style="font-size:13px">
-        <strong>Extrait le :</strong> {{ (transcript.extracted_at|localtime).strftime('%d/%m/%Y %H:%M') if transcript.extracted_at else '-' }}
+        <strong>Extrait le :</strong> {{ transcript.extracted_at|localdatetime }}
       </div>
     </div>
     <div class="col-md-3 text-end">

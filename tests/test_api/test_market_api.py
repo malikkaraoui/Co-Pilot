@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from app.extensions import db
+from app.models.failed_search import FailedSearch
 from app.models.market_price import MarketPrice
 from app.models.vehicle import Vehicle
 
@@ -366,6 +367,44 @@ class TestNextMarketJob:
             assert data["data"]["vehicle"]["model"] == "Classe C"
             assert data["data"].get("redirect") is not True
 
+    def test_current_vehicle_lookup_uses_canonical_aliases(self, app, client):
+        """next-job doit reconnaitre un MarketPrice frais via aliases make/model.
+
+        Regression DS: en base on peut avoir make/model canonicalises (DS / 7),
+        alors que l'extension envoie le brut (Ds / Ds 7).
+        """
+        with app.app_context():
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            mp = MarketPrice(
+                make="DS",
+                model="7",
+                year=2021,
+                region="Grand Est",
+                fuel="diesel",
+                price_min=18000,
+                price_median=22000,
+                price_mean=22300,
+                price_max=28000,
+                price_std=2500.0,
+                sample_count=25,
+                collected_at=now,
+                refresh_after=now + timedelta(hours=24),
+            )
+            db.session.add(mp)
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job"
+            "?make=Ds&model=Ds%207&year=2021&region=Grand+Est&fuel=diesel"
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+
+        # Le vehicule courant ne doit PAS etre redemande comme stale.
+        # S'il y a collecte, elle doit etre une redirection vers un autre vehicule.
+        if data["data"]["collect"] is True:
+            assert data["data"].get("redirect") is True
+
     def test_redirects_to_partial_vehicle_first(self, app, client):
         """Vehicles with enrichment_status=partial should be prioritized for redirect."""
         with app.app_context():
@@ -536,6 +575,42 @@ class TestSiteTokenAutoLearning:
         )
         assert resp.status_code == 200  # POST reussit quand meme
 
+    def test_submit_with_as24_slugs_persists_to_vehicle(self, app, client):
+        """POST avec as24_slug_* persiste les slugs canoniques sur Vehicle."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugTest", model="ModeleAS24").first()
+            if not v:
+                v = Vehicle(brand="SlugTest", model="ModeleAS24", year_start=2019, year_end=2026)
+                db.session.add(v)
+                db.session.commit()
+
+            v.as24_slug_make = None
+            v.as24_slug_model = None
+            db.session.commit()
+
+        prices_20 = list(range(12000, 22000, 500))
+        resp = client.post(
+            "/api/market-prices",
+            data=json.dumps(
+                {
+                    "make": "SlugTest",
+                    "model": "ModeleAS24",
+                    "year": 2022,
+                    "region": "Ile-de-France",
+                    "prices": prices_20,
+                    "as24_slug_make": "slugtest",
+                    "as24_slug_model": "modeleas24",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugTest", model="ModeleAS24").first()
+            assert v.as24_slug_make == "slugtest"
+            assert v.as24_slug_model == "modeleas24"
+
     def test_next_job_returns_tokens(self, app, client):
         """GET next-job inclut les tokens LBC si le vehicule en a."""
         with app.app_context():
@@ -670,6 +745,195 @@ class TestSearchLogTransparency:
             details = mp.get_calculation_details()
             # search_steps est None (pas envoye) -- pas d'erreur
             assert details.get("search_steps") is None
+
+
+class TestFailedSearchApi:
+    """Tests pour POST /api/market-prices/failed-search."""
+
+    def test_failed_search_maps_as24_slug_fields(self, app, client):
+        """Le payload AS24 (slug_* + slug_source) est bien mappe sur les champs diagnostics."""
+        payload = {
+            "make": "Mercedes-Benz",
+            "model": "A 35 AMG",
+            "year": 2020,
+            "region": "Geneve",
+            "country": "CH",
+            "site": "as24",
+            "tld": "ch",
+            "slug_make_used": "mercedes-benz",
+            "slug_model_used": "a-35-amg",
+            "slug_source": "as24_response_url",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 4,
+                    "location_type": "canton",
+                    "year_spread": 1,
+                    "filters_applied": ["fuel"],
+                    "ads_found": 0,
+                    "url": "https://www.autoscout24.ch/fr/s/mo-a-35-amg/mk-mercedes-benz",
+                    "was_selected": False,
+                    "reason": "HTTP 404",
+                }
+            ],
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        with app.app_context():
+            row = (
+                FailedSearch.query.filter_by(
+                    make="Mercedes-Benz", model="A 35 AMG", region="Geneve"
+                )
+                .order_by(FailedSearch.id.desc())
+                .first()
+            )
+            assert row is not None
+            assert row.brand_token_used == "mercedes-benz"
+            assert row.model_token_used == "a-35-amg"
+            assert row.token_source == "as24_response_url"
+
+
+class TestFailedSearchTokenPersistence:
+    """Tests pour la persistence des tokens/slugs dans failed-search."""
+
+    def test_failed_search_persists_lbc_tokens(self, app, client):
+        """POST /api/market-prices/failed-search avec site_brand/model_token les persiste."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="TokenFailTest", model="Model1").first()
+            if not v:
+                v = Vehicle(brand="TokenFailTest", model="Model1", year_start=2019, year_end=2025)
+                db.session.add(v)
+                db.session.commit()
+            v.site_brand_token = None
+            v.site_model_token = None
+            db.session.commit()
+
+        payload = {
+            "make": "TokenFailTest",
+            "model": "Model1",
+            "year": 2021,
+            "region": "Bretagne",
+            "brand_token_used": "TOKENFAILTEST",
+            "model_token_used": "TOKENFAILTEST_Model1",
+            "token_source": "DOM",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 4,
+                    "location_type": "region",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 0,
+                    "url": "https://www.leboncoin.fr/recherche?category=2",
+                    "was_selected": False,
+                }
+            ],
+            "site_brand_token": "TokenFailTest",
+            "site_model_token": "TokenFailTest_Modèle1",
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="TokenFailTest", model="Model1").first()
+            assert v.site_brand_token == "TokenFailTest"
+            assert v.site_model_token == "TokenFailTest_Modèle1"
+
+    def test_failed_search_persists_as24_slugs(self, app, client):
+        """POST /api/market-prices/failed-search avec as24_slug_* les persiste."""
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugFailTest", model="ModelAS24F").first()
+            if not v:
+                v = Vehicle(
+                    brand="SlugFailTest", model="ModelAS24F", year_start=2019, year_end=2026
+                )
+                db.session.add(v)
+                db.session.commit()
+            v.as24_slug_make = None
+            v.as24_slug_model = None
+            db.session.commit()
+
+        payload = {
+            "make": "SlugFailTest",
+            "model": "ModelAS24F",
+            "year": 2022,
+            "region": "Geneve",
+            "country": "CH",
+            "site": "as24",
+            "tld": "ch",
+            "slug_make_used": "slugfailtest",
+            "slug_model_used": "modelas24f",
+            "slug_source": "as24_response_url",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 3,
+                    "location_type": "canton",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 0,
+                    "url": "https://www.autoscout24.ch/fr/s/mk-slugfailtest",
+                    "was_selected": False,
+                }
+            ],
+            "as24_slug_make": "slugfailtest",
+            "as24_slug_model": "modelas24f",
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="SlugFailTest", model="ModelAS24F").first()
+            assert v.as24_slug_make == "slugfailtest"
+            assert v.as24_slug_model == "modelas24f"
+
+    def test_failed_search_without_tokens_backward_compat(self, client):
+        """POST /api/market-prices/failed-search sans tokens fonctionne (retro-compat)."""
+        payload = {
+            "make": "Peugeot",
+            "model": "208",
+            "year": 2021,
+            "region": "Bretagne",
+            "brand_token_used": "PEUGEOT",
+            "model_token_used": "PEUGEOT_208",
+            "token_source": "fallback",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 3,
+                    "location_type": "national",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 3,
+                    "url": "https://www.leboncoin.fr/recherche?category=2",
+                    "was_selected": False,
+                }
+            ],
+        }
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
 
 
 class TestBonusJobs:
@@ -1021,3 +1285,152 @@ class TestNextJobWithQueue:
         bonus = data["data"]["bonus_jobs"]
         if bonus:
             assert "job_id" in bonus[0]
+
+    def test_next_job_bonus_includes_country(self, app, client):
+        """Bonus jobs include country field for multi-site extension dispatch."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            job = CollectionJob(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Geneve",
+                fuel="diesel",
+                priority=1,
+                source_vehicle="test",
+                country="CH",
+            )
+            db.session.add(job)
+            db.session.commit()
+
+            from app.services.market_service import store_market_prices
+
+            store_market_prices(
+                make="VW",
+                model="Golf",
+                year=2022,
+                region="Zurich",
+                prices=list(range(15000, 30000, 500)),
+                country="CH",
+            )
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=VW&model=Golf&year=2022&region=Zurich&country=CH"
+        )
+        data = resp.get_json()
+        bonus = data["data"]["bonus_jobs"]
+        if bonus:
+            assert "country" in bonus[0]
+            assert bonus[0]["country"] == "CH"
+
+    def test_next_job_response_includes_country(self, app, client):
+        """Next-job collect=true response includes country field."""
+        self._clean_queue(app)
+        resp = client.get(
+            "/api/market-prices/next-job?make=BMW&model=X3&year=2023&region=Geneve&country=CH"
+        )
+        data = resp.get_json()
+        if data["data"]["collect"]:
+            assert data["data"]["country"] == "CH"
+
+    def test_next_job_ch_uses_cantons_via_as24(self, app, client):
+        """expand_collection_jobs_as24 with country=CH creates canton-based jobs in AS24 table."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job_as24 import CollectionJobAS24
+
+            # Clear all existing AS24 jobs
+            CollectionJobAS24.query.delete()
+            db.session.commit()
+
+        resp = client.get(
+            "/api/market-prices/next-job?make=Renault&model=Clio&year=2022"
+            "&region=Geneve&country=CH&fuel=essence&site=as24&tld=ch"
+            "&slug_make=renault&slug_model=clio"
+        )
+        data = resp.get_json()
+        assert data["data"]["collect"] is True
+
+        with app.app_context():
+            from app.models.collection_job_as24 import CollectionJobAS24
+
+            ch_jobs = CollectionJobAS24.query.filter_by(country="CH").all()
+            # Should have created jobs for other cantons (P1)
+            assert len(ch_jobs) >= 10  # 25 other cantons at minimum
+            # Verify regions are Swiss cantons
+            regions = {j.region for j in ch_jobs}
+            assert "Zurich" in regions
+            assert "Vaud" in regions
+
+    def test_next_job_ch_lbc_no_expansion(self, app, client):
+        """LBC expand with country=CH should NOT create jobs (LBC = France only)."""
+        self._clean_queue(app)
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            CollectionJob.query.delete()
+            db.session.commit()
+
+        # Call with site=lbc (default) and country=CH
+        client.get(
+            "/api/market-prices/next-job?make=Renault&model=Clio&year=2022"
+            "&region=Geneve&country=CH&fuel=essence"
+        )
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            ch_jobs = CollectionJob.query.filter_by(country="CH").all()
+            assert len(ch_jobs) == 0  # No CH jobs in LBC table
+
+
+class TestNextJobYearValidation:
+    """Regression: next-job must require year param to avoid crashes."""
+
+    def test_next_job_without_year_returns_no_collect(self, client):
+        """next-job sans year ne doit pas crasher (retourne collect=false)."""
+        resp = client.get("/api/market-prices/next-job?make=Peugeot&model=208&region=Bretagne")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["data"]["collect"] is False
+
+
+class TestLowDataCountryIsolation:
+    """Regression: low-data detection must be isolated per country."""
+
+    def test_ch_fails_dont_block_fr_expansion(self, app):
+        """Des echecs CH ne doivent pas bloquer l'expansion FR."""
+        from app.services.collection_job_service import (
+            LOW_DATA_FAIL_THRESHOLD,
+            _get_low_data_vehicles,
+        )
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJob
+
+            # Create failed jobs for Peugeot 208 in CH
+            for i in range(LOW_DATA_FAIL_THRESHOLD):
+                db.session.add(
+                    CollectionJob(
+                        make="Peugeot",
+                        model="208",
+                        year=2022,
+                        region=f"Canton{i}",
+                        fuel="essence",
+                        status="failed",
+                        attempts=3,
+                        country="CH",
+                        source_vehicle="test",
+                    )
+                )
+            db.session.commit()
+
+            # CH should be low-data
+            low_ch = _get_low_data_vehicles("CH")
+            assert ("peugeot", "208", "CH") in low_ch
+
+            # FR should NOT be low-data
+            low_fr = _get_low_data_vehicles("FR")
+            assert ("peugeot", "208", "FR") not in low_fr

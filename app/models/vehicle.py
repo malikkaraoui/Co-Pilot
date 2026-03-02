@@ -27,6 +27,10 @@ class Vehicle(db.Model):
     # LBC exige "Série 3" dans u_car_model. Stockes une fois, reutilises partout.
     site_brand_token = db.Column(db.String(120), nullable=True)
     site_model_token = db.Column(db.String(200), nullable=True)
+    # Slugs AutoScout24 pour les URLs de recherche (auto-appris depuis le RSC).
+    # Ex: "vw" pour Volkswagen, "tiguan" pour Tiguan.
+    as24_slug_make = db.Column(db.String(80), nullable=True)
+    as24_slug_model = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     specs = db.relationship("VehicleSpec", backref="vehicle", lazy="select")

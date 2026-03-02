@@ -27,8 +27,8 @@ def calculate_score(filter_results: list[FilterResult]) -> tuple[int, bool]:
     """Calcule le score global pondere (0-100) a partir des resultats des filtres.
 
     Scoring pondere : chaque filtre a un poids (FILTER_WEIGHTS).
-    Les filtres "skip" comptent dans le denominateur (poids) mais
-    contribuent 0 au numerateur -- cela penalise les donnees manquantes.
+    - "neutral" : exclu du calcul (ni numerateur ni denominateur) -- non applicable.
+    - "skip" : poids dans le denominateur, 0 au numerateur -- penalise les donnees manquantes.
 
     Args:
         filter_results: Liste de FilterResult provenant du moteur.
@@ -45,6 +45,12 @@ def calculate_score(filter_results: list[FilterResult]) -> tuple[int, bool]:
 
     for r in filter_results:
         w = FILTER_WEIGHTS.get(r.filter_id, 1.0)
+
+        if r.status == "neutral":
+            skipped += 1
+            # Neutral : exclu du calcul (ni numerateur ni denominateur)
+            continue
+
         total_weight += w
 
         if r.status == "skip":

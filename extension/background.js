@@ -12,11 +12,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // fetch vers HTTP localhost (mixed-content). Le service worker
   // n'a pas cette restriction.
   if (message.action === "backend_fetch") {
+    // Securite : seul le backend local est autorise via le proxy
+    const url = String(message.url || "");
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(url) &&
+        !/^https:\/\/[a-z0-9-]+\.onrender\.com\//i.test(url)) {
+      sendResponse({ ok: false, status: 0, body: null, error: "URL not allowed" });
+      return true;
+    }
+
     const opts = { method: message.method || "GET" };
     if (message.headers) opts.headers = message.headers;
     if (message.body) opts.body = message.body;
 
-    fetch(message.url, opts)
+    fetch(url, opts)
       .then(async (resp) => {
         const body = await resp.text();
         sendResponse({ ok: resp.ok, status: resp.status, body });
@@ -101,7 +109,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .then(() =>
       chrome.scripting.executeScript({
         target: { tabId },
-        files: ["content.js"],
+        files: ["dist/content.bundle.js"],
       })
     )
     .then(() => {

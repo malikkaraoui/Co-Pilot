@@ -3,6 +3,8 @@
 import logging
 import re
 import traceback
+from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from flask import current_app, jsonify, request
@@ -17,6 +19,7 @@ from app.models.scan import ScanLog
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from app.schemas.filter_result import FilterResultSchema
 from app.services import email_service
+from app.services.currency_service import convert_to_eur
 from app.services.extraction import extract_ad_data
 from app.services.scoring import calculate_score
 
@@ -87,26 +90,72 @@ def _do_analyze():
             }
         ), 400
 
-    # Extraction des donnees de l'annonce
-    try:
-        ad_data = extract_ad_data(req.next_data)
-    except ExtractionError as exc:
-        logger.warning("Extraction failed: %s", exc)
+    # Validation: au moins un des deux payloads requis
+    if req.next_data is None and req.ad_data is None:
         return jsonify(
             {
                 "success": False,
-                "error": "EXTRACTION_ERROR",
-                "message": "Impossible d'extraire les donnees de cette annonce.",
+                "error": "VALIDATION_ERROR",
+                "message": "next_data ou ad_data requis.",
                 "data": None,
             }
-        ), 422
+        ), 400
+
+    # Extraction des donnees de l'annonce
+    if req.ad_data is not None:
+        # Pre-normalized path (AutoScout24, La Centrale, etc.)
+        ad_data = req.ad_data
+        if req.source:
+            ad_data["source"] = req.source
+    else:
+        # Legacy LBC path
+        try:
+            ad_data = extract_ad_data(req.next_data)
+        except ExtractionError as exc:
+            logger.warning("Extraction failed: %s", exc)
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "EXTRACTION_ERROR",
+                    "message": "Impossible d'extraire les donnees de cette annonce.",
+                    "data": None,
+                }
+            ), 422
+
+    # Detection du pays depuis le TLD de l'URL pour les filtres (L6, L7)
+    ad_data["country"] = _detect_country(req.url or "", req.source)
+
+    # Conversion de devise : si le prix est en CHF (ou autre), convertir en EUR
+    # pour que les filtres L4/L5 comparent des pommes avec des pommes.
+    # On preserve le prix original et la devise pour l'affichage.
+    original_currency = ad_data.get("currency")
+    original_price = ad_data.get("price_eur")
+    price_eur, was_converted = convert_to_eur(original_price, original_currency)
+    if was_converted:
+        ad_data["price_eur"] = price_eur
+        ad_data["price_original"] = original_price
+        ad_data["currency_original"] = original_currency
+
+    # Calcul days_online si absent mais publication_date present
+    # (sources pre-normalisees comme AS24 envoient la date mais pas le calcul)
+    if ad_data.get("days_online") is None and ad_data.get("publication_date"):
+        try:
+            pub_str = ad_data["publication_date"]
+            pub_date = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+            ad_data["days_online"] = (datetime.now(timezone.utc) - pub_date).days
+        except (ValueError, TypeError):
+            pass  # format de date non reconnu, L10 fera skip
 
     # Detection non-voiture : categorie URL + presence marque/modele
+    # Note : _extract_url_category ne fonctionne que pour les URLs LBC (/ad/<cat>/).
+    # Pour les sources non-LBC (AutoScout24, etc.), on skip la detection par URL
+    # car leur format d'URL ne contient pas de categorie exploitable.
     url = req.url or ""
-    url_category = _extract_url_category(url)
+    is_lbc_source = req.source is None or req.source == "leboncoin"
+    url_category = _extract_url_category(url) if is_lbc_source else None
     has_vehicle_attrs = bool(ad_data.get("make")) and bool(ad_data.get("model"))
 
-    # Motos : categorie reconnue mais pas encore supportee
+    # Motos : categorie reconnue mais pas encore supportee (LBC uniquement)
     if url_category == "motos":
         logger.info("NOT_SUPPORTED: category=motos, url=%s", url)
         return jsonify(
@@ -118,8 +167,8 @@ def _do_analyze():
             }
         ), 422
 
-    # Autres categories non-voiture sans attributs vehicule
-    if url_category != "voitures" and not has_vehicle_attrs:
+    # Autres categories non-voiture sans attributs vehicule (LBC uniquement)
+    if is_lbc_source and url_category != "voitures" and not has_vehicle_attrs:
         logger.info(
             "NOT_A_VEHICLE: category=%s, make=%r, model=%r",
             url_category,
@@ -157,7 +206,7 @@ def _do_analyze():
     try:
         scan = ScanLog(
             url=req.url,
-            raw_data=json_data.get("next_data"),
+            raw_data=json_data.get("next_data") or json_data.get("ad_data"),
             score=score,
             is_partial=is_partial,
             vehicle_make=ad_data.get("make"),
@@ -211,18 +260,24 @@ def _do_analyze():
         except (OSError, ValueError, TypeError) as exc:
             logger.debug("Featured video lookup failed: %s", exc)
 
+    vehicle_info: dict[str, Any] = {
+        "make": make,
+        "model": model,
+        "year": ad_data.get("year_model"),
+        "price": ad_data.get("price_eur"),
+        "mileage": ad_data.get("mileage_km"),
+    }
+    # Inclure le prix original si une conversion a ete appliquee
+    if ad_data.get("price_original") is not None:
+        vehicle_info["price_original"] = ad_data["price_original"]
+        vehicle_info["currency"] = ad_data.get("currency_original", "EUR")
+
     response = AnalyzeResponse(
         scan_id=scan.id if scan else None,
         score=score,
         is_partial=is_partial,
         filters=filters_out,
-        vehicle={
-            "make": make,
-            "model": model,
-            "year": ad_data.get("year_model"),
-            "price": ad_data.get("price_eur"),
-            "mileage": ad_data.get("mileage_km"),
-        },
+        vehicle=vehicle_info,
         featured_video=featured_video,
     )
 
@@ -271,6 +326,30 @@ def _extract_url_category(url: str) -> str | None:
     """Extrait la categorie LeBonCoin depuis l'URL (ex. 'voitures', 'equipement_auto')."""
     m = _URL_CATEGORY_RE.search(url)
     return m.group(1) if m else None
+
+
+_TLD_COUNTRY_MAP = {
+    ".ch": "CH",
+    ".de": "DE",
+    ".at": "AT",
+    ".it": "IT",
+    ".nl": "NL",
+    ".be": "BE",
+    ".es": "ES",
+    ".fr": "FR",
+}
+
+
+def _detect_country(url: str, source: str | None) -> str:
+    """Detecte le pays depuis le TLD de l'URL ou la source. Defaut: FR."""
+    url_lower = url.lower()
+    for tld, country in _TLD_COUNTRY_MAP.items():
+        if tld in url_lower:
+            return country
+    # leboncoin.fr => FR implicite
+    if source is None or source == "leboncoin":
+        return "FR"
+    return "FR"
 
 
 @api_bp.route("/email-draft", methods=["POST"])

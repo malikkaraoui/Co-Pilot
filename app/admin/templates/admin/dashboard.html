@@ -163,7 +163,7 @@
             {% for m in recent_market %}
             {% set is_fresh = m.refresh_after > now %}
             <tr>
-              <td style="font-size:12px; white-space:nowrap">{{ (m.collected_at|localtime).strftime('%d/%m %H:%M') if m.collected_at else '-' }}</td>
+              <td style="font-size:12px; white-space:nowrap">{{ m.collected_at|localdatetime('%d/%m %H:%M') }}</td>
               <td><strong>{{ m.make }}</strong> {{ m.model }} {{ m.year }}</td>
               <td>{{ m.region }}</td>
               <td><strong>{{ "{:,}".format(m.price_median).replace(",", " ") }} &euro;</strong></td>
@@ -201,7 +201,7 @@
           <tbody>
             {% for s in recent_scans %}
             <tr>
-              <td style="font-size:12px; white-space:nowrap">{{ (s.created_at|localtime).strftime('%d/%m %H:%M') if s.created_at else '-' }}</td>
+              <td style="font-size:12px; white-space:nowrap">{{ s.created_at|localdatetime('%d/%m %H:%M') }}</td>
               <td>{{ s.vehicle_make or '' }} {{ s.vehicle_model or '' }}</td>
               <td style="font-size:12px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                 {% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url[:60] }}{% if s.url|length > 60 %}...{% endif %}</a>{% else %}-{% endif %}

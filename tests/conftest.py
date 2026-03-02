@@ -26,10 +26,10 @@ def client(app):
 
 @pytest.fixture(autouse=True)
 def _mock_l7_siret_api():
-    """Empeche tout appel reseau vers l'API SIRET dans les tests.
+    """Empeche tout appel reseau vers les APIs entreprise dans les tests.
 
-    Retourne systematiquement une entreprise active fictive.
-    Les tests unitaires de L7 qui mockent deja _call_api ne sont pas affectes
+    Retourne systematiquement une entreprise active fictive (France).
+    Les tests unitaires de L7 qui mockent deja _call_fr_api ne sont pas affectes
     car leur patch local prend precedence.
     """
     fake_response = {
@@ -37,7 +37,7 @@ def _mock_l7_siret_api():
         "nom_complet": "Entreprise Test SARL",
     }
     with patch(
-        "app.filters.l7_siret.L7SiretFilter._call_api",
+        "app.filters.l7_siret.L7SiretFilter._call_fr_api",
         return_value=fake_response,
     ):
         yield

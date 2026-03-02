@@ -7,7 +7,7 @@
  * Run: npm run test:extension
  */
 
-const {
+import {
   extractVehicleFromNextData,
   extractRegionFromNextData,
   extractLocationFromNextData,
@@ -19,7 +19,7 @@ const {
   fetchSearchPricesViaHtml,
   buildApiFilters,
   parseRange,
-  filterAndMapSearchAds,
+  filterAndMapSearchAds, brandMatches,
   extractMileageFromNextData,
   isStaleData,
   isAdPage,
@@ -38,7 +38,19 @@ const {
   API_URL,
   getAdDetails,
   reportJobDone,
-} = require('../content.js');
+} from '../content.js';
+import { initLbcDeps } from '../extractors/leboncoin.js';
+
+// Inject dependencies for leboncoin.js functions used in tests.
+// In the test environment, backendFetch simply delegates to global.fetch
+// (no Chrome runtime available) and sleep is a no-op.
+beforeAll(() => {
+  initLbcDeps({
+    backendFetch: (url, opts) => fetch(url, opts),
+    sleep: () => Promise.resolve(),
+    apiUrl: "http://localhost:5001/api/analyze",
+  });
+});
 
 
 // ── Fixtures ────────────────────────────────────────────────────────
@@ -218,6 +230,10 @@ describe('isAdPage', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('extractVehicleFromNextData', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
   it('extrait make/model/year depuis les attributs standards', () => {
     const result = extractVehicleFromNextData(makeNextData());
     expect(result).toEqual({
@@ -323,6 +339,38 @@ describe('extractVehicleFromNextData', () => {
 
   it('retourne un objet vide quand nextData est null', () => {
     expect(extractVehicleFromNextData(null)).toEqual({});
+  });
+
+  it('extrait les tokens DOM LBC quand le modele contient un espace encode en +', () => {
+    document.body.innerHTML =
+      '<a href="https://www.leboncoin.fr/c/voitures/u_car_brand:BMW+u_car_model:BMW_S%C3%A9rie+3+u_car_fuel:1">Voir d\'autres annonces</a>';
+
+    const result = extractVehicleFromNextData(makeNextData({
+      attributes: [
+        { key: 'brand', value: 'BMW' },
+        { key: 'model', value: 'Serie 3' },
+        { key: 'regdate', value: '2021' },
+      ],
+    }));
+
+    expect(result.site_brand_token).toBe('BMW');
+    expect(result.site_model_token).toBe('BMW_Série 3');
+  });
+
+  it('extrait correctement les tokens DOM LBC DS (DS_DS+7)', () => {
+    document.body.innerHTML =
+      '<a href="https://www.leboncoin.fr/c/voitures/u_car_brand:DS+u_car_model:DS_DS+7+u_car_fuel:2">Voir d\'autres annonces</a>';
+
+    const result = extractVehicleFromNextData(makeNextData({
+      attributes: [
+        { key: 'brand', value: 'Ds' },
+        { key: 'model', value: 'DS 7' },
+        { key: 'regdate', value: '2024' },
+      ],
+    }));
+
+    expect(result.site_brand_token).toBe('DS');
+    expect(result.site_model_token).toBe('DS_DS 7');
   });
 });
 
@@ -778,16 +826,22 @@ describe('maybeCollectMarketPrices', () => {
    *   1. GET  /market-prices/next-job      -> jobResponse (json)
    *   2. POST api.leboncoin.fr/finder/search -> { ads: [] } (force HTML fallback)
    *      GET  leboncoin.fr/recherche        -> searchHTML (text)
-   *      [repete 2 appels par strategie d'escalade]
+   *      [repete 2 appels par strategie -- prix ACCUMULES entre strategies]
    *   3. POST /market-prices               -> { ok: submitOk }
+   *
+   * NOTE: Depuis le passage a l'accumulation, la boucle de strategies ne s'arrete
+   * plus au premier succes. Elle parcourt TOUTES les strategies (sauf cap a 100).
+   * Quand searchHTML est fourni (une seule valeur), il est replique pour toutes
+   * les strategies (strategyCount, defaut 6 = sans geo).
    *
    * @param {object} opts
    * @param {object} opts.jobResponse - Reponse next-job
-   * @param {string} opts.searchHTML - HTML pour UNE recherche (si assez de prix, pas d'escalade)
-   * @param {string[]} opts.searchHTMLs - HTML pour CHAQUE strategie d'escalade (prioritaire sur searchHTML)
+   * @param {string} opts.searchHTML - HTML replique pour TOUTES les strategies
+   * @param {string[]} opts.searchHTMLs - HTML pour CHAQUE strategie (prioritaire sur searchHTML)
    * @param {boolean} opts.submitOk - Reponse du POST market-prices
+   * @param {number} opts.strategyCount - Nombre de strategies (defaut 6 = sans geo, 7 = avec geo)
    */
-  function mockFetchSequence({ jobResponse, searchHTML, searchHTMLs, submitOk = true }) {
+  function mockFetchSequence({ jobResponse, searchHTML, searchHTMLs, submitOk = true, strategyCount = 6 }) {
     const fetchMock = vi.fn();
 
     // Appel 1 : next-job
@@ -797,7 +851,8 @@ describe('maybeCollectMarketPrices', () => {
     });
 
     // Appels search : 2 par strategie (API finder → vide, HTML → fallback)
-    const htmls = searchHTMLs || (searchHTML !== undefined ? [searchHTML] : []);
+    // Quand searchHTML est fourni, le repliquer pour toutes les strategies (accumulation)
+    const htmls = searchHTMLs || (searchHTML !== undefined ? Array(strategyCount).fill(searchHTML) : []);
     for (const html of htmls) {
       // API LBC finder/search (retourne 0 ads → force fallback HTML)
       fetchMock.mockResolvedValueOnce({
@@ -890,7 +945,8 @@ describe('maybeCollectMarketPrices', () => {
       // NE DOIT PAS etre bloque par le cooldown
       expect(result.submitted).toBe(true);
       expect(result.isCurrentVehicle).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      // 6 strategies (sans geo) : next-job + 6×(API+HTML) + POST = 14
+      expect(fetchMock).toHaveBeenCalledTimes(14);
     });
 
     it('bloque la collecte redirect mais execute les bonus jobs quand cooldown actif', async () => {
@@ -957,7 +1013,8 @@ describe('maybeCollectMarketPrices', () => {
 
       expect(result.submitted).toBe(true);
       expect(result.isCurrentVehicle).toBe(false);
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      // 6 strategies (sans geo) : next-job + 6×(API+HTML) + POST = 14
+      expect(fetchMock).toHaveBeenCalledTimes(14);
     });
 
     it('traite absence de localStorage comme cooldown expire', async () => {
@@ -1088,15 +1145,17 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // 4eme appel = POST (next-job + API + HTML + POST)
-      expect(fetchMock).toHaveBeenCalledTimes(4);
-      const postCall = fetchMock.mock.calls[3];
+      // 6 strategies (sans geo) : next-job + 6×(API+HTML) + POST = 14
+      expect(fetchMock).toHaveBeenCalledTimes(14);
+      // Le POST est le dernier appel (index 13)
+      const postCall = fetchMock.mock.calls[13];
       expect(postCall[1].method).toBe('POST');
 
       const body = JSON.parse(postCall[1].body);
       expect(body.make).toBe('Peugeot');
       expect(body.model).toBe('3008');
       expect(body.year).toBe(2021); // parseInt applique
+      // Les prix sont accumules avec dedup par price+km : meme HTML replique = 20 uniques
       expect(body.prices).toEqual(prices20);
       expect(body.fuel).toBe('diesel');
       // price_details contient les objets enrichis
@@ -1117,8 +1176,9 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const body = JSON.parse(fetchMock.mock.calls[3][1].body);
-      // prices is int array extracted from objects
+      // Le POST est le dernier appel (index 13 = next-job + 6×2 strats + POST)
+      const body = JSON.parse(fetchMock.mock.calls[13][1].body);
+      // prices is int array extracted from objects (dedup: meme HTML replique = 20 uniques > 500)
       expect(body.prices).toEqual(validPrices);
       expect(body.prices).not.toContain(100);
       expect(body.prices).not.toContain(500);
@@ -1128,16 +1188,16 @@ describe('maybeCollectMarketPrices', () => {
 
     it('ne POST pas quand moins de 20 prix valides (toutes strategies epuisees)', async () => {
       const tooFew = makeSearchHTML([12000, 13000]);
-      // Sans geo, avec region : 6 strategies
+      // Sans geo, avec region : 7 strategies (6 base + 1 text fallback)
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
-        searchHTMLs: Array(6).fill(tooFew),
+        searchHTMLs: Array(7).fill(tooFew),
       });
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // next-job + 6 recherches × 2 (API + HTML) + 1 POST failed-search
-      expect(fetchMock).toHaveBeenCalledTimes(14);
+      // next-job + 7 recherches × 2 (API + HTML) + 1 POST failed-search = 16
+      expect(fetchMock).toHaveBeenCalledTimes(16);
     });
 
     it('utilise u_car_brand et u_car_model dans URL de recherche LBC', async () => {
@@ -1212,6 +1272,7 @@ describe('maybeCollectMarketPrices', () => {
         jobResponse: makeJobResponse(currentVehicle, true, 'Auvergne-Rhône-Alpes'),
         searchHTML: makeSearchHTML(makePrices(20)),
         submitOk: true,
+        strategyCount: 7, // avec geo
       });
 
       const nextData = makeNextData({
@@ -1285,7 +1346,8 @@ describe('maybeCollectMarketPrices', () => {
       // Assertions critiques pour le fix
       expect(result.submitted).toBe(true);
       expect(result.isCurrentVehicle).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      // 6 strategies (sans geo) : next-job + 6×(API+HTML) + POST = 14
+      expect(fetchMock).toHaveBeenCalledTimes(14);
 
       // Le timestamp doit etre rafraichi
       const newTs = parseInt(localStorage.getItem('copilot_last_collect'), 10);
@@ -1301,9 +1363,12 @@ describe('maybeCollectMarketPrices', () => {
       const tooFew = makeSearchHTML([12000, 13000]); // < 20 = pas assez
       const enough = makeSearchHTML(makePrices(20)); // 20 prix = OK
 
+      // Avec geo : 7 strategies. Toutes sont parcourues (accumulation).
+      // Strategie 1 (geo) retourne tooFew, strategie 2 (rn) retourne enough,
+      // strategies 3-7 retournent tooFew (prix deja dans l'accumulation, dedup).
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Auvergne-Rhône-Alpes'),
-        searchHTMLs: [tooFew, enough], // strategie 1 echoue, strategie 2 reussit
+        searchHTMLs: [tooFew, enough, tooFew, tooFew, tooFew, tooFew, tooFew],
         submitOk: true,
       });
 
@@ -1321,8 +1386,8 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 6 appels : next-job + 2×(API+HTML) + POST
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      // 7 strategies (avec geo) : next-job + 7×(API+HTML) + POST = 16
+      expect(fetchMock).toHaveBeenCalledTimes(16);
 
       // Strategie 1 : geo-location (HTML at index 2)
       const url1 = fetchMock.mock.calls[2][0];
@@ -1337,9 +1402,11 @@ describe('maybeCollectMarketPrices', () => {
       const tooFew = makeSearchHTML([12000, 13000]); // pas assez
       const enough = makeSearchHTML(makePrices(20)); // OK
 
+      // Avec geo : 7 strategies. Strategies 1+2 echouent, 3 atteint le seuil,
+      // strategies 4-7 continuent (accumulation) mais n'ajoutent rien de nouveau.
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
-        searchHTMLs: [tooFew, tooFew, enough], // strategies 1+2 echouent, 3 reussit
+        searchHTMLs: [tooFew, tooFew, enough, tooFew, tooFew, tooFew, tooFew],
         submitOk: true,
       });
 
@@ -1356,8 +1423,8 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 8 appels : next-job + 3×(API+HTML) + POST
-      expect(fetchMock).toHaveBeenCalledTimes(8);
+      // 7 strategies (avec geo) : next-job + 7×(API+HTML) + POST = 16
+      expect(fetchMock).toHaveBeenCalledTimes(16);
 
       // Strategie 3 : regdate elargi ±2 (2021 → 2019-2023) (HTML at index 6)
       const url3 = fetchMock.mock.calls[6][0];
@@ -1369,10 +1436,11 @@ describe('maybeCollectMarketPrices', () => {
       const tooFew = makeSearchHTML([12000, 13000]); // pas assez
       const enough = makeSearchHTML(makePrices(20));
 
-      // 3 echouent (geo ±1, rn ±1, rn ±2), national ±1 reussit
+      // Avec geo : 7 strategies. 3 echouent, national ±1 atteint le seuil,
+      // strategies 5-7 continuent (accumulation).
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
-        searchHTMLs: [tooFew, tooFew, tooFew, enough],
+        searchHTMLs: [tooFew, tooFew, tooFew, enough, tooFew, tooFew, tooFew],
         submitOk: true,
       });
 
@@ -1389,8 +1457,8 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, nextData);
 
       expect(result.submitted).toBe(true);
-      // 10 appels : next-job + 4×(API+HTML) + POST
-      expect(fetchMock).toHaveBeenCalledTimes(10);
+      // 7 strategies (avec geo) : next-job + 7×(API+HTML) + POST = 16
+      expect(fetchMock).toHaveBeenCalledTimes(16);
 
       // Strategie 4 : national (pas de locations=) (HTML at index 8)
       const url4 = fetchMock.mock.calls[8][0];
@@ -1444,36 +1512,38 @@ describe('maybeCollectMarketPrices', () => {
       expect(url7).toContain('regdate=2018-2024'); // ±3
     });
 
-    it('stoppe des que la premiere strategie a assez de prix', async () => {
+    it('accumule les prix a travers toutes les strategies (dedup par price+km)', async () => {
       const enough = makeSearchHTML(makePrices(20));
 
+      // Meme si strategie 1 a assez de prix, toutes les strategies sont parcourues
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
-        searchHTML: enough, // strategie 1 suffit
+        searchHTML: enough,
         submitOk: true,
       });
 
       const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       expect(result.submitted).toBe(true);
-      // 4 appels : next-job + 1×(API+HTML) + POST (pas d'escalade)
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      // 6 strategies (sans geo) : next-job + 6×(API+HTML) + POST = 14
+      // (les strategies continuent meme apres le seuil de 20)
+      expect(fetchMock).toHaveBeenCalledTimes(14);
     });
 
-    it('sans geo-location, 6 strategies (rn + national + relax)', async () => {
+    it('sans geo-location, 7 strategies (rn + national + relax + text fallback)', async () => {
       const tooFew = makeSearchHTML([12000, 13000]);
 
-      // Sans geo, avec region : 6 strategies
+      // Sans geo, avec region : 7 strategies (6 base + 1 text fallback)
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle, true, 'Île-de-France'),
-        searchHTMLs: Array(6).fill(tooFew),
+        searchHTMLs: Array(7).fill(tooFew),
       });
 
       // makeNextData() n'a PAS de lat/lng → pas de strategie geo
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      // 14 appels : next-job + 6×(API+HTML) + 1 POST failed-search
-      expect(fetchMock).toHaveBeenCalledTimes(14);
+      // 16 appels : next-job + 7×(API+HTML) + 1 POST failed-search
+      expect(fetchMock).toHaveBeenCalledTimes(16);
     });
   });
 });
@@ -1739,6 +1809,108 @@ describe('filterAndMapSearchAds', () => {
 
 
 // ═══════════════════════════════════════════════════════════════════
+// 10b. brandMatches : matching de marque pour filtrer les pubs
+// ═══════════════════════════════════════════════════════════════════
+
+describe('brandMatches', () => {
+  it('match exact (case-insensitive)', () => {
+    expect(brandMatches('Peugeot', 'PEUGEOT')).toBe(true);
+    expect(brandMatches('BMW', 'bmw')).toBe(true);
+  });
+
+  it('retourne true si adBrand ou targetMake est null/vide', () => {
+    expect(brandMatches(null, 'Peugeot')).toBe(true);
+    expect(brandMatches('Peugeot', null)).toBe(true);
+    expect(brandMatches('', 'Peugeot')).toBe(true);
+    expect(brandMatches(null, null)).toBe(true);
+  });
+
+  it('VW ↔ Volkswagen', () => {
+    expect(brandMatches('VW', 'Volkswagen')).toBe(true);
+    expect(brandMatches('Volkswagen', 'VW')).toBe(true);
+  });
+
+  it('Mercedes-Benz variants', () => {
+    expect(brandMatches('Mercedes-Benz', 'MERCEDES')).toBe(true);
+    expect(brandMatches('MERCEDES', 'Mercedes-Benz')).toBe(true);
+  });
+
+  it('Alfa Romeo containment', () => {
+    expect(brandMatches('Alfa Romeo', 'Alfa')).toBe(true);
+    expect(brandMatches('Alfa', 'Alfa Romeo')).toBe(true);
+  });
+
+  it('rejette les marques differentes', () => {
+    expect(brandMatches('Volkswagen', 'Peugeot')).toBe(false);
+    expect(brandMatches('BMW', 'Audi')).toBe(false);
+    expect(brandMatches('Renault', 'Toyota')).toBe(false);
+  });
+
+  it('gere les accents (Citroën → Citroen)', () => {
+    expect(brandMatches('Citroën', 'Citroen')).toBe(true);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 10c. filterAndMapSearchAds brand safety : filtre annonces sponsorisees
+// ═══════════════════════════════════════════════════════════════════
+
+describe('filterAndMapSearchAds brand safety', () => {
+  function makeLbcAdWithBrand({ price = 18000, year = 2021, km = 50000, fuel = 'Diesel', brand = 'Peugeot' } = {}) {
+    return {
+      price: [price],
+      attributes: [
+        { key: 'regdate', value: String(year) },
+        { key: 'mileage', value: String(km) },
+        { key: 'fuel', value_label: fuel },
+        { key: 'u_car_brand', value: brand, value_label: brand },
+      ],
+    };
+  }
+
+  it('garde les annonces de la bonne marque', () => {
+    const ads = [
+      makeLbcAdWithBrand({ brand: 'Peugeot', price: 18000 }),
+      makeLbcAdWithBrand({ brand: 'PEUGEOT', price: 19000 }),
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1, 'Peugeot');
+    expect(result).toHaveLength(2);
+  });
+
+  it('rejette les annonces sponsorisees d\'autres marques', () => {
+    const ads = [
+      makeLbcAdWithBrand({ brand: 'Volkswagen', price: 20000 }), // sponsorisee
+      makeLbcAdWithBrand({ brand: 'BMW', price: 22000 }),        // sponsorisee
+      makeLbcAdWithBrand({ brand: 'Peugeot', price: 18000 }),    // OK
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1, 'Peugeot');
+    expect(result).toHaveLength(1);
+    expect(result[0].price).toBe(18000);
+  });
+
+  it('garde les annonces sans attribut marque (graceful fallback)', () => {
+    const ads = [{
+      price: [15000],
+      attributes: [{ key: 'regdate', value: '2021' }],
+      // pas de u_car_brand
+    }];
+    const result = filterAndMapSearchAds(ads, 2021, 1, 'Peugeot');
+    expect(result).toHaveLength(1);
+  });
+
+  it('ne filtre pas quand targetMake est null', () => {
+    const ads = [
+      makeLbcAdWithBrand({ brand: 'Volkswagen', price: 20000 }),
+      makeLbcAdWithBrand({ brand: 'Peugeot', price: 18000 }),
+    ];
+    const result = filterAndMapSearchAds(ads, 2021, 1, null);
+    expect(result).toHaveLength(2);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
 // 11. fetchSearchPricesViaApi : appel API LBC finder/search
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1909,6 +2081,14 @@ describe('reportJobDone', () => {
   });
 
   it('nemet pas de warning quand le runtime extension est indisponible (localhost)', async () => {
+    // Simulate backendFetch behavior when chrome runtime is unavailable for a
+    // localhost URL: it throws "runtime_unavailable_for_local_backend" which is
+    // a benign error that should be caught silently (debug, not warn).
+    initLbcDeps({
+      backendFetch: () => { throw new Error('runtime_unavailable_for_local_backend'); },
+      sleep: () => Promise.resolve(),
+      apiUrl: "http://localhost:5001/api/analyze",
+    });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
@@ -1916,6 +2096,13 @@ describe('reportJobDone', () => {
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(debugSpy).toHaveBeenCalled();
+
+    // Restore default test deps
+    initLbcDeps({
+      backendFetch: (url, opts) => fetch(url, opts),
+      sleep: () => Promise.resolve(),
+      apiUrl: "http://localhost:5001/api/analyze",
+    });
   });
 
   it('garde un warning pour les erreurs non-benignes', async () => {

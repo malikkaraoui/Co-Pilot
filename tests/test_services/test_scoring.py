@@ -136,3 +136,67 @@ class TestWeightedScoringScenarios:
         assert score >= 75
         assert score <= 90
         assert is_partial is True
+
+
+class TestNeutralScoring:
+    """Tests du status neutral dans le scoring."""
+
+    def test_neutral_excluded_from_weight(self):
+        """Neutral filters are excluded from both numerator AND denominator."""
+        results = [
+            FilterResult("L1", "pass", 1.0, "OK"),
+            FilterResult("L2", "pass", 0.8, "OK"),
+            FilterResult("L7", "neutral", 0.0, "Non applicable"),
+        ]
+        score, is_partial = calculate_score(results)
+        # L7 neutral: exclu du calcul
+        # Weighted: L1(1.0*1.0) + L2(2.0*0.8) = 2.6 / 3.0 = 87
+        assert score == 87
+        assert is_partial is True
+
+    def test_neutral_vs_skip_difference(self):
+        """Skip penalizes (0 in numerator, weight in denom), neutral does not."""
+        results_skip = [
+            FilterResult("L1", "pass", 1.0, "OK"),
+            FilterResult("L7", "skip", 0.0, "Skipped"),
+        ]
+        results_neutral = [
+            FilterResult("L1", "pass", 1.0, "OK"),
+            FilterResult("L7", "neutral", 0.0, "Non applicable"),
+        ]
+        score_skip, _ = calculate_score(results_skip)
+        score_neutral, _ = calculate_score(results_neutral)
+        # Skip: 1.0 / 2.0 = 50
+        # Neutral: 1.0 / 1.0 = 100
+        assert score_skip == 50
+        assert score_neutral == 100
+
+    def test_private_seller_neutral_high_score(self):
+        """Vendeur prive avec L6+L7 neutral doit scorer >= 90."""
+        results = [
+            FilterResult("L1", "warning", 0.8, "Infos manquantes"),
+            FilterResult("L2", "pass", 1.0, "Reconnu"),
+            FilterResult("L3", "pass", 1.0, "Coherent"),
+            FilterResult("L4", "pass", 1.0, "Prix ok"),
+            FilterResult("L5", "pass", 1.0, "Stats ok"),
+            FilterResult("L6", "neutral", 0.0, "Particulier sans tel"),
+            FilterResult("L7", "neutral", 0.0, "Vendeur particulier"),
+            FilterResult("L8", "pass", 1.0, "Pas d'import"),
+            FilterResult("L9", "warning", 0.75, "Pas de telephone"),
+        ]
+        score, is_partial = calculate_score(results)
+        # Exclu: L6(0.5) + L7(1.0) du denom → total_weight = 10.5
+        # Weighted: (0.8 + 2.0 + 1.5 + 2.0 + 1.5 + 1.0 + 1.125) / 10.5 = 95
+        assert score >= 90
+        assert score <= 100
+        assert is_partial is True
+
+    def test_all_neutral(self):
+        """Tous neutral → score 0, partial."""
+        results = [
+            FilterResult("L1", "neutral", 0.0, "N/A"),
+            FilterResult("L2", "neutral", 0.0, "N/A"),
+        ]
+        score, is_partial = calculate_score(results)
+        assert score == 0
+        assert is_partial is True

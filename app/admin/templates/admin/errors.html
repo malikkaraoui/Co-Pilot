@@ -38,7 +38,7 @@
         {% for log in logs.items %}
         <tr>
           <td class="text-muted" style="font-size:12px">
-            {{ (log.created_at|localtime).strftime('%d/%m %H:%M:%S') if log.created_at else '-' }}
+            {{ log.created_at|localdatetime('%d/%m %H:%M:%S') }}
           </td>
           <td>
             {% if log.level == 'ERROR' %}

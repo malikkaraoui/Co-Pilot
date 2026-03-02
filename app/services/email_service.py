@@ -11,7 +11,7 @@ from app.services.extraction import extract_ad_data
 
 logger = logging.getLogger(__name__)
 
-# Mapping filter_id -> nom lisible pour le prompt
+# Mapping filter_id -> nom lisible pour le prompt (par defaut FR)
 _FILTER_NAMES = {
     "L1": "Completude annonce",
     "L2": "Identification vehicule",
@@ -25,9 +25,13 @@ _FILTER_NAMES = {
     "L10": "Anciennete annonce",
 }
 
-_SYSTEM_PROMPT = """\
+# Overrides par pays
+_FILTER_NAMES_CH = {**_FILTER_NAMES, "L7": "Verification UID"}
+_FILTER_NAMES_BY_COUNTRY = {"CH": _FILTER_NAMES_CH}
+
+_SYSTEM_PROMPT_TEMPLATE = """\
 Tu es un acheteur automobile averti qui redige un email au vendeur \
-d'un vehicule d'occasion sur Le Bon Coin.
+d'un vehicule d'occasion sur {site_name}.
 
 REGLES ABSOLUES:
 - Ecris en francais courant, sans fautes, sans emojis, sans markdown
@@ -38,18 +42,34 @@ REGLES ABSOLUES:
 - Structure: objet, salutation, corps (3-5 paragraphes), proposition RDV, signature
 - Commence par "Objet : " sur la premiere ligne"""
 
+# Mapping source → site display name
+_SOURCE_NAMES = {
+    "leboncoin": "Le Bon Coin",
+    "autoscout24": "AutoScout24",
+}
 
-def _build_signals_block(filters: list[dict]) -> str:
+
+def _detect_source(scan_url: str, raw_data: dict) -> str:
+    """Detecte la source (leboncoin/autoscout24) depuis l'URL ou le raw_data."""
+    if "autoscout24" in (scan_url or ""):
+        return "autoscout24"
+    if raw_data.get("source") == "autoscout24":
+        return "autoscout24"
+    return "leboncoin"
+
+
+def _build_signals_block(filters: list[dict], country: str = "FR") -> str:
     """Construit un bloc de texte decrivant les signaux d'analyse."""
     alerts = []
     positives = []
+    names = _FILTER_NAMES_BY_COUNTRY.get(country, _FILTER_NAMES)
 
     for f in filters:
         fid = f.get("filter_id", "")
         status = f.get("status", "")
         message = f.get("message", "")
         details = f.get("details") or {}
-        name = _FILTER_NAMES.get(fid, fid)
+        name = names.get(fid, fid)
 
         if status == "fail":
             detail_text = _extract_detail_text(fid, details)
@@ -90,12 +110,25 @@ def _extract_detail_text(filter_id: str, details: dict) -> str:
             parts.append(f"{days}j en ligne")
 
     elif filter_id == "L7":
-        etat = details.get("etat_administratif")
+        # France: etat_administratif / nom_complet
+        etat = details.get("etat_administratif") or details.get("etat")
         if etat:
             parts.append(f"etat entreprise: {etat}")
-        nom = details.get("nom_complet")
+        nom = details.get("nom_complet") or details.get("denomination") or details.get("name")
         if nom:
             parts.append(f"societe: {nom}")
+        # Suisse: UID + status Zefix
+        uid = details.get("formatted") or details.get("uid")
+        if uid and uid.startswith("CHE"):
+            parts.append(f"UID: {uid}")
+        zefix_status = details.get("status")
+        if zefix_status:
+            parts.append(f"statut: {zefix_status}")
+        # Dealer rating (AS24 etc.)
+        dealer_rating = details.get("dealer_rating")
+        dealer_review_count = details.get("dealer_review_count")
+        if dealer_rating:
+            parts.append(f"note vendeur: {dealer_rating}/5 ({dealer_review_count} avis)")
 
     elif filter_id == "L8":
         signals = details.get("signals") or []
@@ -118,11 +151,42 @@ def _extract_detail_text(filter_id: str, details: dict) -> str:
     return f" ({', '.join(parts)})" if parts else ""
 
 
-def build_email_prompt(scan_data: dict, filters: list[dict]) -> str:
+def _import_consigne(country: str) -> str:
+    """Retourne la consigne import adaptee au pays."""
+    if country == "CH":
+        return "Si import detecte, demande le permis de circulation et le dedouanement (formulaire 13.20A)"
+    return "Si import detecte, demande COC et carte grise"
+
+
+def _detect_country_from_source(source: str, scan_url: str = "") -> str:
+    """Detecte le pays depuis la source et l'URL pour le prompt email."""
+    url_lower = (scan_url or "").lower()
+    if ".ch" in url_lower:
+        return "CH"
+    if ".de" in url_lower:
+        return "DE"
+    if ".at" in url_lower:
+        return "AT"
+    if ".it" in url_lower:
+        return "IT"
+    return "FR"
+
+
+def build_email_prompt(scan_data: dict, filters: list[dict], source: str = "leboncoin") -> str:
     """Construit le prompt pour Gemini a partir des donnees d'analyse."""
+    site_name = _SOURCE_NAMES.get(source, source)
+    country = _detect_country_from_source(source, scan_data.get("url", ""))
     make = scan_data.get("make") or "?"
     model = scan_data.get("model") or "?"
-    price = scan_data.get("price_eur") or scan_data.get("price") or "?"
+
+    # Prix: afficher dans la devise originale si disponible
+    price_original = scan_data.get("price_original")
+    currency_original = scan_data.get("currency_original")
+    if price_original and currency_original:
+        price = f"{price_original} {currency_original}"
+    else:
+        price = str(scan_data.get("price_eur") or scan_data.get("price") or "?") + " EUR"
+
     year = scan_data.get("year_model") or scan_data.get("year") or ""
     mileage = scan_data.get("mileage_km") or ""
     fuel = scan_data.get("fuel") or ""
@@ -141,15 +205,30 @@ def build_email_prompt(scan_data: dict, filters: list[dict]) -> str:
     if len(description) > 500:
         description = description[:500] + "..."
 
-    signals_block = _build_signals_block(filters)
+    signals_block = _build_signals_block(filters, country=country)
 
-    # Contexte vendeur adapte
+    # Contexte vendeur adapte au pays
     if owner_type == "pro":
+        if country == "CH":
+            seller_context = (
+                "VENDEUR PROFESSIONNEL (Suisse). Pose des questions precises: "
+                "historique du vehicule, carnet d'entretien complet, "
+                "garanties professionnelles, possibilite de facture. "
+                "Demande le permis de circulation et le rapport d'expertise MFK. "
+                "Mentionne que tu veux voir les documents en personne."
+            )
+        else:
+            seller_context = (
+                "VENDEUR PROFESSIONNEL. Pose des questions precises: "
+                "historique du vehicule en parc, carnet d'entretien complet, "
+                "garanties professionnelles, possibilite de facture. "
+                "Mentionne que tu veux voir les documents en personne."
+            )
+    elif country == "CH":
         seller_context = (
-            "VENDEUR PROFESSIONNEL. Pose des questions precises: "
-            "historique du vehicule en parc, carnet d'entretien complet, "
-            "garanties professionnelles, possibilite de facture. "
-            "Mentionne que tu veux voir les documents en personne."
+            "VENDEUR PARTICULIER (Suisse). Sois cordial mais direct. "
+            "Demande les factures d'entretien, le rapport d'expertise MFK, "
+            "les raisons de la vente, et si le vehicule a eu des sinistres."
         )
     else:
         seller_context = (
@@ -158,9 +237,9 @@ def build_email_prompt(scan_data: dict, filters: list[dict]) -> str:
             "les raisons de la vente, et si le vehicule a eu des sinistres."
         )
 
-    example = """\
+    example = f"""\
 --- EXEMPLE DE BON EMAIL ---
-Objet : Demande d'informations - Peugeot 308 2019 - Le Bon Coin
+Objet : Demande d'informations - Peugeot 308 2019 - {site_name}
 
 Bonjour,
 
@@ -197,7 +276,7 @@ VEHICULE:
 - Boite: {gearbox}
 - Couleur: {color}
 - Kilometrage: {mileage} km
-- Prix demande: {price} EUR
+- Prix demande: {price}
 - Localisation: {city}
 - En ligne depuis: {days_online} jours
 - Nombre de photos: {image_count}
@@ -221,7 +300,7 @@ CONSIGNES FINALES:
 pertinentes d'acheteur averti
 - Si le vehicule est en ligne depuis longtemps, mentionne-le pour negocier
 - Si peu de photos ({image_count}), demande des photos supplementaires
-- Si import detecte, demande COC et carte grise
+- {_import_consigne(country)}
 - Si entreprise radiee/fermee, pose la question de la garantie
 - Termine par une proposition de rendez-vous concret
 - Signe "[Votre prenom]"
@@ -241,13 +320,22 @@ def generate_email_draft(scan_id: int) -> EmailDraft:
     if not scan:
         raise ValueError(f"Scan introuvable: {scan_id}")
 
-    # Reextraire les donnees structurees depuis le raw_data (next_data LBC)
-    raw_next_data = scan.raw_data or {}
-    try:
-        ad_data = extract_ad_data(raw_next_data)
-    except Exception:
-        logger.warning("extract_ad_data failed for scan %d, fallback minimal", scan_id)
-        ad_data = {}
+    # Reextraire les donnees structurees depuis le raw_data.
+    # Pour LBC: raw_data est un next_data qu'on re-extrait.
+    # Pour AS24+: raw_data est deja un ad_data normalise.
+    raw_data = scan.raw_data or {}
+    source = _detect_source(scan.url, raw_data)
+
+    if source != "leboncoin" and raw_data.get("make"):
+        # Pre-normalized ad_data (AutoScout24, etc.)
+        ad_data = raw_data
+    else:
+        # Legacy LBC path
+        try:
+            ad_data = extract_ad_data(raw_data)
+        except Exception:
+            logger.warning("extract_ad_data failed for scan %d, fallback minimal", scan_id)
+            ad_data = {}
 
     # Enrichir avec les champs du ScanLog (plus fiables car normalises)
     scan_data = {**ad_data}
@@ -274,13 +362,15 @@ def generate_email_draft(scan_id: int) -> EmailDraft:
         for fr in filter_results
     ]
 
-    prompt = build_email_prompt(scan_data, filters)
+    prompt = build_email_prompt(scan_data, filters, source=source)
 
-    # Appel Gemini avec system prompt
+    # Appel Gemini avec system prompt adapte a la source
+    site_name = _SOURCE_NAMES.get(source, source)
+    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(site_name=site_name)
     generated_text, total_tokens = gemini_service.generate_text(
         prompt=prompt,
         feature="email_draft",
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         max_output_tokens=1024,
         temperature=0.4,
     )

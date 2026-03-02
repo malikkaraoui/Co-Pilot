@@ -24,6 +24,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 dist/
+!extension/dist/
 build/
 .eggs/
 *.egg
@@ -41,5 +42,10 @@ reports/
 # SQLite database (managed via Docker volume in prod)
 data/copilot.db
 
+# Chrome Web Store packaging
+extension.zip
+
 # Ruff
 .ruff_cache/
+.playwright-mcp/
+*.jpeg

@@ -129,3 +129,54 @@ class TestL5MarketPriceFallback:
 
         assert result.status == "pass"
         assert result.details["source"] == "marche_leboncoin"
+
+
+class TestL5HpRange:
+    """Tests du helper _get_hp_range et du filtrage par puissance."""
+
+    def test_hp_range_low(self):
+        assert L5VisualFilter._get_hp_range(75) == "min-90"
+
+    def test_hp_range_mid(self):
+        assert L5VisualFilter._get_hp_range(136) == "100-150"
+
+    def test_hp_range_gti(self):
+        """Un GTI (245ch) doit tomber dans 170-260."""
+        assert L5VisualFilter._get_hp_range(245) == "170-260"
+
+    def test_hp_range_high(self):
+        assert L5VisualFilter._get_hp_range(400) == "340-max"
+
+    def test_hp_range_none(self):
+        assert L5VisualFilter._get_hp_range(None) is None
+        assert L5VisualFilter._get_hp_range(0) is None
+        assert L5VisualFilter._get_hp_range(-5) is None
+
+    def test_hp_range_in_details(self):
+        """Le hp_range utilise doit apparaitre dans les details du filtre."""
+        market_ref = np.array([30000, 35000, 40000], dtype=float)
+        filt = L5VisualFilter()
+        with patch.object(L5VisualFilter, "_collect_market_prices", return_value=market_ref):
+            result = filt.run(
+                {
+                    "price_eur": 35000,
+                    "make": "VW",
+                    "model": "Golf",
+                    "power_din_hp": 245,
+                }
+            )
+        assert result.details["hp_range"] == "170-260"
+
+    def test_hp_range_none_in_details_when_no_hp(self):
+        """Sans puissance, hp_range doit etre None."""
+        market_ref = np.array([15000, 18000, 21000], dtype=float)
+        filt = L5VisualFilter()
+        with patch.object(L5VisualFilter, "_collect_market_prices", return_value=market_ref):
+            result = filt.run(
+                {
+                    "price_eur": 18000,
+                    "make": "VW",
+                    "model": "Golf",
+                }
+            )
+        assert result.details["hp_range"] is None

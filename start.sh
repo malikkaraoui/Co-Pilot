@@ -76,6 +76,17 @@ if [ -f requirements-dev.txt ]; then
   fi
 fi
 
+# -- Build extension (évite source à jour / dist obsolète) -----
+if command -v npm &>/dev/null && [ -f package.json ] && [ -f extension/build.js ]; then
+  if npm run -s build:ext >/dev/null 2>&1; then
+    ok "Bundle extension reconstruit (extension/dist/content.bundle.js)"
+  else
+    warn "Échec build extension (npm run build:ext) — vérifie Node/npm"
+  fi
+else
+  warn "npm introuvable ou build.js absent — bundle extension non reconstruit"
+fi
+
 # -- 4. Reset (si demandé) ------------------------------------
 if [ "$RESET" = true ]; then
   step "4/6" "Reset de la base de données"
@@ -106,11 +117,11 @@ with app.app_context():
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
 
-    # Migration market_prices : ancienne contrainte → 6 colonnes (make,model,year,region,fuel,hp_range)
+    # Migration market_prices : contrainte → 7 colonnes (make,model,year,region,fuel,hp_range,country)
     # SQLite ne supporte pas ALTER CONSTRAINT, on doit recréer la table
     if 'market_prices' in inspector.get_table_names():
         uqs = inspector.get_unique_constraints('market_prices')
-        expected_cols = {'make', 'model', 'year', 'region', 'fuel', 'hp_range'}
+        expected_cols = {'make', 'model', 'year', 'region', 'fuel', 'hp_range', 'country'}
         needs_migration = any(
             set(u['column_names']) != expected_cols
             for u in uqs
@@ -120,7 +131,19 @@ with app.app_context():
             db.session.execute(text('DROP TABLE market_prices'))
             db.session.commit()
             db.metadata.tables['market_prices'].create(db.engine)
-            print('  ↻ market_prices recréée (migration contrainte)')
+            print('  ↻ market_prices recréée (migration contrainte country)')
+
+    # Migration collection_jobs → collection_jobs_lbc (renommage table)
+    tables = inspector.get_table_names()
+    if 'collection_jobs' in tables and 'collection_jobs_lbc' not in tables:
+        db.session.execute(text('ALTER TABLE collection_jobs RENAME TO collection_jobs_lbc'))
+        db.session.commit()
+        print('  ↻ collection_jobs renommée → collection_jobs_lbc')
+    elif 'collection_jobs' in tables and 'collection_jobs_lbc' in tables:
+        # Les deux existent : supprimer l'ancienne (les donnees sont dans la nouvelle)
+        db.session.execute(text('DROP TABLE collection_jobs'))
+        db.session.commit()
+        print('  ↻ collection_jobs supprimée (doublon avec collection_jobs_lbc)')
 
     for table in db.metadata.sorted_tables:
         if table.name not in inspector.get_table_names():
@@ -188,7 +211,8 @@ with app.app_context():
     seen = set()
     for mp in MarketPrice.query.order_by(MarketPrice.collected_at.desc()).all():
         key = (mp.make.lower(), mp.model.lower(), mp.year, mp.region.lower(),
-               (mp.fuel or '').lower(), (mp.hp_range or '').lower())
+               (mp.fuel or '').lower(), (mp.hp_range or '').lower(),
+               (mp.country or 'FR').upper())
         if key in seen:
             db.session.delete(mp)
             dupes_deleted += 1

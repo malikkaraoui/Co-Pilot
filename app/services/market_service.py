@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.extensions import db
 from app.models.market_price import MarketPrice
+from app.services.extraction import normalize_region
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +25,23 @@ IQR_MIN_KEEP = 3  # Seuil de securite IQR : ne pas descendre en-dessous
 IQR_MULTIPLIER = 1.5
 
 
-def get_min_sample_count(make: str, model: str) -> int:
+# Marches etrangers plus petits que la France — seuils divises par 2
+_SMALL_MARKET_COUNTRIES = {"CH", "BE", "LU", "AT", "NL", "IT", "ES", "DE"}
+
+
+def get_min_sample_count(make: str, model: str, country: str = "FR") -> int:
     """Seuil dynamique d'annonces pour l'argus selon le segment du vehicule.
 
     Les voitures de niche (sportives, supercars) ont tres peu d'annonces sur LBC.
     Appliquer le meme seuil de 20 qu'une Clio les exclut systematiquement.
 
-    Tiers :
+    Tiers (France) :
     - Standard (< 300 ch) : 20 annonces minimum
     - Niche sportive (300-420 ch) : 10 annonces
     - Ultra-niche (> 420 ch) : 5 annonces (pas de diesel a ce niveau)
+
+    Les marches etrangers (CH, BE, etc.) appliquent la moitie du seuil FR
+    (minimum 5) car leurs catalogues d'annonces sont plus restreints.
 
     Un override admin (Vehicle.argus_min_samples) a priorite absolue.
 
@@ -45,29 +53,32 @@ def get_min_sample_count(make: str, model: str) -> int:
 
     vehicle = find_vehicle(make, model)
     if not vehicle:
-        return MIN_SAMPLE_COUNT
-
-    # Override admin : priorite absolue
-    if vehicle.argus_min_samples is not None:
+        base = MIN_SAMPLE_COUNT
+    elif vehicle.argus_min_samples is not None:
+        # Override admin : priorite absolue (pas de reduction pays)
         return vehicle.argus_min_samples
-
-    # Lookup puissance max dans les specs
-    max_hp = (
-        db.session.query(func.max(VehicleSpec.power_hp))
-        .filter(
-            VehicleSpec.vehicle_id == vehicle.id,
-            VehicleSpec.power_hp.isnot(None),
+    else:
+        # Lookup puissance max dans les specs
+        max_hp = (
+            db.session.query(func.max(VehicleSpec.power_hp))
+            .filter(
+                VehicleSpec.vehicle_id == vehicle.id,
+                VehicleSpec.power_hp.isnot(None),
+            )
+            .scalar()
         )
-        .scalar()
-    )
+        if max_hp and max_hp > 420:
+            base = MIN_SAMPLE_ULTRA_NICHE  # 5
+        elif max_hp and max_hp > 300:
+            base = MIN_SAMPLE_NICHE  # 10
+        else:
+            base = MIN_SAMPLE_COUNT  # 20
 
-    if max_hp:
-        if max_hp > 420:
-            return MIN_SAMPLE_ULTRA_NICHE  # 5
-        if max_hp > 300:
-            return MIN_SAMPLE_NICHE  # 10
+    # Marches etrangers : seuil divise par 2 (min 5)
+    if country and country.upper() in _SMALL_MARKET_COUNTRIES:
+        return max(base // 2, MIN_SAMPLE_ABSOLUTE)
 
-    return MIN_SAMPLE_COUNT  # 20
+    return base
 
 
 def _strip_accents(text: str) -> str:
@@ -262,6 +273,7 @@ def store_market_prices(
     fiscal_hp: int | None = None,
     lbc_estimate_low: int | None = None,
     lbc_estimate_high: int | None = None,
+    country: str | None = None,
 ) -> MarketPrice:
     """Stocke ou met a jour les prix du marche pour un vehicule/region.
 
@@ -280,10 +292,16 @@ def store_market_prices(
     Returns:
         L'instance MarketPrice creee ou mise a jour.
     """
-    make = normalize_market_text(make)
-    model = normalize_market_text(model)
-    region = normalize_market_text(region)
+    # Normalisation canonique via vehicle_lookup (meme aliases que l'extraction).
+    # Sans ca, LBC envoie "Ds 7" que market_text_key normalise en "ds 7",
+    # mais l'extraction Python normalise en "7" via MODEL_ALIASES → mismatch L4.
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    make = display_brand(make) if make else normalize_market_text(make)
+    model = display_model(model) if model else normalize_market_text(model)
+    region = normalize_region(region) or normalize_market_text(region)
     fuel = normalize_market_text(fuel).lower() if fuel else None
+    country = (country or "FR").upper().strip()[:5]
 
     # Filtrage IQR des outliers + calcul IQR Mean
     iqr = _filter_outliers_iqr(prices)
@@ -359,6 +377,7 @@ def store_market_prices(
         market_text_key_expr(MarketPrice.model) == market_text_key(model),
         MarketPrice.year == year,
         market_text_key_expr(MarketPrice.region) == market_text_key(region),
+        func.coalesce(MarketPrice.country, "FR") == country,
     ]
     if fuel:
         filters.append(func.lower(MarketPrice.fuel) == fuel)
@@ -392,13 +411,16 @@ def store_market_prices(
         existing.model = model
         existing.region = region
         existing.fuel = fuel
+        existing.country = country
         for key, value in stats.items():
             setattr(existing, key, value)
         db.session.commit()
         logger.info(log_msg, "Updated", *log_args)
         return existing
 
-    mp = MarketPrice(make=make, model=model, year=year, region=region, fuel=fuel, **stats)
+    mp = MarketPrice(
+        make=make, model=model, year=year, region=region, fuel=fuel, country=country, **stats
+    )
     db.session.add(mp)
     db.session.commit()
     logger.info(log_msg, "Created", *log_args)
@@ -455,6 +477,7 @@ def get_market_stats(
     region: str,
     fuel: str | None = None,
     hp_range: str | None = None,
+    country: str | None = None,
 ) -> MarketPrice | None:
     """Recupere les stats marche pour un vehicule/region.
 
@@ -475,20 +498,30 @@ def get_market_stats(
         region: Region.
         fuel: Type de motorisation (ex. "diesel", "essence"). Optionnel.
         hp_range: Tranche de puissance DIN (ex. "120-150"). Optionnel.
+        country: Code pays ISO 2 lettres (ex. "FR", "CH"). Default "FR".
 
     Returns:
         L'instance MarketPrice si elle existe, None sinon.
     """
+    # Normalisation canonique via vehicle_lookup (meme aliases que l'extraction
+    # et que store_market_prices) pour eviter les mismatch "Ds 7" vs "7".
+    from app.services.vehicle_lookup import display_brand, display_model
+
+    make = display_brand(make) if make else make
+    model = display_model(model) if model else model
+
     make_key = market_text_key(make)
     model_key = market_text_key(model)
-    region_key = market_text_key(region)
+    region_key = market_text_key(normalize_region(region) or region)
     fuel_key = normalize_market_text(fuel).lower() if fuel else None
     hp_range_key = hp_range.strip().lower() if hp_range else None
+    country_key = (country or "FR").upper().strip()
 
     base_filters = [
         market_text_key_expr(MarketPrice.make) == make_key,
         market_text_key_expr(MarketPrice.model) == model_key,
         market_text_key_expr(MarketPrice.region) == region_key,
+        func.coalesce(MarketPrice.country, "FR") == country_key,
     ]
 
     # --- Helper: try a query with exact hp_range first, then fallback to hp_range=NULL,

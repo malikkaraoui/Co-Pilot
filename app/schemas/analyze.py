@@ -10,11 +10,13 @@ from app.schemas.filter_result import FilterResultSchema
 class AnalyzeRequest(BaseModel):
     """Corps de la requete pour POST /api/analyze.
 
-    L'extension Chrome envoie le payload JSON brut __NEXT_DATA__.
+    Accepte soit next_data (LBC legacy) soit ad_data (pre-normalise, multi-site).
     """
 
     url: str | None = None
-    next_data: dict[str, Any] = Field(..., description="Leboncoin __NEXT_DATA__ JSON")
+    next_data: dict[str, Any] | None = Field(None, description="Leboncoin __NEXT_DATA__ JSON")
+    ad_data: dict[str, Any] | None = Field(None, description="Pre-normalized vehicle data")
+    source: str | None = Field(None, description="Site source (leboncoin, autoscout24)")
 
 
 class AnalyzeResponse(BaseModel):
