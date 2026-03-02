@@ -176,12 +176,12 @@ function filterLabel(filterId) {
     L1: "Complétude des données",
     L2: "Modèle reconnu",
     L3: "Cohérence km / année",
-    L4: "Prix vs Argus",
-    L5: "Analyse statistique",
+    L4: "Prix vs marché",
+    L5: "Indice de confiance",
     L6: "Téléphone",
     L7: "SIRET vendeur",
     L8: "Détection import",
-    L9: "Évaluation globale",
+    L9: "Résultat de scan",
     L10: "Ancienneté annonce",
   };
   return labels[filterId] || filterId;
@@ -213,15 +213,15 @@ function buildGaugeSVG(score) {
 
 const RADAR_SHORT_LABELS = {
   L1: "Donn\u00E9es", L2: "Mod\u00E8le", L3: "Km", L4: "Prix",
-  L5: "Stats", L6: "T\u00E9l\u00E9phone", L7: "SIRET", L8: "Import",
-  L9: "\u00C9val", L10: "Anciennet\u00E9",
+  L5: "Confiance", L6: "T\u00E9l\u00E9phone", L7: "SIRET", L8: "Import",
+  L9: "Scan", L10: "Anciennet\u00E9",
 };
 
 function buildRadarSVG(filters, overallScore) {
   if (!filters || !filters.length) return "";
 
   // Exclure les filtres neutral du radar (non applicables)
-  const activeFilters = filters.filter((f) => f.status !== "neutral");
+  const activeFilters = filters.filter((f) => f.status !== "neutral" && f.status !== "skip");
   if (!activeFilters.length) return "";
 
   const cx = 160, cy = 145, R = 100;
@@ -309,28 +309,72 @@ function buildRadarSVG(filters, overallScore) {
 
 const SIMULATED_FILTERS = ["L4", "L5"];
 
+// Filtres booleens : pas de jauge, juste badge
+const BOOLEAN_FILTERS = ["L2", "L8"];
+
+// Ordre d'affichage optimise pour l'utilisateur
+const FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
+
+function buildScoreBar(f) {
+  const color = statusColor(f.status);
+  if (f.status === "neutral") {
+    return '<span class="copilot-filter-score copilot-score-na">N/A</span>';
+  }
+  if (f.status === "skip") {
+    return '<div class="copilot-filter-score-bar"><div class="copilot-score-track"><div class="copilot-score-fill" style="width:0%;background:#d1d5db"></div></div><span class="copilot-score-text" style="color:#9ca3af">skip</span></div>';
+  }
+  if (BOOLEAN_FILTERS.includes(f.filter_id)) {
+    const badgeClass = f.status === "pass" ? "copilot-bool-pass" : f.status === "fail" ? "copilot-bool-fail" : "copilot-bool-warn";
+    const badgeText = f.status === "pass" ? "\u2713 OK" : f.status === "fail" ? "\u2717 NOK" : "\u26A0";
+    return `<span class="copilot-bool-badge ${badgeClass}">${badgeText}</span>`;
+  }
+  const pct = Math.round(f.score * 100);
+  return `<div class="copilot-filter-score-bar"><div class="copilot-score-track"><div class="copilot-score-fill" style="width:${pct}%;background:${color}"></div></div><span class="copilot-score-text" style="color:${color}">${pct}%</span></div>`;
+}
+
+function buildFilterBody(f, vehicle) {
+  const d = f.details || {};
+  switch (f.filter_id) {
+    case "L4": return buildPriceBarHTML(d, vehicle);
+    // Autres filtres : fallback generique pour l'instant, remplaces un par un
+    default:   return buildGenericBody(f);
+  }
+}
+
+function buildGenericBody(f) {
+  const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
+  const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
+  return msgHTML + detailsHTML;
+}
+
 function buildFiltersList(filters, vehicle) {
   if (!filters || !filters.length) return "";
-  return filters
+
+  // Trier selon l'ordre d'affichage
+  const sorted = [...filters].sort((a, b) => {
+    const ia = FILTER_DISPLAY_ORDER.indexOf(a.filter_id);
+    const ib = FILTER_DISPLAY_ORDER.indexOf(b.filter_id);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
+  return sorted
     .map((f) => {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id);
-      const isL4 = f.filter_id === "L4";
-      const priceBarHTML = isL4 && f.details ? buildPriceBarHTML(f.details, vehicle) : "";
-      const detailsHTML = isL4 ? "" : (f.details ? buildDetailsHTML(f.details) : "");
-      const simulatedBadge = !isL4 && SIMULATED_FILTERS.includes(f.filter_id)
+      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4"
         ? '<span class="copilot-badge-simulated">Données simulées</span>'
         : "";
+      const scoreBarHTML = buildScoreBar(f);
+      const bodyHTML = buildFilterBody(f, vehicle);
       return `
         <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
           <div class="copilot-filter-header">
             <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
             <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
-            <span class="copilot-filter-score" style="color:${color}">${f.status === "neutral" ? "N/A" : Math.round(f.score * 100) + "%"}</span>
+            ${scoreBarHTML}
           </div>
-          ${priceBarHTML || `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`}
-          ${detailsHTML}
+          ${bodyHTML}
         </div>
       `;
     })

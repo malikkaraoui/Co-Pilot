@@ -166,8 +166,8 @@ describe('statusIcon', () => {
 describe('filterLabel', () => {
   it('retourne le label FR pour les filter IDs connus', () => {
     expect(filterLabel('L1')).toBe('Complétude des données');
-    expect(filterLabel('L4')).toBe('Prix vs Argus');
-    expect(filterLabel('L9')).toBe('Évaluation globale');
+    expect(filterLabel('L4')).toBe('Prix vs marché');
+    expect(filterLabel('L9')).toBe('Résultat de scan');
   });
 
   it('retourne le filter ID brut si inconnu', () => {
