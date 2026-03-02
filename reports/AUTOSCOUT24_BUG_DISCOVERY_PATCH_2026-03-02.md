@@ -98,3 +98,47 @@ Tests de non-régression ajoutés :
 - Extraction stable en navigation SPA, même make mais modèle différent.
 - Récupération correcte de la description vendeur complète.
 - Réduction forte des faux « Pas de description » et des incohérences véhicule/URL.
+
+## Mise à jour (2026-03-02) — cas L9 « Pas de description »
+
+### Incident terrain observé
+
+- URL concernée :
+  `https://www.autoscout24.ch/fr/d/ford-mondeo-station-wagon-20-ecoblue-190-st-line-4x4-20233448`
+- Symptôme UI :
+  `L9 -> Résultat de scan 80% -> Pas de description`
+- Constat : l’annonce contient une section **Équipement** riche, mais `description` restait vide dans `ad_data`.
+
+### Cause racine additionnelle
+
+- Le filtre backend `L9` (`app/filters/l9_score.py`) pénalise dès que `description == ""`.
+- Sur certaines pages AS24 CH, ni RSC ni JSON-LD ne fournissent un champ description exploitable.
+- Résultat : faux négatif L9 malgré une annonce détaillée côté DOM.
+
+### Correctif additionnel appliqué
+
+Fichier : `extension/extractors/autoscout24.js`
+
+1. Ajout d’un fallback DOM `_extractDescriptionFromDom(doc)` avec priorités :
+   - blocs description dédiés,
+   - section Équipement/Options (listes `li`),
+   - `og:description` / `meta description`.
+2. Intégration du fallback dans :
+   - `fallbackAdDataFromDom(...)`,
+   - `extract()` (post-traitement final si description absente),
+   - `normalizeToAdData(...)` (fallback JSON-LD `description` si RSC vide).
+
+### Tests ajoutés
+
+Fichier : `extension/tests/autoscout24.test.js`
+
+- `falls back to JSON-LD description when RSC has no description`
+- `fills description from DOM equipment list when RSC/JSON-LD have none`
+
+Exécution : `156/156` tests AS24 passés.
+
+### Référence de livraison
+
+- Commit : `66d3796`
+- Message : `fix(autoscout24): fallback description from DOM equipment for L9`
+
