@@ -3040,12 +3040,57 @@
   function buildFilterBody(f, vehicle) {
     const d = f.details || {};
     switch (f.filter_id) {
+      case "L1":
+        return buildL1Body(f, d);
       case "L4":
         return buildPriceBarHTML(d, vehicle);
-      // Autres filtres : fallback generique pour l'instant, remplaces un par un
       default:
         return buildGenericBody(f);
     }
+  }
+  var FIELD_LABELS_FR = {
+    price_eur: "Prix",
+    make: "Marque",
+    model: "Mod\xE8le",
+    year_model: "Ann\xE9e",
+    mileage_km: "Kilom\xE9trage",
+    fuel: "\xC9nergie",
+    gearbox: "Bo\xEEte",
+    phone: "T\xE9l\xE9phone",
+    color: "Couleur",
+    location: "Localisation"
+  };
+  function buildL1Body(f, d) {
+    const present = d.fields_present || 0;
+    const total = d.fields_total || 10;
+    const pct = total > 0 ? Math.round(present / total * 100) : 0;
+    const color = statusColor(f.status);
+    const barHTML = `
+    <div class="copilot-l1-bar">
+      <div class="copilot-l1-bar-track">
+        <div class="copilot-l1-bar-fill" style="width:${pct}%;background:${color}"></div>
+      </div>
+      <span class="copilot-l1-bar-label">${present}/${total} champs renseign\xE9s</span>
+    </div>
+  `;
+    let statusMsg = "";
+    if (f.status === "pass") {
+      statusMsg = '<div class="copilot-l1-status copilot-l1-ok">Donn\xE9es compl\xE8tes \u2014 analyse fiable</div>';
+    } else {
+      statusMsg = `<div class="copilot-l1-status copilot-l1-warn">Donn\xE9es incompl\xE8tes \u2014 l'analyse qui suit peut \xEAtre moins fiable</div>`;
+    }
+    let missingHTML = "";
+    const criticals = d.missing_critical || [];
+    const secondaries = d.missing_secondary || [];
+    if (criticals.length > 0) {
+      const items = criticals.map((f2) => `<li class="copilot-l1-missing-critical">${escapeHTML(FIELD_LABELS_FR[f2] || f2)}</li>`).join("");
+      missingHTML += `<div class="copilot-l1-missing"><span class="copilot-l1-missing-title">Critiques :</span><ul>${items}</ul></div>`;
+    }
+    if (secondaries.length > 0) {
+      const items = secondaries.map((f2) => `<li class="copilot-l1-missing-secondary">${escapeHTML(FIELD_LABELS_FR[f2] || f2)}</li>`).join("");
+      missingHTML += `<div class="copilot-l1-missing"><span class="copilot-l1-missing-title">Secondaires :</span><ul>${items}</ul></div>`;
+    }
+    return `<div class="copilot-l1-body">${barHTML}${statusMsg}${missingHTML}</div>`;
   }
   function buildGenericBody(f) {
     const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
