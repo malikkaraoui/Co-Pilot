@@ -20,6 +20,7 @@ GENERIC_MODELS: frozenset[str] = frozenset(
         "other",
         "divers",
         "modele",  # placeholder "Marque / Modele"
+        "marque",  # placeholder "Marque / Modele"
     }
 )
 
@@ -56,6 +57,11 @@ INVALID_MODELS_BY_BRAND: dict[str, frozenset[str]] = {
             "mercddes",  # faute de frappe courante
             "mersedes",  # faute de frappe courante
             "mercedes-benz",
+        }
+    ),
+    "audi": frozenset(
+        {
+            "allroad",  # variante de carrosserie, pas un modele (A4 Allroad, A6 Allroad)
         }
     ),
     "land rover": frozenset(
