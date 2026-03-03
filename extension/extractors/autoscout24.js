@@ -468,7 +468,12 @@ function findVehicleLikeLdNode(input, depth = 0) {
 function extractMakeModelFromUrl(url) {
   try {
     const u = new URL(url);
-    const match = u.pathname.match(/\/d\/([^/]+)-(\d+)(?:\/|$)/i);
+    // Match all AS24 ad paths: /d/, /angebote/, /offerte/, /ofertas/, /aanbod/
+    // /d/ uses numeric ID: /d/{slug}-{digits}
+    // Others use UUID: /angebote/{slug}-{uuid}
+    const match = u.pathname.match(
+      /\/(?:d|angebote|offerte|ofertas|aanbod)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[/?#]|$)/i
+    );
     if (!match) return { make: null, model: null };
 
     const slug = decodeURIComponent(match[1] || '');
@@ -677,7 +682,10 @@ export function parseRSCPayload(doc, currentUrl = null) {
   let expectedMake = null;
   const sourceUrl = currentUrl || (typeof window !== 'undefined' ? window.location?.href : null);
   if (sourceUrl) {
-    const slugMatch = String(sourceUrl).match(/\/d\/([^/]+)-\d+(?:\/|$)/i);
+    // Match slug from all AS24 ad paths: /d/, /angebote/, /offerte/, /ofertas/, /aanbod/
+    const slugMatch = String(sourceUrl).match(
+      /\/(?:d|angebote|offerte|ofertas|aanbod)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[/?#]|$)/i
+    );
     urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : '';
     expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;
   }
