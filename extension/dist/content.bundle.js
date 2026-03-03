@@ -1678,6 +1678,17 @@
       return { make: null, model: null };
     }
   }
+  function _extractImageCountFromNextData(doc) {
+    const el = doc.getElementById("__NEXT_DATA__");
+    if (!el) return 0;
+    try {
+      const data = JSON.parse(el.textContent);
+      const images = data?.props?.pageProps?.listingDetails?.images;
+      return Array.isArray(images) ? images.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
   function _extractDatesFromDom(doc) {
     const scripts = doc.querySelectorAll("script");
     for (const script of scripts) {
@@ -1691,6 +1702,15 @@
           createdDate: createdMatch[1],
           lastModifiedDate: modifiedMatch ? modifiedMatch[1] : null
         };
+      }
+    }
+    const nextDataEl = doc.getElementById("__NEXT_DATA__");
+    if (nextDataEl) {
+      try {
+        const nd = JSON.parse(nextDataEl.textContent);
+        const ts = nd?.props?.pageProps?.listingDetails?.createdTimestampWithOffset;
+        if (ts) return { createdDate: ts, lastModifiedDate: null };
+      } catch (_) {
       }
     }
     return { createdDate: null, lastModifiedDate: null };
@@ -1981,7 +2001,7 @@
     const zipcode = sellerAddress.postalCode || null;
     const tld = typeof window !== "undefined" ? extractTld(window.location.href) : null;
     const countryCode = tld ? TLD_TO_COUNTRY_CODE[tld] || null : null;
-    const derivedRegion = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : null;
+    const derivedRegion = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : tld ? TLD_TO_COUNTRY[tld] || null : null;
     const resolvedCurrency = offers.priceCurrency || (tld ? TLD_TO_CURRENCY[tld] || null : null) || null;
     if (rsc) {
       return {
@@ -2464,6 +2484,12 @@
           this._adData.index_date = domDates.lastModifiedDate || this._adData.index_date;
           this._adData.days_since_refresh = _daysSinceRefresh(domDates.createdDate, domDates.lastModifiedDate);
           this._adData.republished = _isRepublished(domDates.createdDate, domDates.lastModifiedDate);
+        }
+      }
+      if (!this._adData.image_count) {
+        const ndImageCount = _extractImageCountFromNextData(document);
+        if (ndImageCount > 0) {
+          this._adData.image_count = ndImageCount;
         }
       }
       if (!this._adData.description) {
