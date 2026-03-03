@@ -1637,6 +1637,17 @@
     }
     if (typeof input !== "object") return null;
     if (isVehicleLikeLdNode(input)) return input;
+    const itemOffered = input.offers?.itemOffered;
+    if (itemOffered && isVehicleLikeLdNode(itemOffered)) {
+      return {
+        ...itemOffered,
+        offers: input.offers,
+        brand: itemOffered.brand || input.brand,
+        name: itemOffered.name || input.name,
+        image: itemOffered.image || input.image,
+        description: itemOffered.description || input.description
+      };
+    }
     if (Array.isArray(input["@graph"])) {
       for (const item of input["@graph"]) {
         const found = findVehicleLikeLdNode(item, depth + 1);
@@ -1925,9 +1936,10 @@
   function normalizeToAdData(rsc, jsonLd) {
     const ld = jsonLd || {};
     const offers = ld.offers || {};
-    const seller = offers.seller || {};
+    const seller = offers.seller || offers.offeredBy || {};
     const sellerAddress = seller.address || {};
-    const engine = ld.vehicleEngine || {};
+    const rawEngine = ld.vehicleEngine || {};
+    const engine = Array.isArray(rawEngine) ? rawEngine[0] || {} : rawEngine;
     function resolveOwnerType() {
       if (rsc && rsc.sellerId) return "pro";
       if (seller["@type"] === "AutoDealer") return "pro";
@@ -1938,7 +1950,7 @@
         const m = typeof rsc.make === "string" ? rsc.make : rsc.make?.name;
         if (m) return m;
       }
-      return ld.brand?.name || (typeof ld.brand === "string" ? ld.brand : null) || null;
+      return ld.brand?.name || (typeof ld.brand === "string" ? ld.brand : null) || ld.manufacturer || null;
     }
     function resolveModel() {
       if (rsc) {
@@ -1973,16 +1985,16 @@
         currency: resolvedCurrency,
         make: resolveMake(),
         model: resolveModel(),
-        year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || null,
+        year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || ld.productionDate || null,
         mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
         fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : engine.fuelType || null,
         gearbox: rsc.transmissionType ? mapTransmission(rsc.transmissionType) : ld.vehicleTransmission || null,
         doors: rsc.doors ?? ld.numberOfDoors ?? null,
-        seats: rsc.seats ?? ld.vehicleSeatingCapacity ?? null,
-        first_registration: rsc.firstRegistrationDate || null,
+        seats: rsc.seats ?? ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
+        first_registration: rsc.firstRegistrationDate || ld.productionDate || null,
         color: rsc.bodyColor || ld.color || null,
         power_fiscal_cv: null,
-        power_din_hp: rsc.horsePower ?? engine.enginePower?.value ?? null,
+        power_din_hp: rsc.horsePower ?? (Array.isArray(engine.enginePower) ? engine.enginePower[0]?.value : engine.enginePower?.value) ?? null,
         country: countryCode,
         location: {
           city: sellerAddress.addressLocality || null,
@@ -2017,18 +2029,18 @@
       title: ld.name || null,
       price_eur: offers.price ?? null,
       currency: resolvedCurrency,
-      make: ld.brand?.name || null,
+      make: ld.brand?.name || ld.manufacturer || null,
       model: ld.model || null,
-      year_model: ld.vehicleModelDate || null,
+      year_model: ld.vehicleModelDate || ld.productionDate || null,
       mileage_km: ld.mileageFromOdometer?.value ?? null,
       fuel: engine.fuelType || null,
       gearbox: ld.vehicleTransmission || null,
       doors: ld.numberOfDoors ?? null,
-      seats: ld.vehicleSeatingCapacity ?? null,
-      first_registration: null,
+      seats: ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
+      first_registration: ld.productionDate || null,
       color: ld.color || null,
       power_fiscal_cv: null,
-      power_din_hp: engine.enginePower?.value ?? null,
+      power_din_hp: (Array.isArray(engine.enginePower) ? engine.enginePower[0]?.value : engine.enginePower?.value) ?? null,
       country: countryCode,
       location: {
         city: sellerAddress.addressLocality || null,
@@ -2097,7 +2109,7 @@
       });
     }
     const ld = jsonLd || {};
-    const seller = ld.offers?.seller || {};
+    const seller = ld.offers?.seller || ld.offers?.offeredBy || {};
     const rating = seller.aggregateRating;
     if (rating && rating.ratingValue) {
       signals.push({
@@ -2212,7 +2224,7 @@
     return false;
   }
   function _extractJsonLdBrand(item) {
-    return item?.brand?.name || item?.offers?.itemOffered?.brand?.name || null;
+    return item?.brand?.name || item?.offers?.itemOffered?.brand?.name || item?.manufacturer || item?.offers?.itemOffered?.manufacturer || null;
   }
   function parseSearchPrices(html, targetMake = null) {
     const results = _parseSearchPricesRSC(html);
@@ -2298,11 +2310,13 @@
   }
   function _extractJsonLdFuel(item) {
     const car = item?.offers?.itemOffered || item;
-    return car?.vehicleEngine?.fuelType || null;
+    const eng = car?.vehicleEngine;
+    const engine = Array.isArray(eng) ? eng[0] : eng;
+    return engine?.fuelType || null;
   }
   function _extractJsonLdYear(item) {
     const car = item?.offers?.itemOffered || item;
-    const date = car?.vehicleModelDate;
+    const date = car?.vehicleModelDate || car?.productionDate;
     if (!date) return null;
     const y = parseInt(String(date).slice(0, 4), 10);
     return y > 1900 && y < 2100 ? y : null;
