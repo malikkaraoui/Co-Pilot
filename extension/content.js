@@ -444,9 +444,14 @@ function buildL3Body(f, d) {
   `;
 
   // Verdict
+  const isRecentLowKm = d.is_recent_low_km;
   let verdictHTML = "";
   if (f.status === "pass") {
     verdictHTML = '<div class="copilot-l3-verdict copilot-l3-ok">Kilométrage cohérent avec l\'âge du véhicule</div>';
+  } else if (isRecentLowKm && isPro) {
+    verdictHTML = '<div class="copilot-l3-verdict copilot-l3-warn">Véhicule quasi-neuf — probable immatriculation constructeur</div>';
+  } else if (isRecentLowKm) {
+    verdictHTML = '<div class="copilot-l3-verdict copilot-l3-warn">Véhicule quasi-neuf — n\'a pas trouvé preneur</div>';
   } else if (kmRatio < 0.5) {
     verdictHTML = '<div class="copilot-l3-verdict copilot-l3-alert">Kilométrage très bas — compteur remis à zéro ?</div>';
   } else if (kmRatio > 2.0) {

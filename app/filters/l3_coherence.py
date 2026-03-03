@@ -73,10 +73,26 @@ class L3CoherenceFilter(BaseFilter):
             km_ratio = 1.0 if mileage < 20000 else 2.0
 
         if km_ratio < (1 - KM_TOLERANCE_PCT):
-            warnings.append(
-                f"Kilométrage bas pour l'année ({mileage:,} km pour {age} ans, "
-                f"attendu ~{expected_km:,} km)"
-            )
+            # Vehicule tres recent (<=1 an) avec km quasi-nul :
+            # probable immatriculation constructeur pour gonfler les stats de vente,
+            # pas un compteur trafique.
+            if age <= 1 and mileage < 1000:
+                if is_pro:
+                    warnings.append(
+                        f"Véhicule quasi-neuf ({mileage:,} km) vendu par un pro "
+                        f"— probable immatriculation constructeur (gonflement des "
+                        f"statistiques de vente), n'a pas trouvé preneur"
+                    )
+                else:
+                    warnings.append(
+                        f"Véhicule quasi-neuf ({mileage:,} km, {age} an) "
+                        f"— n'a pas trouvé preneur ou à peine utilisé"
+                    )
+            else:
+                warnings.append(
+                    f"Kilométrage bas pour l'année ({mileage:,} km pour {age} ans, "
+                    f"attendu ~{expected_km:,} km)"
+                )
         elif km_ratio > (1 + KM_TOLERANCE_PCT):
             # Vendeur pro + km eleve : probable deflottage (entretien suivi)
             if is_pro and km_ratio < 2.5:
@@ -98,13 +114,22 @@ class L3CoherenceFilter(BaseFilter):
                 warnings.append(f"Prix très élevé ({price:,} EUR)")
 
         # Calcul du score
+        # Vehicule recent quasi-neuf : cas normal, pas suspect
+        is_recent_low_km = age <= 1 and mileage < 1000
+
         if not warnings:
             score = 1.0
             status = "pass"
             message = "Cohérence des données OK"
         elif len(warnings) == 1:
-            # Vendeur pro avec km eleve mais pas excessif : warning leger
-            if is_pro and "professionnel" in warnings[0]:
+            if is_recent_low_km and is_pro:
+                # Immatriculation constructeur chez un pro : informatif, pas alarmant
+                score = 0.7
+            elif is_recent_low_km:
+                # Particulier, vehicule quasi-neuf : leger
+                score = 0.65
+            elif is_pro and "professionnel" in warnings[0]:
+                # Vendeur pro avec km eleve mais pas excessif : warning leger
                 score = 0.6
             else:
                 score = 0.5
@@ -129,6 +154,7 @@ class L3CoherenceFilter(BaseFilter):
                 "km_ratio": round(km_ratio, 2),
                 "category": category,
                 "is_pro": is_pro,
+                "is_recent_low_km": is_recent_low_km,
                 "avg_km_per_year": avg_km_per_year,
                 "warnings": warnings,
             },

@@ -54,6 +54,54 @@ class TestL3CoherenceFilter:
         result = self.filt.run({"year_model": "2020"})
         assert result.status == "skip"
 
+    def test_recent_low_km_pro_immatriculation_constructeur(self):
+        """Vehicule de 1 an, 10 km, pro → immatriculation constructeur, pas compteur trafique."""
+        data = {
+            "year_model": "2025",
+            "mileage_km": 10,
+            "price_eur": 28000,
+            "owner_type": "pro",
+            "make": "Peugeot",
+            "model": "308",
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert result.score == 0.7  # informatif, pas alarmant
+        assert "immatriculation constructeur" in result.message
+        assert "compteur" not in result.message.lower()
+        assert result.details["is_recent_low_km"] is True
+
+    def test_recent_low_km_private_not_found_buyer(self):
+        """Vehicule de 1 an, 500 km, particulier → n'a pas trouve preneur."""
+        data = {
+            "year_model": "2025",
+            "mileage_km": 500,
+            "price_eur": 25000,
+            "owner_type": "private",
+            "make": "Renault",
+            "model": "Clio",
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert result.score == 0.65
+        assert "quasi-neuf" in result.message
+        assert "compteur" not in result.message.lower()
+        assert result.details["is_recent_low_km"] is True
+
+    def test_old_car_low_km_still_suspicious(self):
+        """Vehicule de 10 ans avec tres peu de km → toujours suspect (compteur)."""
+        data = {
+            "year_model": "2016",
+            "mileage_km": 5000,
+            "price_eur": 8000,
+            "make": "Peugeot",
+            "model": "308",
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert "bas pour l'année" in result.message
+        assert result.details["is_recent_low_km"] is False
+
     def test_very_low_price_warns(self):
         data = {
             "year_model": "2020",

@@ -1257,12 +1257,17 @@
     at: "Autriche",
     be: "Belgique",
     nl: "Pays-Bas",
-    es: "Espagne"
+    es: "Espagne",
+    pl: "Pologne",
+    lu: "Luxembourg",
+    se: "Suede",
+    com: "International"
   };
   var TLD_TO_CURRENCY = {
-    ch: "CHF"
+    ch: "CHF",
+    pl: "PLN",
+    se: "SEK"
   };
-  var CHF_TO_EUR = 0.94;
   var TLD_TO_COUNTRY_CODE = {
     ch: "CH",
     de: "DE",
@@ -1271,7 +1276,11 @@
     at: "AT",
     be: "BE",
     nl: "NL",
-    es: "ES"
+    es: "ES",
+    pl: "PL",
+    lu: "LU",
+    se: "SE",
+    com: "INT"
   };
   var SWISS_ZIP_TO_CANTON = {
     "10": "Vaud",
@@ -2656,12 +2665,8 @@
       }
       let submitted = false;
       if (prices.length >= MIN_PRICES) {
-        let priceInts = prices.map((p) => p.price);
-        let priceDetails = prices;
-        if (currency === "CHF") {
-          priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-          priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
-        }
+        const priceInts = prices.map((p) => p.price);
+        const priceDetails = prices;
         if (progress) {
           progress.update("collect", "done", `${priceInts.length} prix (pr\xE9cision ${usedPrecision})`);
           progress.update("submit", "running");
@@ -2826,12 +2831,8 @@
           const prices = parseSearchPrices(html, job.make);
           console.log("[CoPilot] AS24 bonus %s %s %d %s: %d prix", job.make, job.model, jobYear, job.region, prices.length);
           if (prices.length >= MIN_BONUS_PRICES) {
-            let priceInts = prices.map((p) => p.price);
-            let priceDetails = prices;
-            if (currency === "CHF") {
-              priceInts = priceInts.map((p) => Math.round(p * CHF_TO_EUR));
-              priceDetails = prices.map((p) => ({ ...p, price: Math.round(p.price * CHF_TO_EUR) }));
-            }
+            const priceInts = prices.map((p) => p.price);
+            const priceDetails = prices;
             const bonusPrecision = prices.length >= 20 ? 4 : 2;
             const bonusPayload = {
               make: job.make,
@@ -3051,10 +3052,10 @@
         return "?";
     }
   }
-  function filterLabel(filterId) {
+  function filterLabel(filterId, status) {
     const labels = {
       L1: "Compl\xE9tude des donn\xE9es",
-      L2: "Mod\xE8le reconnu",
+      L2: status === "pass" ? "Mod\xE8le reconnu" : "Identification du mod\xE8le",
       L3: "Coh\xE9rence km / ann\xE9e",
       L4: "Prix vs march\xE9",
       L5: "Indice de confiance",
@@ -3276,9 +3277,14 @@
       </div>
     </div>
   `;
+    const isRecentLowKm = d.is_recent_low_km;
     let verdictHTML = "";
     if (f.status === "pass") {
       verdictHTML = `<div class="copilot-l3-verdict copilot-l3-ok">Kilom\xE9trage coh\xE9rent avec l'\xE2ge du v\xE9hicule</div>`;
+    } else if (isRecentLowKm && isPro) {
+      verdictHTML = '<div class="copilot-l3-verdict copilot-l3-warn">V\xE9hicule quasi-neuf \u2014 probable immatriculation constructeur</div>';
+    } else if (isRecentLowKm) {
+      verdictHTML = `<div class="copilot-l3-verdict copilot-l3-warn">V\xE9hicule quasi-neuf \u2014 n'a pas trouv\xE9 preneur</div>`;
     } else if (kmRatio < 0.5) {
       verdictHTML = '<div class="copilot-l3-verdict copilot-l3-alert">Kilom\xE9trage tr\xE8s bas \u2014 compteur remis \xE0 z\xE9ro ?</div>';
     } else if (kmRatio > 2) {
@@ -3406,7 +3412,6 @@
     </div>`;
     }
     return `<div class="copilot-l2-body">
-    <span class="copilot-l2-badge copilot-l2-badge-warn">\u26A0 Mod\xE8le non reconnu</span>
     <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
   </div>`;
   }
@@ -3612,7 +3617,7 @@
     return sorted.map((f) => {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
-      const label = filterLabel(f.filter_id);
+      const label = filterLabel(f.filter_id, f.status);
       const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="copilot-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
       const scoreBarHTML = buildScoreBar(f);
       const bodyHTML = buildFilterBody(f, vehicle, sorted);
@@ -4117,7 +4122,7 @@
       filters.forEach(function(f) {
         const color = statusColor(f.status);
         const icon = statusIcon(f.status);
-        const label = filterLabel(f.filter_id);
+        const label = filterLabel(f.filter_id, f.status);
         const scoreText = f.status === "skip" ? "skip" : Math.round(f.score * 100) + "%";
         const filterDiv = document.createElement("div");
         filterDiv.className = "copilot-progress-filter";
