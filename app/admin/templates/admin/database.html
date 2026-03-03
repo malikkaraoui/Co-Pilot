@@ -26,6 +26,28 @@
   </div>
 </div>
 
+<!-- Motorisations crowdsourcees -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ total_motorizations }}</div>
+      <div class="stat-label">Motorisations observees</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card text-center">
+      <div class="stat-value text-success">{{ promoted_motorizations }}</div>
+      <div class="stat-label">Promues en VehicleSpec</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card text-center">
+      <div class="stat-value {% if pending_promotion > 0 %}text-warning{% endif %}">{{ pending_promotion }}</div>
+      <div class="stat-label">Proches du seuil</div>
+    </div>
+  </div>
+</div>
+
 <!-- Graphique distribution marques -->
 <div class="stat-card mb-4">
   <h5 class="mb-3">Fiches par marque (top 20)</h5>

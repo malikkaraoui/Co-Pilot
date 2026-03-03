@@ -10,6 +10,7 @@ from app.models.gemini_config import GeminiConfig, GeminiPromptConfig  # noqa: F
 from app.models.llm_usage import LLMUsage  # noqa: F401
 from app.models.log import AppLog  # noqa: F401
 from app.models.market_price import MarketPrice  # noqa: F401
+from app.models.observed_motorization import ObservedMotorization  # noqa: F401
 from app.models.pipeline_run import PipelineRun  # noqa: F401
 from app.models.scan import ScanLog  # noqa: F401
 from app.models.user import User  # noqa: F401

@@ -239,6 +239,28 @@ def _do_analyze():
         scan = None
         logger.warning("Failed to persist scan: %s: %s", type(exc).__name__, exc)
 
+    # Enrichir les motorisations observees depuis ce scan individuel (best-effort)
+    if scan and ad_data.get("make") and ad_data.get("model") and not current_app.testing:
+        try:
+            from app.services.motorization_service import enrich_observed_motorizations
+            from app.services.vehicle_lookup import find_vehicle
+
+            vehicle = find_vehicle(ad_data["make"], ad_data["model"])
+            if vehicle:
+                scan_detail = {
+                    "fuel": ad_data.get("fuel"),
+                    "gearbox": ad_data.get("gearbox"),
+                    "horse_power": ad_data.get("power_din_hp"),
+                    "seats": ad_data.get("seats"),
+                    "power_fiscal_cv": ad_data.get("power_fiscal_cv"),
+                    "price": ad_data.get("price_eur", 0),
+                    "year": ad_data.get("year_model", 0),
+                    "km": ad_data.get("mileage_km", 0),
+                }
+                enrich_observed_motorizations(vehicle.id, [scan_detail])
+        except Exception:  # noqa: BLE001
+            logger.debug("Scan motorization enrichment skipped", exc_info=True)
+
     # Construction de la reponse
     filters_out = [
         FilterResultSchema(

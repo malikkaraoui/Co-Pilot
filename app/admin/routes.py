@@ -731,6 +731,26 @@ def database():
     page = min(page, total_pages)
     results = query.offset((page - 1) * per_page).limit(per_page).all()
 
+    # Stats motorisations crowdsourcees
+    from app.models.observed_motorization import ObservedMotorization
+
+    total_motorizations = db.session.query(db.func.count(ObservedMotorization.id)).scalar() or 0
+    promoted_motorizations = (
+        db.session.query(db.func.count(ObservedMotorization.id))
+        .filter(ObservedMotorization.promoted.is_(True))
+        .scalar()
+        or 0
+    )
+    pending_promotion = (
+        db.session.query(db.func.count(ObservedMotorization.id))
+        .filter(
+            ObservedMotorization.promoted.is_(False),
+            ObservedMotorization.distinct_sources >= 2,  # presque au seuil
+        )
+        .scalar()
+        or 0
+    )
+
     return render_template(
         "admin/database.html",
         total_brands=total_brands,
@@ -747,6 +767,9 @@ def database():
         page=page,
         total_pages=total_pages,
         total_results=total_results,
+        total_motorizations=total_motorizations,
+        promoted_motorizations=promoted_motorizations,
+        pending_promotion=pending_promotion,
     )
 
 

@@ -103,12 +103,15 @@ def _pick_and_serialize_bonus(
 
 
 class PriceDetail(BaseModel):
-    """Detail d'un prix individuel collecte (annonce LBC)."""
+    """Detail d'un prix individuel collecte (annonce LBC/AS24)."""
 
     price: int
     year: int | None = None
     km: int | None = None
     fuel: str | None = None
+    gearbox: str | None = None
+    horse_power: int | str | None = None
+    seats: int | None = None
 
 
 class SearchStep(BaseModel):

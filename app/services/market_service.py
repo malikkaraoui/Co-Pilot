@@ -443,6 +443,7 @@ def store_market_prices(
         logger.debug("Auto-create skipped for %s %s", make, model, exc_info=True)
 
     # Enrichir les specs observees si le vehicule existe dans le referentiel
+    found = None
     try:
         from app.services.vehicle_lookup import find_vehicle
 
@@ -451,6 +452,15 @@ def store_market_prices(
             _enrich_observed_specs(found.id, price_details)
     except (IntegrityError, SQLAlchemyError):
         logger.debug("Observed spec enrichment skipped for %s %s", make, model, exc_info=True)
+
+    # Enrichir les motorisations observees (combos fuel+gearbox+hp → promotion en VehicleSpec)
+    try:
+        if found and price_details:
+            from app.services.motorization_service import enrich_observed_motorizations
+
+            enrich_observed_motorizations(found.id, price_details)
+    except (IntegrityError, SQLAlchemyError):
+        logger.debug("Motorization enrichment skipped for %s %s", make, model, exc_info=True)
 
     return mp
 
