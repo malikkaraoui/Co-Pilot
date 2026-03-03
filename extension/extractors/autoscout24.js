@@ -21,7 +21,7 @@ export const AS24_URL_PATTERNS = [
   /autoscout24\.\w+\/aanbod\//,
 ];
 
-const AD_PAGE_PATTERN = /autoscout24\.\w+\/.*\/d\/.*-\d+/;
+const AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es)\/)?(?:d|angebote|offerte|ofertas|aanbod)\/\S+-[a-f0-9-]+/;
 
 // TLD → country mapping for region field
 const TLD_TO_COUNTRY = {

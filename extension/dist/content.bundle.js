@@ -1248,7 +1248,7 @@
     /autoscout24\.\w+\/ofertas\//,
     /autoscout24\.\w+\/aanbod\//
   ];
-  var AD_PAGE_PATTERN = /autoscout24\.\w+\/.*\/d\/.*-\d+/;
+  var AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es)\/)?(?:d|angebote|offerte|ofertas|aanbod)\/\S+-[a-f0-9-]+/;
   var TLD_TO_COUNTRY = {
     ch: "Suisse",
     de: "Allemagne",

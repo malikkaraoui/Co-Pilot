@@ -11,13 +11,13 @@
 ![Render](https://img.shields.io/badge/deploy-Render-46E3B7?logo=render&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Vehicore** est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur **Leboncoin** et **AutoScout24** (8 pays européens) et attribue un **score de confiance de 0 à 100**.
+**Vehicore** est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur **Leboncoin** et **AutoScout24** (12 pays européens) et attribue un **score de confiance de 0 à 100**.
 
 L'utilisateur navigue sur une annonce, clique sur "Analyser", et obtient un verdict instantané avec le détail de 10 filtres indépendants, un radar visuel, et des recommandations personnalisées.
 
 ## Points forts
 
-- **Multi-plateforme** : Leboncoin (FR) + AutoScout24 (.ch, .de, .fr, .it, .be, .nl, .at, .es)
+- **Multi-plateforme** : Leboncoin (FR) + AutoScout24 (12 pays : CH, DE, FR, IT, BE, NL, AT, ES, PL, LU, SE, .com)
 - **10 filtres indépendants** avec scoring pondéré et radar SVG interactif
 - **Argus Maison collaboratif** : cotation participative en temps réel via les utilisateurs de l'extension
 - **Auto-learning** : tokens de recherche LBC et slugs AS24 appris automatiquement pour chaque véhicule
@@ -225,13 +225,13 @@ Vehicore/
 │   │                            #   motorization, email, gemini, youtube…)
 │   └── extensions.py            # Extensions Flask (db, cors, login, limiter)
 ├── extension/
-│   ├── manifest.json            # Manifest V3 (LBC + AS24 8 pays)
+│   ├── manifest.json            # Manifest V3 (LBC + AS24 12 pays)
 │   ├── content.js               # Script injecté (LBC + AS24)
 │   ├── background.js            # Service worker
 │   ├── build.js                 # esbuild config
 │   ├── content.css              # Styles popup
 │   └── popup/                   # Popup de l'extension
-├── tests/                       # 783 tests pytest
+├── tests/                       # 800+ tests pytest
 ├── data/
 │   ├── vehicore.db              # Base SQLite (non versionné)
 │   └── seeds/                   # Scripts de peuplement (vehicles, argus,
@@ -319,7 +319,7 @@ Le panneau d'administration (`/admin`) offre :
 | Site | Pays | Extraction | Collecte prix |
 | --- | --- | --- | --- |
 | Leboncoin | France | `__NEXT_DATA__` | `__NEXT_DATA__` + tokens auto-appris |
-| AutoScout24 | CH, DE, FR, IT, BE, NL, AT, ES | JSON-LD + DOM | JSON-LD + slugs auto-appris |
+| AutoScout24 | CH, DE, FR, IT, BE, NL, AT, ES, PL, LU, SE, .com | JSON-LD + DOM | JSON-LD + slugs auto-appris |
 
 ## Auteur
 
