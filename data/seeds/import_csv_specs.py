@@ -146,17 +146,24 @@ def import_csv():
                     # Creer ou reutiliser le Vehicle
                     vkey = (make, model, generation)
                     if vkey not in vehicle_cache:
-                        vehicle = Vehicle(
-                            brand=make,
-                            model=model,
-                            generation=generation,
-                            year_start=int_or_none(row.get("Year_from", "")),
-                            year_end=int_or_none(row.get("Year_to", "")),
-                        )
-                        db.session.add(vehicle)
-                        db.session.flush()
-                        vehicle_cache[vkey] = vehicle
-                        created_vehicles += 1
+                        # Dedup DB : le vehicule peut exister avec une autre generation
+                        # (cree par auto-create L2, quick-add, ou seed_vehicles)
+                        existing = Vehicle.query.filter_by(brand=make, model=model).first()
+                        if existing:
+                            vehicle_cache[vkey] = existing
+                            vehicle = existing
+                        else:
+                            vehicle = Vehicle(
+                                brand=make,
+                                model=model,
+                                generation=generation,
+                                year_start=int_or_none(row.get("Year_from", "")),
+                                year_end=int_or_none(row.get("Year_to", "")),
+                            )
+                            db.session.add(vehicle)
+                            db.session.flush()
+                            vehicle_cache[vkey] = vehicle
+                            created_vehicles += 1
                     else:
                         vehicle = vehicle_cache[vkey]
 

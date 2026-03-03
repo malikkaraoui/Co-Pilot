@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from app.models.vehicle import Vehicle, VehicleSpec
 
 SAMPLE_CSV_ROWS = [
@@ -149,6 +151,16 @@ def _write_sample_csv(path: Path, rows: list[dict] | None = None):
 
 class TestImportCsv:
     """Tests du script d'import CSV."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_vehicles(self, app, db):
+        """Nettoie les tables Vehicle/VehicleSpec avant chaque test d'import."""
+        from app.extensions import db as _db
+
+        with app.app_context():
+            _db.session.execute(_db.text("DELETE FROM vehicle_specs"))
+            _db.session.execute(_db.text("DELETE FROM vehicles"))
+            _db.session.commit()
 
     def test_import_creates_vehicles_and_specs(self, app, db):
         """L'import cree les Vehicle et VehicleSpec."""

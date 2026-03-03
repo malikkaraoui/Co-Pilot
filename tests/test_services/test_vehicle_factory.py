@@ -200,9 +200,10 @@ class TestAutoCreateVehicle:
                 assert vehicle.brand == "DS"  # <= 3 chars → UPPER
 
     def test_returns_none_insufficient_data(self, app):
-        """Pas assez de scans → None."""
+        """Pas assez de scans et pas de CSV → None."""
         with app.app_context():
-            result = auto_create_vehicle("Lamborghini", "Huracan")
+            # Vehicule fictif absent du CSV : besoin de 3 scans + 20 market samples
+            result = auto_create_vehicle("FakeMotors", "Phantom X99")
             assert result is None
 
 

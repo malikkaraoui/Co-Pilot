@@ -24,10 +24,27 @@ class L2ReferentielFilter(BaseFilter):
         from app.services.vehicle_lookup import find_vehicle, is_generic_model
 
         # "Autres" = fallback LBC quand le vendeur ne precise pas le modele
-        if is_generic_model(model):
+        if is_generic_model(model, make):
             return self.skip(f"Modèle non précisé par le vendeur ({make} {model})")
 
         vehicle = find_vehicle(make, model)
+
+        # Auto-creation : si inconnu mais present dans le CSV, on le cree a la volee
+        # (desactive en mode testing pour eviter la pollution entre tests)
+        if not vehicle:
+            try:
+                from flask import current_app
+
+                from app.services.vehicle_factory import auto_create_vehicle
+
+                if not current_app.testing:
+                    vehicle = auto_create_vehicle(make, model, commit=False)
+                    if vehicle:
+                        logger.info(
+                            "L2: auto-created from CSV -- %s %s (id=%d)", make, model, vehicle.id
+                        )
+            except Exception:  # noqa: BLE001 -- best-effort, ne casse jamais le filtre
+                logger.warning("L2: auto-create failed for %s %s", make, model, exc_info=True)
 
         if vehicle:
             logger.info("L2: model found -- %s %s", make, model)

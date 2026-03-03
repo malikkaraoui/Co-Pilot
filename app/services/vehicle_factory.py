@@ -20,7 +20,7 @@ from app.services.vehicle_lookup import find_vehicle, is_generic_model
 logger = logging.getLogger(__name__)
 
 # Seuils d'auto-creation
-MIN_SCANS_WITH_CSV = 1  # 1 scan suffit si le CSV confirme le vehicule
+MIN_SCANS_WITH_CSV = 0  # CSV = source fiable, creation immediate au premier scan
 MIN_SCANS_WITHOUT_CSV = 3  # 3 scans si pas de CSV (confirmation par repetition)
 MIN_MARKET_SAMPLES = 20  # Nombre minimum d'annonces marche collectees
 
@@ -49,7 +49,7 @@ def can_auto_create(make: str, model: str) -> dict:
     }
 
     # 1. Pas un modele generique
-    if is_generic_model(model):
+    if is_generic_model(model, make):
         result["reason"] = "Modele generique"
         return result
 
@@ -103,7 +103,7 @@ def can_auto_create(make: str, model: str) -> dict:
     return result
 
 
-def auto_create_vehicle(make: str, model: str) -> Vehicle | None:
+def auto_create_vehicle(make: str, model: str, *, commit: bool = True) -> Vehicle | None:
     """Cree automatiquement un vehicule si les conditions sont remplies.
 
     Verifie l'eligibilite, cree le Vehicle, enrichit depuis le CSV si possible,
@@ -112,6 +112,8 @@ def auto_create_vehicle(make: str, model: str) -> Vehicle | None:
     Args:
         make: Marque du vehicule.
         model: Modele du vehicule.
+        commit: Si False, flush seulement (le caller committe). Utile dans L2
+                ou la route API committe le ScanLog + Vehicle ensemble.
 
     Returns:
         Le Vehicle cree, ou None si les conditions ne sont pas remplies.
@@ -188,7 +190,10 @@ def auto_create_vehicle(make: str, model: str) -> Vehicle | None:
         if years_to:
             vehicle.year_end = max(years_to)
 
-    db.session.commit()
+    if commit:
+        db.session.commit()
+    else:
+        db.session.flush()
 
     sources = []
     if specs_created:

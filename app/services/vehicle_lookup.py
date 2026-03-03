@@ -19,13 +19,72 @@ GENERIC_MODELS: frozenset[str] = frozenset(
         "autre",
         "other",
         "divers",
+        "modele",  # placeholder "Marque / Modele"
     }
 )
 
+# Faux modeles par marque : gammes, carrosseries, ou noms de marque repetes.
+# Cle = marque canonique (minuscules), valeur = set de faux modeles (minuscules, sans accents).
+# Sources verifiees : structure BMW (Serie = gamme), VW (Multivan/Caravelle/Combi = gamme T),
+# Mercedes (Benz = partie du nom de marque).
+INVALID_MODELS_BY_BRAND: dict[str, frozenset[str]] = {
+    "bmw": frozenset(
+        {
+            "serie 1",
+            "serie 2",
+            "serie 3",
+            "serie 4",
+            "serie 5",
+            "serie 6",
+            "serie 7",
+            "serie 8",
+        }
+    ),
+    "volkswagen": frozenset(
+        {
+            "multivan",  # gamme T (T5/T6/T7)
+            "caravelle",  # gamme T
+            "combi",  # gamme T
+            "vw",  # nom de marque repete en modele
+            "volkswagen",
+        }
+    ),
+    "mercedes": frozenset(
+        {
+            "benz",  # partie du nom de marque
+            "mercedes",  # nom de marque repete
+            "mercddes",  # faute de frappe courante
+            "mersedes",  # faute de frappe courante
+            "mercedes-benz",
+        }
+    ),
+    "land rover": frozenset(
+        {
+            "range",  # incomplet — le vrai modele est "Range Rover" ou "Range Rover Sport"
+        }
+    ),
+}
 
-def is_generic_model(model: str) -> bool:
-    """True si le modele est un placeholder generique LBC (ex. 'Autres')."""
-    return _strip_accents(model.strip().lower()) in GENERIC_MODELS
+
+def is_generic_model(model: str, make: str = "") -> bool:
+    """True si le modele est un placeholder generique ou un faux modele pour cette marque.
+
+    Verifie d'abord les generiques universels (Autres, Divers...),
+    puis les faux modeles specifiques a la marque (Serie 3 pour BMW, etc.).
+    """
+    normalized = _strip_accents(model.strip().lower())
+    if normalized in GENERIC_MODELS:
+        return True
+
+    if make:
+        brand_key = _strip_accents(make.strip().lower())
+        # Resoudre l'alias de marque pour matcher la cle du dictionnaire
+        brand_canonical = BRAND_ALIASES.get(brand_key, brand_key)
+        invalid_models = INVALID_MODELS_BY_BRAND.get(brand_canonical, frozenset())
+        if normalized in invalid_models:
+            return True
+
+    return False
 
 
 # Alias de marques courantes -> nom canonique en base.

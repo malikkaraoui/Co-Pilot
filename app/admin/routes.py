@@ -304,7 +304,7 @@ def car():
         row
         for row in unrecognized_rows_raw
         if not find_vehicle(row.vehicle_make, row.vehicle_model)
-        and not is_generic_model(row.vehicle_model)
+        and not is_generic_model(row.vehicle_model, row.vehicle_make)
     ]
 
     # Auto-promotion : vehicules avec assez de scans + donnees → auto-creation
