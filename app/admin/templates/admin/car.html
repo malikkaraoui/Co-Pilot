@@ -260,6 +260,7 @@
         <th>Generation</th>
         <th>Annees</th>
         <th>Statut</th>
+        <th style="width:80px">Action</th>
       </tr>
     </thead>
     <tbody>
@@ -277,6 +278,17 @@
           {% else %}
             <span class="badge bg-info" title="Ajoute au referentiel, en attente d'enrichissement">En attente</span>
           {% endif %}
+        </td>
+        <td>
+          <form method="POST" action="{{ url_for('admin.delete_vehicle') }}"
+                style="display:inline"
+                onsubmit="return confirm('Supprimer {{ v.brand }} {{ v.model }} du referentiel ?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="vehicle_id" value="{{ v.id }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger" title="Supprimer {{ v.brand }} {{ v.model }}">
+              &#10005;
+            </button>
+          </form>
         </td>
       </tr>
       {% endfor %}

@@ -620,6 +620,42 @@ def quick_add_vehicle():
     return redirect(url_for("admin.car"))
 
 
+@admin_bp.route("/vehicle/delete", methods=["POST"])
+@login_required
+def delete_vehicle():
+    """Suppression d'un vehicule du referentiel (et ses specs associees)."""
+    from app.models.vehicle import VehicleSpec
+
+    vehicle_id = request.form.get("vehicle_id", type=int)
+    if not vehicle_id:
+        flash("ID vehicule manquant.", "error")
+        return redirect(url_for("admin.car"))
+
+    vehicle = db.session.get(Vehicle, vehicle_id)
+    if not vehicle:
+        flash("Vehicule introuvable.", "error")
+        return redirect(url_for("admin.car"))
+
+    brand = vehicle.brand
+    model = vehicle.model
+
+    # Supprimer les specs associees d'abord (pas de cascade en DB)
+    specs_deleted = VehicleSpec.query.filter_by(vehicle_id=vehicle_id).delete()
+    db.session.delete(vehicle)
+    db.session.commit()
+
+    logger.info(
+        "Delete vehicle: %s %s (id=%d, %d specs) by admin '%s'",
+        brand,
+        model,
+        vehicle_id,
+        specs_deleted,
+        current_user.username,
+    )
+    flash(f"{brand} {model} supprime du referentiel ({specs_deleted} fiches).", "success")
+    return redirect(url_for("admin.car"))
+
+
 # ── Base Vehicules (import CSV) ───────────────────────────────────
 
 
