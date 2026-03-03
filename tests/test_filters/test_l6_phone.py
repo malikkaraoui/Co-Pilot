@@ -46,21 +46,24 @@ class TestL6PhoneFilter:
 
     # ── No phone: private vs pro ─────────────────────────────────────
 
-    def test_no_phone_private_neutral_no_penalty(self):
-        """Particulier sans telephone : neutral (exclu du scoring)."""
+    def test_no_phone_private_warns(self):
+        """Particulier sans telephone : warning (red flag)."""
         result = self.filt.run({"owner_type": "private"})
-        assert result.status == "neutral"
-        assert "pénalité" in result.message
+        assert result.status == "warning"
+        assert result.score == 0.2
+        assert "inhabituel" in result.message
 
-    def test_no_phone_empty_owner_neutral(self):
-        """Owner type vide : considere comme particulier → neutral."""
+    def test_no_phone_empty_owner_warns(self):
+        """Owner type vide : considere comme particulier → warning."""
         result = self.filt.run({})
-        assert result.status == "neutral"
+        assert result.status == "warning"
+        assert result.score == 0.2
 
-    def test_particulier_no_phone_returns_neutral(self):
-        """owner_type francais 'particulier' → neutral."""
+    def test_particulier_no_phone_returns_warning(self):
+        """owner_type francais 'particulier' → warning."""
         result = self.filt.run({"owner_type": "particulier"})
-        assert result.status == "neutral"
+        assert result.status == "warning"
+        assert "inhabituel" in result.message
 
     def test_no_phone_pro_fails_zero(self):
         """Pro sans telephone : fail score 0.0."""
@@ -69,11 +72,12 @@ class TestL6PhoneFilter:
         assert result.score == 0.0
         assert "professionnel" in result.message
 
-    def test_has_phone_lbc_skips(self):
-        """LBC telephone cache derriere login."""
+    def test_has_phone_lbc_warns(self):
+        """LBC telephone cache derriere login : warning (non verifiable)."""
         result = self.filt.run({"has_phone": True})
-        assert result.status == "skip"
-        assert "LeBonCoin" in result.message
+        assert result.status == "warning"
+        assert result.score == 0.4
+        assert "masqué" in result.message.lower()
 
     # ── Suisse (.ch) ─────────────────────────────────────────────────
 

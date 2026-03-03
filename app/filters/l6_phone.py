@@ -91,14 +91,20 @@ class L6PhoneFilter(BaseFilter):
             if data.get("has_phone"):
                 return FilterResult(
                     filter_id=self.filter_id,
-                    status="skip",
-                    score=0.0,
-                    message="Connectez-vous sur LeBonCoin pour révéler le numéro",
+                    status="warning",
+                    score=0.4,
+                    message="Numéro masqué — impossible de vérifier sans connexion",
                     details={"phone_login_hint": True},
                 )
-            # Particulier sans telephone : normal, pas de penalite
+            # Aucun numero : red flag quel que soit le type de vendeur
             if owner_type in ("private", "particulier", ""):
-                return self.neutral("Pas de numéro — vendeur particulier, pas de pénalité")
+                return FilterResult(
+                    filter_id=self.filter_id,
+                    status="warning",
+                    score=0.2,
+                    message="Aucun numéro de téléphone — inhabituel même pour un particulier",
+                    details={"owner_type": owner_type or "private", "no_phone": True},
+                )
             # Pro sans telephone : zero confiance
             return FilterResult(
                 filter_id=self.filter_id,
