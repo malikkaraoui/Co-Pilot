@@ -625,6 +625,7 @@ def quick_add_vehicle():
 def delete_vehicle():
     """Suppression d'un vehicule du referentiel (et ses specs associees)."""
     from app.models.vehicle import VehicleSpec
+    from app.models.vehicle_observed_spec import VehicleObservedSpec
 
     vehicle_id = request.form.get("vehicle_id", type=int)
     if not vehicle_id:
@@ -639,7 +640,8 @@ def delete_vehicle():
     brand = vehicle.brand
     model = vehicle.model
 
-    # Supprimer les specs associees d'abord (pas de cascade en DB)
+    # Supprimer les dependances d'abord (pas de cascade en DB)
+    VehicleObservedSpec.query.filter_by(vehicle_id=vehicle_id).delete()
     specs_deleted = VehicleSpec.query.filter_by(vehicle_id=vehicle_id).delete()
     db.session.delete(vehicle)
     db.session.commit()
