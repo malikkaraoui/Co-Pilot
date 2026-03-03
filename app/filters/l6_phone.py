@@ -108,8 +108,10 @@ class L6PhoneFilter(BaseFilter):
                 details={"owner_type": owner_type, "no_phone_pro": True},
             )
 
-        # Normalisation : suppression des espaces, tirets, points
+        # Normalisation : espaces, tirets, points + prefixe de tronc (0) (DE/AT/CH)
         cleaned = re.sub(r"[\s\-.]", "", phone.strip())
+        cleaned = cleaned.replace("(0)", "")  # "+49(0)271" → "+49271"
+        cleaned = re.sub(r"[()]", "", cleaned)  # parentheses restantes
 
         # Verification d'indicatif : un +XX non-local est etranger
         foreign_match = re.match(r"^\+(\d{1,3})", cleaned)
