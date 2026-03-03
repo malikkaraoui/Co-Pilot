@@ -850,6 +850,13 @@ function _findJsonLdByMake(doc, expectedMake, expectedModel = null, urlSlug = ''
 
 // ── Normalize to ad_data ────────────────────────────────────────────
 
+/** Extract 4-digit year from a date string like "2021-11-01" or "2021". */
+function _yearFromDate(dateStr) {
+  if (!dateStr) return null;
+  const m = String(dateStr).match(/^(\d{4})/);
+  return m ? m[1] : dateStr;
+}
+
 /**
  * Normalizes RSC and/or JSON-LD data into the extract_ad_data() format
  * expected by the backend /api/analyze endpoint.
@@ -952,7 +959,7 @@ export function normalizeToAdData(rsc, jsonLd) {
       currency: resolvedCurrency,
       make: resolveMake(),
       model: resolveModel(),
-      year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || ld.productionDate || null,
+      year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
       mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
       fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : (engine.fuelType || null),
       gearbox: rsc.transmissionType
@@ -1004,7 +1011,7 @@ export function normalizeToAdData(rsc, jsonLd) {
     currency: resolvedCurrency,
     make: ld.brand?.name || ld.manufacturer || null,
     model: ld.model || null,
-    year_model: ld.vehicleModelDate || ld.productionDate || null,
+    year_model: ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
     mileage_km: ld.mileageFromOdometer?.value ?? null,
     fuel: engine.fuelType || null,
     gearbox: ld.vehicleTransmission || null,
@@ -1311,10 +1318,16 @@ function _extractJsonLdBrand(item) {
  * @returns {Array<{price: number, year: number|null, km: number|null, fuel: string|null}>}
  */
 export function parseSearchPrices(html, targetMake = null) {
-  // Strategy 1: RSC regex (GmbH sites) — no brand data available in regex
+  // Strategy 1: RSC regex (GmbH sites — numeric JSON values)
   const results = _parseSearchPricesRSC(html);
 
-  // Strategy 2: JSON-LD fallback (SMG sites like .ch)
+  // Strategy 2: __NEXT_DATA__ (GmbH sites like .de — string JSON values)
+  if (results.length === 0) {
+    const nextDataResults = _parseSearchPricesNextData(html, targetMake);
+    if (nextDataResults.length > 0) return nextDataResults;
+  }
+
+  // Strategy 3: JSON-LD OfferCatalog fallback (SMG sites like .ch)
   if (results.length === 0) {
     const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
     if (jsonLdResults.length > 0) return jsonLdResults;
@@ -1336,6 +1349,69 @@ function _parseSearchPricesRSC(html) {
     }
   }
   return _dedup(results);
+}
+
+/** __NEXT_DATA__ strategy — works for AS24 GmbH (.de, .it, etc.) search pages.
+ *  On these TLDs, listing data is embedded as __NEXT_DATA__ JSON with prices
+ *  as strings (not numbers), so the RSC regex doesn't match. */
+function _parseSearchPricesNextData(html, targetMake = null) {
+  const results = [];
+  const match = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
+  if (!match) return results;
+
+  try {
+    const data = JSON.parse(match[1]);
+    const listings = data?.props?.pageProps?.listings;
+    if (!Array.isArray(listings)) return results;
+
+    for (const listing of listings) {
+      const tracking = listing.tracking || {};
+      const vehicle = listing.vehicle || {};
+
+      const price = parseInt(tracking.price, 10) || null;
+      const km = parseInt(tracking.mileage, 10) || null;
+
+      let year = null;
+      if (tracking.firstRegistration) {
+        const ym = tracking.firstRegistration.match(/(\d{4})/);
+        if (ym) year = parseInt(ym[1], 10);
+      }
+
+      const fuel = vehicle.fuel || null;
+
+      if (targetMake) {
+        const adBrand = vehicle.make;
+        if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+          continue;
+        }
+      }
+
+      if (price && price > 500 && price < 500000) {
+        results.push({
+          price,
+          year,
+          km,
+          fuel,
+          gearbox: vehicle.transmission || null,
+          horse_power: _parseHpFromVehicleDetails(listing.vehicleDetails),
+          _uid: listing.id || null,
+        });
+      }
+    }
+  } catch (_) {
+    // Malformed __NEXT_DATA__, skip
+  }
+
+  return _dedup(results);
+}
+
+/** Parse horse power from vehicleDetails array (e.g. "66 kW (90 PS)" → 90). */
+function _parseHpFromVehicleDetails(details) {
+  if (!Array.isArray(details)) return null;
+  const power = details.find((d) => d.ariaLabel === 'Leistung' || d.iconName === 'speedometer');
+  if (!power?.data) return null;
+  const m = power.data.match(/\((\d+)\s*PS\)/i);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 /** JSON-LD OfferCatalog strategy — works for AS24 SMG (.ch).

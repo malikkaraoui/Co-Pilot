@@ -1914,6 +1914,11 @@
     }
     return best?.vehicle || null;
   }
+  function _yearFromDate(dateStr) {
+    if (!dateStr) return null;
+    const m = String(dateStr).match(/^(\d{4})/);
+    return m ? m[1] : dateStr;
+  }
   function _daysOnline(dateStr) {
     if (!dateStr) return null;
     const d = new Date(dateStr);
@@ -1985,7 +1990,7 @@
         currency: resolvedCurrency,
         make: resolveMake(),
         model: resolveModel(),
-        year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || ld.productionDate || null,
+        year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
         mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
         fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : engine.fuelType || null,
         gearbox: rsc.transmissionType ? mapTransmission(rsc.transmissionType) : ld.vehicleTransmission || null,
@@ -2031,7 +2036,7 @@
       currency: resolvedCurrency,
       make: ld.brand?.name || ld.manufacturer || null,
       model: ld.model || null,
-      year_model: ld.vehicleModelDate || ld.productionDate || null,
+      year_model: ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
       mileage_km: ld.mileageFromOdometer?.value ?? null,
       fuel: engine.fuelType || null,
       gearbox: ld.vehicleTransmission || null,
@@ -2229,6 +2234,10 @@
   function parseSearchPrices(html, targetMake = null) {
     const results = _parseSearchPricesRSC(html);
     if (results.length === 0) {
+      const nextDataResults = _parseSearchPricesNextData(html, targetMake);
+      if (nextDataResults.length > 0) return nextDataResults;
+    }
+    if (results.length === 0) {
       const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
       if (jsonLdResults.length > 0) return jsonLdResults;
     }
@@ -2246,6 +2255,54 @@
       }
     }
     return _dedup(results);
+  }
+  function _parseSearchPricesNextData(html, targetMake = null) {
+    const results = [];
+    const match = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
+    if (!match) return results;
+    try {
+      const data = JSON.parse(match[1]);
+      const listings = data?.props?.pageProps?.listings;
+      if (!Array.isArray(listings)) return results;
+      for (const listing of listings) {
+        const tracking = listing.tracking || {};
+        const vehicle = listing.vehicle || {};
+        const price = parseInt(tracking.price, 10) || null;
+        const km = parseInt(tracking.mileage, 10) || null;
+        let year = null;
+        if (tracking.firstRegistration) {
+          const ym = tracking.firstRegistration.match(/(\d{4})/);
+          if (ym) year = parseInt(ym[1], 10);
+        }
+        const fuel = vehicle.fuel || null;
+        if (targetMake) {
+          const adBrand = vehicle.make;
+          if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+            continue;
+          }
+        }
+        if (price && price > 500 && price < 5e5) {
+          results.push({
+            price,
+            year,
+            km,
+            fuel,
+            gearbox: vehicle.transmission || null,
+            horse_power: _parseHpFromVehicleDetails(listing.vehicleDetails),
+            _uid: listing.id || null
+          });
+        }
+      }
+    } catch (_) {
+    }
+    return _dedup(results);
+  }
+  function _parseHpFromVehicleDetails(details) {
+    if (!Array.isArray(details)) return null;
+    const power = details.find((d) => d.ariaLabel === "Leistung" || d.iconName === "speedometer");
+    if (!power?.data) return null;
+    const m = power.data.match(/\((\d+)\s*PS\)/i);
+    return m ? parseInt(m[1], 10) : null;
   }
   function _parseSearchPricesJsonLd(html, targetMake = null) {
     const results = [];

@@ -1023,6 +1023,71 @@ describe('parseSearchPrices', () => {
 });
 
 
+// ── 13a. parseSearchPrices — __NEXT_DATA__ strategy (AS24.de) ────────
+
+describe('parseSearchPrices — __NEXT_DATA__', () => {
+  function buildNextDataHtml(listings) {
+    const data = { props: { pageProps: { listings } } };
+    return `<html><head><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></head></html>`;
+  }
+
+  it('extracts prices from __NEXT_DATA__ listings (AS24.de format)', () => {
+    const html = buildNextDataHtml([
+      { id: 'a1', tracking: { price: '20950', mileage: '62950', firstRegistration: '11-2021' }, vehicle: { make: 'Skoda', model: 'Kamiq', fuel: 'Benzin', transmission: 'Automatik' }, vehicleDetails: [{ ariaLabel: 'Leistung', data: '81 kW (110 PS)' }] },
+      { id: 'a2', tracking: { price: '18500', mileage: '45000', firstRegistration: '03-2020' }, vehicle: { make: 'Skoda', model: 'Kamiq', fuel: 'Diesel' }, vehicleDetails: [] },
+    ]);
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({ price: 20950, km: 62950, year: 2021, fuel: 'Benzin' });
+    expect(results[1]).toMatchObject({ price: 18500, km: 45000, year: 2020, fuel: 'Diesel' });
+  });
+
+  it('extracts horse_power from vehicleDetails', () => {
+    const html = buildNextDataHtml([
+      { id: 'b1', tracking: { price: '15000', mileage: '80000', firstRegistration: '2019' }, vehicle: { make: 'Peugeot', model: '3008', fuel: 'Diesel', transmission: 'Schaltgetriebe' }, vehicleDetails: [{ ariaLabel: 'Leistung', iconName: 'speedometer', data: '96 kW (130 PS)' }] },
+    ]);
+    const results = parseSearchPrices(html);
+    expect(results[0].horse_power).toBe(130);
+    expect(results[0].gearbox).toBe('Schaltgetriebe');
+  });
+
+  it('filters by targetMake when provided', () => {
+    const html = buildNextDataHtml([
+      { id: 'c1', tracking: { price: '20000', mileage: '50000' }, vehicle: { make: 'Skoda', model: 'Kamiq' } },
+      { id: 'c2', tracking: { price: '22000', mileage: '40000' }, vehicle: { make: 'BMW', model: 'X1' } },
+    ]);
+    const results = parseSearchPrices(html, 'Skoda');
+    expect(results).toHaveLength(1);
+    expect(results[0].price).toBe(20000);
+  });
+
+  it('deduplicates by listing ID', () => {
+    const html = buildNextDataHtml([
+      { id: 'same-id', tracking: { price: '15000', mileage: '60000' }, vehicle: { make: 'VW' } },
+      { id: 'same-id', tracking: { price: '15000', mileage: '60000' }, vehicle: { make: 'VW' } },
+    ]);
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(1);
+  });
+
+  it('filters out prices below 500 and above 500000', () => {
+    const html = buildNextDataHtml([
+      { id: 'x1', tracking: { price: '100', mileage: '5000' }, vehicle: {} },
+      { id: 'x2', tracking: { price: '600000', mileage: '5000' }, vehicle: {} },
+      { id: 'x3', tracking: { price: '15000', mileage: '30000' }, vehicle: {} },
+    ]);
+    const results = parseSearchPrices(html);
+    expect(results).toHaveLength(1);
+    expect(results[0].price).toBe(15000);
+  });
+
+  it('returns empty for HTML without __NEXT_DATA__', () => {
+    const html = '<html><body>No data</body></html>';
+    expect(parseSearchPrices(html)).toEqual([]);
+  });
+});
+
+
 // ── 13b. brandMatchesAs24 ───────────────────────────────────────────
 
 describe('brandMatchesAs24', () => {
