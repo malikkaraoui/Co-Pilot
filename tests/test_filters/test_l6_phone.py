@@ -70,14 +70,13 @@ class TestL6PhoneFilter:
         result = self.filt.run({"owner_type": "pro"})
         assert result.status == "fail"
         assert result.score == 0.0
-        assert "professionnel" in result.message
+        assert "pro" in result.message.lower()
 
-    def test_has_phone_lbc_warns(self):
-        """LBC telephone cache derriere login : warning (non verifiable)."""
+    def test_has_phone_lbc_neutral(self):
+        """LBC telephone cache derriere login : neutral (info, connectez-vous)."""
         result = self.filt.run({"has_phone": True})
-        assert result.status == "warning"
-        assert result.score == 0.4
-        assert "masqué" in result.message.lower()
+        assert result.status == "neutral"
+        assert "Connectez-vous" in result.message
 
     # ── Suisse (.ch) ─────────────────────────────────────────────────
 

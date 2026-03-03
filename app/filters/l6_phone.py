@@ -88,13 +88,10 @@ class L6PhoneFilter(BaseFilter):
 
         if not phone:
             # LBC cache le tel derriere "Voir le numero" (API authentifiee)
+            # Le numero existe, on ne peut juste pas le verifier sans connexion
             if data.get("has_phone"):
-                return FilterResult(
-                    filter_id=self.filter_id,
-                    status="warning",
-                    score=0.4,
-                    message="Numéro masqué — impossible de vérifier sans connexion",
-                    details={"phone_login_hint": True},
+                return self.neutral(
+                    "Connectez-vous sur LeBonCoin pour révéler et vérifier le numéro"
                 )
             # Aucun numero : red flag quel que soit le type de vendeur
             if owner_type in ("private", "particulier", ""):
@@ -105,12 +102,12 @@ class L6PhoneFilter(BaseFilter):
                     message="Aucun numéro de téléphone — inhabituel même pour un particulier",
                     details={"owner_type": owner_type or "private", "no_phone": True},
                 )
-            # Pro sans telephone : zero confiance
+            # Pro sans telephone : encore plus louche
             return FilterResult(
                 filter_id=self.filter_id,
                 status="fail",
                 score=0.0,
-                message="Vendeur professionnel sans numéro de téléphone",
+                message="Vendeur pro sans numéro de téléphone — très suspect",
                 details={"owner_type": owner_type, "no_phone_pro": True},
             )
 
