@@ -100,6 +100,14 @@ VEHICLES = [
     ("Mercedes", "CLA", "C118", 2019, 2025),
     ("Mercedes", "GLB", "X247", 2019, 2025),
     ("Mercedes", "GLE", "V167", 2019, 2025),
+    # --- Land Rover ---
+    ("Land Rover", "Discovery", "V", 2017, 2025),
+    ("Land Rover", "Discovery Sport", "I/II", 2014, 2025),
+    ("Land Rover", "Defender", "L663", 2019, 2025),
+    ("Land Rover", "Range Rover", "L460", 2022, 2025),
+    ("Land Rover", "Range Rover Sport", "L461", 2022, 2025),
+    ("Land Rover", "Range Rover Evoque", "L551", 2018, 2025),
+    ("Land Rover", "Range Rover Velar", "L560", 2017, 2025),
     # --- Utilitaires ---
     ("Ford", "Transit", "VI/VII", 2013, 2025),
     ("Ford", "Transit Custom", "I/II", 2012, 2025),

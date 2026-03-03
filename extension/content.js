@@ -171,10 +171,10 @@ function statusIcon(status) {
   }
 }
 
-function filterLabel(filterId) {
+function filterLabel(filterId, status) {
   const labels = {
     L1: "Complétude des données",
-    L2: "Modèle reconnu",
+    L2: status === "pass" ? "Modèle reconnu" : "Identification du modèle",
     L3: "Cohérence km / année",
     L4: "Prix vs marché",
     L5: "Indice de confiance",
@@ -618,7 +618,6 @@ function buildL2Body(f, d) {
 
   // Warning : modèle non reconnu
   return `<div class="copilot-l2-body">
-    <span class="copilot-l2-badge copilot-l2-badge-warn">\u26A0 Mod\u00E8le non reconnu</span>
     <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
   </div>`;
 }
@@ -894,7 +893,7 @@ function buildFiltersList(filters, vehicle) {
     .map((f) => {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
-      const label = filterLabel(f.filter_id);
+      const label = filterLabel(f.filter_id, f.status);
       const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4"
         ? '<span class="copilot-badge-simulated">Données simulées</span>'
         : "";
@@ -1395,7 +1394,7 @@ function createProgressTracker() {
     filters.forEach(function (f) {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
-      const label = filterLabel(f.filter_id);
+      const label = filterLabel(f.filter_id, f.status);
       const scoreText = f.status === "skip" ? "skip" : Math.round(f.score * 100) + "%";
       const filterDiv = document.createElement("div"); filterDiv.className = "copilot-progress-filter";
       const iconSpan = document.createElement("span"); iconSpan.className = "copilot-progress-filter-icon"; iconSpan.style.color = color; iconSpan.textContent = icon; filterDiv.appendChild(iconSpan);

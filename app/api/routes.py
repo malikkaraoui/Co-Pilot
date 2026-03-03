@@ -234,10 +234,10 @@ def _do_analyze():
 
         db.session.commit()
         logger.info("Persisted ScanLog id=%d score=%d", scan.id, score)
-    except (OSError, ValueError, TypeError) as exc:
+    except Exception as exc:  # noqa: BLE001 -- best-effort, ne casse jamais la reponse
         db.session.rollback()
         scan = None
-        logger.warning("Failed to persist scan: %s", exc)
+        logger.warning("Failed to persist scan: %s: %s", type(exc).__name__, exc)
 
     # Construction de la reponse
     filters_out = [
