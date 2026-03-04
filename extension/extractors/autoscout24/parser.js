@@ -258,6 +258,46 @@ export function _extractFuelFromDom(doc) {
   return cleaned.split(' ').slice(0, 3).join(' ').trim();
 }
 
+export function _extractColorFromDom(doc) {
+  // 1) Prefer explicit UI labels in equipment/appearance sections
+  const candidates = Array.from(doc.querySelectorAll('li, dt, dd, div, span'));
+  const labelRe = /(couleur originale|couleur|farbe|lackierung|color|colore)/i;
+
+  for (const node of candidates) {
+    const txt = _normalizeText(node.textContent);
+    if (!txt || txt.length < 6 || txt.length > 200) continue;
+    if (!labelRe.test(txt)) continue;
+
+    // Cases:
+    // - "Couleur originale Granite Métallisé + toit Volcano"
+    // - "Couleur: Noir Métallisé"
+    const inline = txt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\s*[:\-]?\s*(.{2,120})$/i);
+    if (inline?.[1]) {
+      const c = _normalizeText(inline[1]).replace(/[;,|].*$/, '').trim();
+      if (c && c.length >= 2) return c;
+    }
+
+    // If this is only the label node, try next sibling/container text
+    const parent = node.closest('li, dl, div, section, article') || node.parentElement;
+    if (parent) {
+      const ptxt = _normalizeText(parent.textContent || '');
+      const m = ptxt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\b\s*[:\-]?\s*(.{2,120})/i);
+      if (m?.[1]) {
+        const c = _normalizeText(m[1]).replace(/[;,|].*$/, '').trim();
+        if (c && c.length >= 2) return c;
+      }
+    }
+  }
+
+  // 2) Fallback from description text
+  const fullText = _normalizeText(doc.body?.textContent || '');
+  if (!fullText) return null;
+  const m = fullText.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\b\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9+\- ]{2,80})/i);
+  if (!m?.[1]) return null;
+  const color = _normalizeText(m[1]).replace(/[;,|].*$/, '').trim();
+  return color || null;
+}
+
 export function _extractDescriptionFromDom(doc) {
   const directSelectors = [
     '[data-cy*="description"]',
@@ -324,7 +364,7 @@ export function fallbackAdDataFromDom(doc, url) {
     doors: null,
     seats: null,
     first_registration: null,
-    color: null,
+    color: _extractColorFromDom(doc),
     power_fiscal_cv: null,
     power_din_hp: null,
     location: {

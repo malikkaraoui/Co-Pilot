@@ -35,6 +35,33 @@ export async function executeBonusJobs(bonusJobs, progress) {
   const marketUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices");
   const jobDoneUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/job-done");
 
+  function _yearMeta(yearRef, spread = 1) {
+    const y = Number.parseInt(yearRef, 10);
+    const s = Number.parseInt(spread, 10) || 1;
+    if (!Number.isFinite(y) || y < 1990) return { year_from: null, year_to: null, regdate: null };
+    return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
+  }
+
+  function _urlVerdict(adsFound, uniqueAdded) {
+    if ((adsFound || 0) <= 0) return "empty";
+    if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+    return "useful";
+  }
+
+  function _criteriaSummary(make, model, brandToken, modelToken, fuelCode, gearboxCode, hpRange, yearMeta) {
+    const yearVal = (yearMeta.year_from && yearMeta.year_to)
+      ? `${yearMeta.year_from}-${yearMeta.year_to}`
+      : "?-?";
+    return [
+      `marque=${make} [${brandToken}]`,
+      `model=${model} [${modelToken}]`,
+      `fuel=${fuelCode || "any"}`,
+      `boite=${gearboxCode || "any"}`,
+      `CV=${hpRange || "any"}`,
+      `année=${yearVal}`,
+    ].join(" · ");
+  }
+
   if (progress) progress.update("bonus", "running", "Exécution de " + bonusJobs.length + " jobs");
 
   for (const job of bonusJobs) {
@@ -76,14 +103,30 @@ export async function executeBonusJobs(bonusJobs, progress) {
 
       let searchUrl = jobCoreUrl + filters + `&locations=${locParam}`;
       const jobYear = parseInt(job.year, 10);
-      if (jobYear >= 1990) searchUrl += `&regdate=${jobYear - 1}-${jobYear + 1}`;
+      const yearMeta = _yearMeta(jobYear, 1);
+      if (yearMeta.regdate) searchUrl += `&regdate=${yearMeta.regdate}`;
 
       const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
       console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
 
       if (progress) {
         const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
-        progress.addSubStep("bonus", job.make + " " + job.model + " · " + job.region, stepStatus, bonusPrices.length + " annonces");
+        const criteriaSummary = _criteriaSummary(
+          job.make,
+          job.model,
+          job.site_brand_token || brandUpper,
+          job.site_model_token || `${brandUpper}_${job.model}`,
+          (filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1]) || null,
+          (filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1]) || null,
+          (filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1]) || job.hp_range || null,
+          yearMeta,
+        );
+        progress.addSubStep(
+          "bonus",
+          job.make + " " + job.model + " · " + job.region,
+          stepStatus,
+          bonusPrices.length + " annonces · " + criteriaSummary
+        );
       }
 
       if (bonusPrices.length >= MIN_BONUS_PRICES) {
@@ -104,12 +147,27 @@ export async function executeBonusJobs(bonusJobs, progress) {
             search_log: [{
               step: 1, precision: bonusPrecision, location_type: "region",
               year_spread: 1,
+              year_from: yearMeta.year_from,
+              year_to: yearMeta.year_to,
+              year_filter: yearMeta.regdate ? `regdate=${yearMeta.regdate}` : null,
+              criteria_summary: _criteriaSummary(
+                job.make,
+                job.model,
+                job.site_brand_token || brandUpper,
+                job.site_model_token || `${brandUpper}_${job.model}`,
+                (filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1]) || null,
+                (filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1]) || null,
+                (filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1]) || job.hp_range || null,
+                yearMeta,
+              ),
               filters_applied: [
                 ...(filters.includes("fuel=") ? ["fuel"] : []),
                 ...(filters.includes("gearbox=") ? ["gearbox"] : []),
                 ...(filters.includes("horse_power_din=") ? ["hp"] : []),
               ],
               ads_found: bonusPrices.length, url: searchUrl,
+              unique_added: bonusPrices.length,
+              url_verdict: _urlVerdict(bonusPrices.length, bonusPrices.length),
               was_selected: true,
               reason: `bonus job queue: ${bonusPrices.length} annonces`,
             }],
@@ -346,6 +404,34 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   let collectedPrecision = null;
   const searchLog = [];
   const MAX_PRICES_CAP = 100;
+  function _yearMeta(yearRef, spread = 1) {
+    const y = Number.parseInt(yearRef, 10);
+    const s = Number.parseInt(spread, 10) || 1;
+    if (!Number.isFinite(y) || y < 1990) return { year_from: null, year_to: null, regdate: null };
+    return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
+  }
+  function _urlVerdict(adsFound, uniqueAdded) {
+    if ((adsFound || 0) <= 0) return "empty";
+    if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+    return "useful";
+  }
+  function _criteriaSummary(strategy, yearMeta) {
+    const fuelVal = (strategy.filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1]) || null;
+    const gearboxVal = (strategy.filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1]) || null;
+    const hpVal = (strategy.filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1]) || null;
+    const modelToken = modelIsGeneric ? `text:${target.make}` : effectiveModel;
+    const yearVal = (yearMeta.year_from && yearMeta.year_to)
+      ? `${yearMeta.year_from}-${yearMeta.year_to}`
+      : "?-?";
+    return [
+      `marque=${target.make} [${effectiveBrand}]`,
+      `model=${target.model} [${modelToken}]`,
+      `fuel=${fuelVal || "any"}`,
+      `boite=${gearboxVal || "any"}`,
+      `CV=${hpVal || "any"}`,
+      `année=${yearVal}`,
+    ].join(" · ");
+  }
   if (progress) progress.update("collect", "running");
   try {
     for (let i = 0; i < strategies.length; i++) {
@@ -358,8 +444,13 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         searchLog.push({
           step: i + 1, precision: strategy.precision, location_type: "national",
           year_spread: strategy.yearSpread,
+          year_from: null,
+          year_to: null,
+          year_filter: null,
+          criteria_summary: "text fallback skipped",
           filters_applied: strategy.filters.includes("fuel=") ? ["fuel"] : [],
           ads_found: 0, unique_added: 0, total_accumulated: prices.length,
+          url_verdict: "empty",
           url: "(skipped)", was_selected: false,
           reason: `text fallback skipped: ${prices.length} >= ${MIN_PRICES_FOR_ARGUS}`,
         });
@@ -370,8 +461,10 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       const baseCoreUrl = strategy.coreUrl || coreUrl;
       let searchUrl = baseCoreUrl + strategy.filters;
       if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
-      if (targetYear >= 1990) {
-        searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
+      const yearMeta = _yearMeta(targetYear, strategy.yearSpread);
+      const criteriaSummary = _criteriaSummary(strategy, yearMeta);
+      if (yearMeta.regdate) {
+        searchUrl += `&regdate=${yearMeta.regdate}`;
       }
 
       const locLabel = strategy.isTextFallback ? "Text search (fallback)"
@@ -393,7 +486,8 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       if (progress) {
         const stepStatus = unique.length > 0 ? "done" : "skip";
         const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")"
-          + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "");
+          + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "")
+          + " · " + criteriaSummary;
         progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
       }
 
@@ -405,6 +499,10 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         precision: strategy.precision,
         location_type: locationType,
         year_spread: strategy.yearSpread,
+        year_from: yearMeta.year_from,
+        year_to: yearMeta.year_to,
+        year_filter: yearMeta.regdate ? `regdate=${yearMeta.regdate}` : null,
+        criteria_summary: criteriaSummary,
         filters_applied: [
           ...(strategy.filters.includes("fuel=") ? ["fuel"] : []),
           ...(strategy.filters.includes("gearbox=") ? ["gearbox"] : []),
@@ -413,6 +511,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         ],
         ads_found: newPrices.length,
         unique_added: unique.length,
+        url_verdict: _urlVerdict(newPrices.length, unique.length),
         total_accumulated: prices.length,
         url: searchUrl,
         was_selected: enoughPrices,
@@ -453,9 +552,18 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         const ds = dualStrategies[d];
         let searchUrl = dualCoreUrl + ds.filters;
         if (ds.loc) searchUrl += `&locations=${ds.loc}`;
-        if (targetYear >= 1990) {
-          searchUrl += `&regdate=${targetYear - ds.yearSpread}-${targetYear + ds.yearSpread}`;
+        const dYearMeta = _yearMeta(targetYear, ds.yearSpread);
+        if (dYearMeta.regdate) {
+          searchUrl += `&regdate=${dYearMeta.regdate}`;
         }
+        const dCriteriaSummary = [
+          `marque=${target.make} [${secondaryBrand}]`,
+          `model=${target.model} [text:${target.make} ${target.model}]`,
+          `fuel=${(ds.filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1]) || "any"}`,
+          `boite=any`,
+          `CV=any`,
+          `année=${(dYearMeta.year_from && dYearMeta.year_to) ? `${dYearMeta.year_from}-${dYearMeta.year_to}` : "?-?"}`,
+        ].join(" · ");
 
         const dualLocType = ds.loc ? "region" : "national";
         const dualLabel = `Stratégie ${strategies.length + d + 1} · Dual ${secondaryBrand} (${dualLocType})`;
@@ -470,7 +578,12 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
 
         if (progress) {
           const stepStatus = unique.length > 0 ? "done" : "skip";
-          progress.addSubStep("collect", dualLabel, stepStatus, unique.length + " nouvelles annonces (total " + prices.length + ")");
+          progress.addSubStep(
+            "collect",
+            dualLabel,
+            stepStatus,
+            unique.length + " nouvelles annonces (total " + prices.length + ") · " + dCriteriaSummary
+          );
         }
 
         searchLog.push({
@@ -478,9 +591,14 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
           precision: ds.precision,
           location_type: dualLocType,
           year_spread: ds.yearSpread,
+          year_from: dYearMeta.year_from,
+          year_to: dYearMeta.year_to,
+          year_filter: dYearMeta.regdate ? `regdate=${dYearMeta.regdate}` : null,
+          criteria_summary: dCriteriaSummary,
           filters_applied: ds.filters.includes("fuel=") ? ["fuel"] : [],
           ads_found: newPrices.length,
           unique_added: unique.length,
+          url_verdict: _urlVerdict(newPrices.length, unique.length),
           total_accumulated: prices.length,
           url: searchUrl,
           was_selected: prices.length >= MIN_PRICES_FOR_ARGUS,

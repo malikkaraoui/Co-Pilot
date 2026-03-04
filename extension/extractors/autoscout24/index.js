@@ -32,7 +32,7 @@ export {
   parseRSCPayload, parseJsonLd,
   extractMakeModelFromUrl,
   _extractImageCountFromNextData, _extractDatesFromDom,
-  _extractDescriptionFromDom, fallbackAdDataFromDom,
+  _extractDescriptionFromDom, _extractColorFromDom, fallbackAdDataFromDom,
   _findJsonLdByMake,
 } from './parser.js';
 

@@ -1896,4 +1896,56 @@ describe('extract() date fallback from DOM scripts', () => {
     expect(result).not.toBeNull();
     expect(result.ad_data.fuel).toBe('Diesel');
   });
+
+  it('fills color from DOM labels when structured sources miss it', async () => {
+    const rscNoColor = {
+      vehicleCategory: 'car',
+      make: { name: 'JEEP' },
+      model: { name: 'Avenger' },
+      price: 22999,
+      mileage: 4306,
+      firstRegistrationDate: '2023-05-01',
+      bodyColor: null,
+    };
+
+    const ldNoColor = {
+      '@type': 'Car',
+      name: 'Jeep Avenger',
+      brand: { name: 'Jeep' },
+      model: 'Avenger',
+      offers: {
+        price: 22999,
+        priceCurrency: 'EUR',
+        seller: { '@type': 'AutoDealer', name: 'Dealer', address: { postalCode: '10000' } },
+      },
+    };
+
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(rscNoColor)}</script>
+      <script type="application/ld+json">${JSON.stringify(ldNoColor)}</script>
+    </head><body>
+      <section>
+        <h2>Couleur et Garnissage Intérieur</h2>
+        <ul>
+          <li>Couleur originale Granite Métallisé + toit Volcano</li>
+        </ul>
+      </section>
+    </body></html>`, {
+      url: 'https://www.autoscout24.fr/offres/jeep-avenger-electrique-156ch-115kw-summit-electrique-79594a34-bd2c-433f-836b-1d63cef4eaa6',
+    });
+
+    const ext = new AutoScout24Extractor();
+    const origDoc = globalThis.document;
+    const origWin = globalThis.window;
+    globalThis.document = dom.window.document;
+    globalThis.window = dom.window;
+
+    const result = await ext.extract();
+
+    globalThis.document = origDoc;
+    globalThis.window = origWin;
+
+    expect(result).not.toBeNull();
+    expect(result.ad_data.color).toContain('Granite');
+  });
 });

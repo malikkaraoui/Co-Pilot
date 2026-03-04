@@ -13,7 +13,7 @@ import {
 import {
   parseRSCPayload, parseJsonLd, fallbackAdDataFromDom,
   extractMakeModelFromUrl, _extractDatesFromDom, _extractImageCountFromNextData,
-  _extractDescriptionFromDom, _extractFuelFromDom, _findJsonLdByMake,
+  _extractDescriptionFromDom, _extractFuelFromDom, _extractColorFromDom, _findJsonLdByMake,
 } from './parser.js';
 import {
   normalizeToAdData, buildBonusSignals,
@@ -124,6 +124,14 @@ export class AutoScout24Extractor extends SiteExtractor {
       const domFuel = _extractFuelFromDom(document);
       if (domFuel) {
         this._adData.fuel = mapFuelType(domFuel);
+      }
+    }
+
+    // Final fallback: color from visible DOM labels (Couleur originale / Farbe / Color ...)
+    if (!this._adData.color) {
+      const domColor = _extractColorFromDom(document);
+      if (domColor) {
+        this._adData.color = domColor;
       }
     }
 
@@ -343,12 +351,63 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     const MAX_PRICES_CAP = 100;
 
+    function _as24YearWindow(yearRef, spread = 1) {
+      const y = Number.parseInt(yearRef, 10);
+      const s = Number.parseInt(spread, 10) || 1;
+      if (!Number.isFinite(y)) return { year_from: null, year_to: null, year_filter: null };
+      return {
+        year_from: y - s,
+        year_to: y + s,
+        year_filter: `fregfrom=${y - s}&fregto=${y + s}`,
+      };
+    }
+
+    function _urlVerdict(adsFound, uniqueAdded) {
+      if ((adsFound || 0) <= 0) return 'empty';
+      if ((uniqueAdded || 0) <= 0) return 'duplicates_only';
+      return 'useful';
+    }
+
+    function _criteriaSummary(opts, yearMeta) {
+      const fuelVal = opts.fuel || 'any';
+      const gearVal = opts.gear || 'any';
+      const hpVal = (opts.powerfrom || opts.powerto)
+        ? `${opts.powerfrom ?? 'min'}-${opts.powerto ?? 'max'}`
+        : 'any';
+      const modelVal = opts.brandOnly
+        ? `ALL (brandOnly)`
+        : `${target.model} [mo-${targetModelKey}]`;
+      const yearVal = (yearMeta.year_from && yearMeta.year_to)
+        ? `${yearMeta.year_from}-${yearMeta.year_to}`
+        : '?-?';
+      return [
+        `marque=${target.make} [mk-${targetMakeKey}]`,
+        `model=${modelVal}`,
+        `fuel=${fuelVal}`,
+        `boite=${gearVal}`,
+        `CV=${hpVal}`,
+        `année=${yearVal}`,
+      ].join(' · ');
+    }
+
     for (let i = 0; i < strategies.length; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
 
       const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
       const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
-      const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
+      const yearMeta = _as24YearWindow(targetYear, searchOpts.yearSpread || 1);
+      const criteriaSummary = _criteriaSummary(searchOpts, yearMeta);
+      const logBase = {
+        step: i + 1,
+        precision,
+        location_type,
+        year_spread: searchOpts.yearSpread || 1,
+        year_from: yearMeta.year_from,
+        year_to: yearMeta.year_to,
+        year_filter: yearMeta.year_filter,
+        criteria_summary: criteriaSummary,
+        filters_applied: filters_applied || [],
+      };
       rememberSlugs(searchUrl, 'as24_generated_url');
 
       try {
@@ -375,13 +434,15 @@ export class AutoScout24Extractor extends SiteExtractor {
 
         searchLog.push({
           ...logBase, ads_found: newPrices.length,
+          unique_added: unique.length,
+          url_verdict: _urlVerdict(newPrices.length, unique.length),
           url: searchUrl, was_selected: enough && usedPrecision === null,
           reason: enough ? `total ${prices.length} >= ${MIN_PRICES}` : `total ${prices.length} < ${MIN_PRICES}`,
         });
 
         if (progress) {
           progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`,
-            unique.length > 0 ? 'done' : 'skip', `${newPrices.length} annonces`);
+            unique.length > 0 ? 'done' : 'skip', `${newPrices.length} annonces · ${criteriaSummary}`);
         }
 
         if (enough && usedPrecision === null) {
@@ -518,6 +579,45 @@ export class AutoScout24Extractor extends SiteExtractor {
       return f;
     }
 
+    function _as24YearWindow(yearRef, spread = 1) {
+      const y = Number.parseInt(yearRef, 10);
+      const s = Number.parseInt(spread, 10) || 1;
+      if (!Number.isFinite(y)) return { year_from: null, year_to: null, year_filter: null };
+      return {
+        year_from: y - s,
+        year_to: y + s,
+        year_filter: `fregfrom=${y - s}&fregto=${y + s}`,
+      };
+    }
+
+    function _urlVerdict(adsFound, uniqueAdded) {
+      if ((adsFound || 0) <= 0) return 'empty';
+      if ((uniqueAdded || 0) <= 0) return 'duplicates_only';
+      return 'useful';
+    }
+
+    function _bonusCriteriaSummary(job, opts, yearMeta, jobMakeKey, jobModelKey) {
+      const fuelVal = opts.fuel || 'any';
+      const gearVal = opts.gear || 'any';
+      const hpVal = (opts.powerfrom || opts.powerto)
+        ? `${opts.powerfrom ?? 'min'}-${opts.powerto ?? 'max'}`
+        : 'any';
+      const modelVal = opts.brandOnly
+        ? 'ALL (brandOnly)'
+        : `${job.model} [mo-${jobModelKey}]`;
+      const yearVal = (yearMeta.year_from && yearMeta.year_to)
+        ? `${yearMeta.year_from}-${yearMeta.year_to}`
+        : '?-?';
+      return [
+        `marque=${job.make} [mk-${jobMakeKey}]`,
+        `model=${modelVal}`,
+        `fuel=${fuelVal}`,
+        `boite=${gearVal}`,
+        `CV=${hpVal}`,
+        `année=${yearVal}`,
+      ].join(' · ');
+    }
+
     if (progress) progress.update('bonus', 'running', `${bonusJobs.length} jobs`);
 
     for (const job of bonusJobs) {
@@ -609,15 +709,36 @@ export class AutoScout24Extractor extends SiteExtractor {
         let bestAdsCount = 0;
         let httpFailure = null;
 
+        const bonusSearchLog = [];
+
         for (let step = 0; step < bonusStrategies.length; step++) {
           if (step > 0) await new Promise((r) => setTimeout(r, 400 + Math.random() * 300));
           const strategy = bonusStrategies[step];
           const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...strategy.opts, lang });
           const resp = await fetch(searchUrl, { credentials: 'same-origin' });
           const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
+          const yearMeta = _as24YearWindow(jobYear, strategy.opts.yearSpread || 1);
+          const criteriaSummary = _bonusCriteriaSummary(job, strategy.opts, yearMeta, jobMakeKey, jobModelKey);
 
           if (!resp.ok) {
             httpFailure = httpFailure || resp.status;
+            bonusSearchLog.push({
+              step: step + 1,
+              precision: strategy.precision,
+              location_type: strategy.opts.zip ? 'canton' : 'national',
+              year_spread: strategy.opts.yearSpread || 1,
+              year_from: yearMeta.year_from,
+              year_to: yearMeta.year_to,
+              year_filter: yearMeta.year_filter,
+              criteria_summary: criteriaSummary,
+              filters_applied: _bonusFiltersApplied(strategy.opts),
+              ads_found: 0,
+              unique_added: 0,
+              url_verdict: 'empty',
+              url: searchUrl,
+              was_selected: false,
+              reason: `HTTP ${resp.status}`,
+            });
             continue;
           }
 
@@ -627,6 +748,26 @@ export class AutoScout24Extractor extends SiteExtractor {
 
           console.log('[CoPilot] AS24 bonus %s %s %d %s [%s]: %d prix',
             job.make, job.model, jobYear, job.region, strategy.label, prices.length);
+
+          bonusSearchLog.push({
+            step: step + 1,
+            precision: strategy.precision,
+            location_type: strategy.opts.zip ? 'canton' : 'national',
+            year_spread: strategy.opts.yearSpread || 1,
+            year_from: yearMeta.year_from,
+            year_to: yearMeta.year_to,
+            year_filter: yearMeta.year_filter,
+            criteria_summary: criteriaSummary,
+            filters_applied: _bonusFiltersApplied(strategy.opts),
+            ads_found: prices.length,
+            unique_added: prices.length,
+            url_verdict: _urlVerdict(prices.length, prices.length),
+            url: searchUrl,
+            was_selected: prices.length >= MIN_BONUS_PRICES,
+            reason: prices.length >= MIN_BONUS_PRICES
+              ? `total ${prices.length} >= ${MIN_BONUS_PRICES}`
+              : `total ${prices.length} < ${MIN_BONUS_PRICES}`,
+          });
 
           if (prices.length >= MIN_BONUS_PRICES) {
             selected = strategy;
@@ -666,14 +807,7 @@ export class AutoScout24Extractor extends SiteExtractor {
             precision: bonusPrecision, country: countryCode,
             as24_slug_make: selectedLearned.makeSlug || jobMakeKey,
             as24_slug_model: selectedLearned.modelSlug || (selected.opts.brandOnly ? null : jobModelKey),
-            search_log: [{
-              step: 1, precision: bonusPrecision,
-              location_type: selected.opts.zip ? 'canton' : 'national',
-              year_spread: selected.opts.yearSpread || 1,
-              filters_applied: _bonusFiltersApplied(selected.opts),
-              ads_found: selectedPrices.length, url: selectedSearchUrl,
-              was_selected: true, reason: `bonus job (${selected.label}): ${selectedPrices.length} annonces`,
-            }],
+            search_log: bonusSearchLog,
           };
 
           const postResp = await this._fetch(marketUrl, {
@@ -697,7 +831,9 @@ export class AutoScout24Extractor extends SiteExtractor {
               'bonus',
               `${job.make} ${job.model} · ${job.region}`,
               postResp.ok ? 'done' : 'error',
-              postResp.ok ? `${priceInts.length} prix (${selected.label})` : `${errMsg || `HTTP ${postResp.status}`}`
+              postResp.ok
+                ? `${priceInts.length} prix (${selected.label}) · ${_bonusCriteriaSummary(job, selected.opts, _as24YearWindow(jobYear, selected.opts.yearSpread || 1), jobMakeKey, jobModelKey)}`
+                : `${errMsg || `HTTP ${postResp.status}`}`
             );
           }
         } else {

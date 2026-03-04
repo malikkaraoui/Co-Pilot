@@ -674,6 +674,28 @@
     const MIN_BONUS_PRICES = 5;
     const marketUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices");
     const jobDoneUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/job-done");
+    function _yearMeta(yearRef, spread = 1) {
+      const y = Number.parseInt(yearRef, 10);
+      const s = Number.parseInt(spread, 10) || 1;
+      if (!Number.isFinite(y) || y < 1990) return { year_from: null, year_to: null, regdate: null };
+      return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
+    }
+    function _urlVerdict(adsFound, uniqueAdded) {
+      if ((adsFound || 0) <= 0) return "empty";
+      if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+      return "useful";
+    }
+    function _criteriaSummary(make, model, brandToken, modelToken, fuelCode, gearboxCode, hpRange, yearMeta) {
+      const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
+      return [
+        `marque=${make} [${brandToken}]`,
+        `model=${model} [${modelToken}]`,
+        `fuel=${fuelCode || "any"}`,
+        `boite=${gearboxCode || "any"}`,
+        `CV=${hpRange || "any"}`,
+        `ann\xE9e=${yearVal}`
+      ].join(" \xB7 ");
+    }
     if (progress) progress.update("bonus", "running", "Ex\xE9cution de " + bonusJobs.length + " jobs");
     for (const job of bonusJobs) {
       try {
@@ -710,12 +732,28 @@
         }
         let searchUrl = jobCoreUrl + filters + `&locations=${locParam}`;
         const jobYear = parseInt(job.year, 10);
-        if (jobYear >= 1990) searchUrl += `&regdate=${jobYear - 1}-${jobYear + 1}`;
+        const yearMeta = _yearMeta(jobYear, 1);
+        if (yearMeta.regdate) searchUrl += `&regdate=${yearMeta.regdate}`;
         const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
         console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
         if (progress) {
           const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
-          progress.addSubStep("bonus", job.make + " " + job.model + " \xB7 " + job.region, stepStatus, bonusPrices.length + " annonces");
+          const criteriaSummary = _criteriaSummary(
+            job.make,
+            job.model,
+            job.site_brand_token || brandUpper,
+            job.site_model_token || `${brandUpper}_${job.model}`,
+            filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1] || null,
+            filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1] || null,
+            filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1] || job.hp_range || null,
+            yearMeta
+          );
+          progress.addSubStep(
+            "bonus",
+            job.make + " " + job.model + " \xB7 " + job.region,
+            stepStatus,
+            bonusPrices.length + " annonces \xB7 " + criteriaSummary
+          );
         }
         if (bonusPrices.length >= MIN_BONUS_PRICES) {
           const bDetails = bonusPrices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
@@ -737,6 +775,19 @@
                 precision: bonusPrecision,
                 location_type: "region",
                 year_spread: 1,
+                year_from: yearMeta.year_from,
+                year_to: yearMeta.year_to,
+                year_filter: yearMeta.regdate ? `regdate=${yearMeta.regdate}` : null,
+                criteria_summary: _criteriaSummary(
+                  job.make,
+                  job.model,
+                  job.site_brand_token || brandUpper,
+                  job.site_model_token || `${brandUpper}_${job.model}`,
+                  filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1] || null,
+                  filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1] || null,
+                  filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1] || job.hp_range || null,
+                  yearMeta
+                ),
                 filters_applied: [
                   ...filters.includes("fuel=") ? ["fuel"] : [],
                   ...filters.includes("gearbox=") ? ["gearbox"] : [],
@@ -744,6 +795,8 @@
                 ],
                 ads_found: bonusPrices.length,
                 url: searchUrl,
+                unique_added: bonusPrices.length,
+                url_verdict: _urlVerdict(bonusPrices.length, bonusPrices.length),
                 was_selected: true,
                 reason: `bonus job queue: ${bonusPrices.length} annonces`
               }]
@@ -959,6 +1012,32 @@
     let collectedPrecision = null;
     const searchLog = [];
     const MAX_PRICES_CAP = 100;
+    function _yearMeta(yearRef, spread = 1) {
+      const y = Number.parseInt(yearRef, 10);
+      const s = Number.parseInt(spread, 10) || 1;
+      if (!Number.isFinite(y) || y < 1990) return { year_from: null, year_to: null, regdate: null };
+      return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
+    }
+    function _urlVerdict(adsFound, uniqueAdded) {
+      if ((adsFound || 0) <= 0) return "empty";
+      if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+      return "useful";
+    }
+    function _criteriaSummary(strategy, yearMeta) {
+      const fuelVal = strategy.filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1] || null;
+      const gearboxVal = strategy.filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1] || null;
+      const hpVal = strategy.filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1] || null;
+      const modelToken = modelIsGeneric ? `text:${target.make}` : effectiveModel;
+      const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
+      return [
+        `marque=${target.make} [${effectiveBrand}]`,
+        `model=${target.model} [${modelToken}]`,
+        `fuel=${fuelVal || "any"}`,
+        `boite=${gearboxVal || "any"}`,
+        `CV=${hpVal || "any"}`,
+        `ann\xE9e=${yearVal}`
+      ].join(" \xB7 ");
+    }
     if (progress) progress.update("collect", "running");
     try {
       for (let i = 0; i < strategies.length; i++) {
@@ -971,10 +1050,15 @@
             precision: strategy.precision,
             location_type: "national",
             year_spread: strategy.yearSpread,
+            year_from: null,
+            year_to: null,
+            year_filter: null,
+            criteria_summary: "text fallback skipped",
             filters_applied: strategy.filters.includes("fuel=") ? ["fuel"] : [],
             ads_found: 0,
             unique_added: 0,
             total_accumulated: prices.length,
+            url_verdict: "empty",
             url: "(skipped)",
             was_selected: false,
             reason: `text fallback skipped: ${prices.length} >= ${MIN_PRICES_FOR_ARGUS}`
@@ -985,8 +1069,10 @@
         const baseCoreUrl = strategy.coreUrl || coreUrl;
         let searchUrl = baseCoreUrl + strategy.filters;
         if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
-        if (targetYear >= 1990) {
-          searchUrl += `&regdate=${targetYear - strategy.yearSpread}-${targetYear + strategy.yearSpread}`;
+        const yearMeta = _yearMeta(targetYear, strategy.yearSpread);
+        const criteriaSummary = _criteriaSummary(strategy, yearMeta);
+        if (yearMeta.regdate) {
+          searchUrl += `&regdate=${yearMeta.regdate}`;
         }
         const locLabel = strategy.isTextFallback ? "Text search (fallback)" : strategy.loc === geoParam && geoParam ? "G\xE9o (" + (location2?.city || "local") + " 30km)" : strategy.loc === regionParam && regionParam ? "R\xE9gion (" + targetRegion + ")" : "National";
         const strategyLabel = "Strat\xE9gie " + (i + 1) + " \xB7 " + locLabel + " \xB1" + strategy.yearSpread + "an";
@@ -1006,7 +1092,7 @@
         );
         if (progress) {
           const stepStatus = unique.length > 0 ? "done" : "skip";
-          const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")" + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "");
+          const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")" + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "") + " \xB7 " + criteriaSummary;
           progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
         }
         const locationType = strategy.loc === geoParam && geoParam ? "geo" : strategy.loc === regionParam && regionParam ? "region" : "national";
@@ -1015,6 +1101,10 @@
           precision: strategy.precision,
           location_type: locationType,
           year_spread: strategy.yearSpread,
+          year_from: yearMeta.year_from,
+          year_to: yearMeta.year_to,
+          year_filter: yearMeta.regdate ? `regdate=${yearMeta.regdate}` : null,
+          criteria_summary: criteriaSummary,
           filters_applied: [
             ...strategy.filters.includes("fuel=") ? ["fuel"] : [],
             ...strategy.filters.includes("gearbox=") ? ["gearbox"] : [],
@@ -1023,6 +1113,7 @@
           ],
           ads_found: newPrices.length,
           unique_added: unique.length,
+          url_verdict: _urlVerdict(newPrices.length, unique.length),
           total_accumulated: prices.length,
           url: searchUrl,
           was_selected: enoughPrices,
@@ -1052,9 +1143,18 @@
           const ds = dualStrategies[d];
           let searchUrl = dualCoreUrl + ds.filters;
           if (ds.loc) searchUrl += `&locations=${ds.loc}`;
-          if (targetYear >= 1990) {
-            searchUrl += `&regdate=${targetYear - ds.yearSpread}-${targetYear + ds.yearSpread}`;
+          const dYearMeta = _yearMeta(targetYear, ds.yearSpread);
+          if (dYearMeta.regdate) {
+            searchUrl += `&regdate=${dYearMeta.regdate}`;
           }
+          const dCriteriaSummary = [
+            `marque=${target.make} [${secondaryBrand}]`,
+            `model=${target.model} [text:${target.make} ${target.model}]`,
+            `fuel=${ds.filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1] || "any"}`,
+            `boite=any`,
+            `CV=any`,
+            `ann\xE9e=${dYearMeta.year_from && dYearMeta.year_to ? `${dYearMeta.year_from}-${dYearMeta.year_to}` : "?-?"}`
+          ].join(" \xB7 ");
           const dualLocType = ds.loc ? "region" : "national";
           const dualLabel = `Strat\xE9gie ${strategies.length + d + 1} \xB7 Dual ${secondaryBrand} (${dualLocType})`;
           const newPrices = await fetchSearchPrices(searchUrl, targetYear, ds.yearSpread, secondaryBrand);
@@ -1071,16 +1171,26 @@
           );
           if (progress) {
             const stepStatus = unique.length > 0 ? "done" : "skip";
-            progress.addSubStep("collect", dualLabel, stepStatus, unique.length + " nouvelles annonces (total " + prices.length + ")");
+            progress.addSubStep(
+              "collect",
+              dualLabel,
+              stepStatus,
+              unique.length + " nouvelles annonces (total " + prices.length + ") \xB7 " + dCriteriaSummary
+            );
           }
           searchLog.push({
             step: strategies.length + d + 1,
             precision: ds.precision,
             location_type: dualLocType,
             year_spread: ds.yearSpread,
+            year_from: dYearMeta.year_from,
+            year_to: dYearMeta.year_to,
+            year_filter: dYearMeta.regdate ? `regdate=${dYearMeta.regdate}` : null,
+            criteria_summary: dCriteriaSummary,
             filters_applied: ds.filters.includes("fuel=") ? ["fuel"] : [],
             ads_found: newPrices.length,
             unique_added: unique.length,
+            url_verdict: _urlVerdict(newPrices.length, unique.length),
             total_accumulated: prices.length,
             url: searchUrl,
             was_selected: prices.length >= MIN_PRICES_FOR_ARGUS,
@@ -2377,6 +2487,35 @@
     if (!cleaned) return null;
     return cleaned.split(" ").slice(0, 3).join(" ").trim();
   }
+  function _extractColorFromDom(doc) {
+    const candidates = Array.from(doc.querySelectorAll("li, dt, dd, div, span"));
+    const labelRe = /(couleur originale|couleur|farbe|lackierung|color|colore)/i;
+    for (const node of candidates) {
+      const txt = _normalizeText(node.textContent);
+      if (!txt || txt.length < 6 || txt.length > 200) continue;
+      if (!labelRe.test(txt)) continue;
+      const inline = txt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\s*[:\-]?\s*(.{2,120})$/i);
+      if (inline?.[1]) {
+        const c = _normalizeText(inline[1]).replace(/[;,|].*$/, "").trim();
+        if (c && c.length >= 2) return c;
+      }
+      const parent = node.closest("li, dl, div, section, article") || node.parentElement;
+      if (parent) {
+        const ptxt = _normalizeText(parent.textContent || "");
+        const m2 = ptxt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\b\s*[:\-]?\s*(.{2,120})/i);
+        if (m2?.[1]) {
+          const c = _normalizeText(m2[1]).replace(/[;,|].*$/, "").trim();
+          if (c && c.length >= 2) return c;
+        }
+      }
+    }
+    const fullText = _normalizeText(doc.body?.textContent || "");
+    if (!fullText) return null;
+    const m = fullText.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\b\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9+\- ]{2,80})/i);
+    if (!m?.[1]) return null;
+    const color = _normalizeText(m[1]).replace(/[;,|].*$/, "").trim();
+    return color || null;
+  }
   function _extractDescriptionFromDom(doc) {
     const directSelectors = [
       '[data-cy*="description"]',
@@ -2431,7 +2570,7 @@
       doors: null,
       seats: null,
       first_registration: null,
-      color: null,
+      color: _extractColorFromDom(doc),
       power_fiscal_cv: null,
       power_din_hp: null,
       location: {
@@ -2680,6 +2819,12 @@
           this._adData.fuel = mapFuelType(domFuel);
         }
       }
+      if (!this._adData.color) {
+        const domColor = _extractColorFromDom(document);
+        if (domColor) {
+          this._adData.color = domColor;
+        }
+      }
       return {
         type: "normalized",
         source: "autoscout24",
@@ -2858,11 +3003,53 @@
       }
       if (progress) progress.update("collect", "running");
       const MAX_PRICES_CAP = 100;
+      function _as24YearWindow(yearRef, spread = 1) {
+        const y = Number.parseInt(yearRef, 10);
+        const s = Number.parseInt(spread, 10) || 1;
+        if (!Number.isFinite(y)) return { year_from: null, year_to: null, year_filter: null };
+        return {
+          year_from: y - s,
+          year_to: y + s,
+          year_filter: `fregfrom=${y - s}&fregto=${y + s}`
+        };
+      }
+      function _urlVerdict(adsFound, uniqueAdded) {
+        if ((adsFound || 0) <= 0) return "empty";
+        if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+        return "useful";
+      }
+      function _criteriaSummary(opts, yearMeta) {
+        const fuelVal = opts.fuel || "any";
+        const gearVal = opts.gear || "any";
+        const hpVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
+        const modelVal = opts.brandOnly ? `ALL (brandOnly)` : `${target.model} [mo-${targetModelKey}]`;
+        const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
+        return [
+          `marque=${target.make} [mk-${targetMakeKey}]`,
+          `model=${modelVal}`,
+          `fuel=${fuelVal}`,
+          `boite=${gearVal}`,
+          `CV=${hpVal}`,
+          `ann\xE9e=${yearVal}`
+        ].join(" \xB7 ");
+      }
       for (let i = 0; i < strategies.length; i++) {
         if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
         const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
         const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
-        const logBase = { step: i + 1, precision, location_type, year_spread: searchOpts.yearSpread || 1, filters_applied: filters_applied || [] };
+        const yearMeta = _as24YearWindow(targetYear, searchOpts.yearSpread || 1);
+        const criteriaSummary = _criteriaSummary(searchOpts, yearMeta);
+        const logBase = {
+          step: i + 1,
+          precision,
+          location_type,
+          year_spread: searchOpts.yearSpread || 1,
+          year_from: yearMeta.year_from,
+          year_to: yearMeta.year_to,
+          year_filter: yearMeta.year_filter,
+          criteria_summary: criteriaSummary,
+          filters_applied: filters_applied || []
+        };
         rememberSlugs(searchUrl, "as24_generated_url");
         try {
           const resp = await fetch(searchUrl, { credentials: "same-origin" });
@@ -2890,6 +3077,8 @@
           searchLog.push({
             ...logBase,
             ads_found: newPrices.length,
+            unique_added: unique.length,
+            url_verdict: _urlVerdict(newPrices.length, unique.length),
             url: searchUrl,
             was_selected: enough && usedPrecision === null,
             reason: enough ? `total ${prices.length} >= ${MIN_PRICES}` : `total ${prices.length} < ${MIN_PRICES}`
@@ -2899,7 +3088,7 @@
               "collect",
               `Strat\xE9gie ${i + 1} \xB7 ${label}`,
               unique.length > 0 ? "done" : "skip",
-              `${newPrices.length} annonces`
+              `${newPrices.length} annonces \xB7 ${criteriaSummary}`
             );
           }
           if (enough && usedPrecision === null) {
@@ -3030,6 +3219,43 @@
       const currency = TLD_TO_CURRENCY[tld] || "EUR";
       const countryCode = TLD_TO_COUNTRY_CODE[tld] || "FR";
       const MIN_BONUS_PRICES = countryCode === "FR" ? 20 : MIN_PRICES;
+      function _bonusFiltersApplied(opts) {
+        const f = [];
+        if (opts.fuel) f.push("fuel");
+        if (opts.gear) f.push("gearbox");
+        if (opts.powerfrom || opts.powerto) f.push("hp");
+        return f;
+      }
+      function _as24YearWindow(yearRef, spread = 1) {
+        const y = Number.parseInt(yearRef, 10);
+        const s = Number.parseInt(spread, 10) || 1;
+        if (!Number.isFinite(y)) return { year_from: null, year_to: null, year_filter: null };
+        return {
+          year_from: y - s,
+          year_to: y + s,
+          year_filter: `fregfrom=${y - s}&fregto=${y + s}`
+        };
+      }
+      function _urlVerdict(adsFound, uniqueAdded) {
+        if ((adsFound || 0) <= 0) return "empty";
+        if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+        return "useful";
+      }
+      function _bonusCriteriaSummary(job, opts, yearMeta, jobMakeKey, jobModelKey) {
+        const fuelVal = opts.fuel || "any";
+        const gearVal = opts.gear || "any";
+        const hpVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
+        const modelVal = opts.brandOnly ? "ALL (brandOnly)" : `${job.model} [mo-${jobModelKey}]`;
+        const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
+        return [
+          `marque=${job.make} [mk-${jobMakeKey}]`,
+          `model=${modelVal}`,
+          `fuel=${fuelVal}`,
+          `boite=${gearVal}`,
+          `CV=${hpVal}`,
+          `ann\xE9e=${yearVal}`
+        ].join(" \xB7 ");
+      }
       if (progress) progress.update("bonus", "running", `${bonusJobs.length} jobs`);
       for (const job of bonusJobs) {
         if ((job.country || "FR") !== countryCode) {
@@ -3050,36 +3276,132 @@
             continue;
           }
           const cantonZip = getCantonCenterZip(job.region);
-          const searchOpts = { yearSpread: 1 };
+          const strictSearchOpts = { yearSpread: 1 };
           if (job.fuel) {
             const fc = getAs24FuelCode(job.fuel);
-            if (fc) searchOpts.fuel = fc;
+            if (fc) strictSearchOpts.fuel = fc;
           }
           if (job.gearbox) {
             const gc = getAs24GearCode(job.gearbox);
-            if (gc) searchOpts.gear = gc;
+            if (gc) strictSearchOpts.gear = gc;
           }
           if (job.hp_range) {
             const pp = parseHpRange(job.hp_range);
-            Object.assign(searchOpts, pp);
+            Object.assign(strictSearchOpts, pp);
           }
           if (cantonZip) {
-            searchOpts.zip = cantonZip;
-            searchOpts.radius = 50;
+            strictSearchOpts.zip = cantonZip;
+            strictSearchOpts.radius = 50;
           }
-          const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
-          const resp = await fetch(searchUrl, { credentials: "same-origin" });
-          const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
-          if (!resp.ok) {
-            await this._reportJobDone(jobDoneUrl, job.job_id, false);
-            if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, "skip", `HTTP ${resp.status}`);
-            continue;
+          const bonusStrategies = [];
+          const seenBonusKeys = /* @__PURE__ */ new Set();
+          const pushBonusStrategy = (label, opts, precision = 3) => {
+            const strategyOpts = { ...opts };
+            const key = JSON.stringify(strategyOpts);
+            if (seenBonusKeys.has(key)) return;
+            seenBonusKeys.add(key);
+            bonusStrategies.push({ label, precision, opts: strategyOpts });
+          };
+          pushBonusStrategy("Strict local \xB11an", strictSearchOpts, 4);
+          if (strictSearchOpts.powerfrom || strictSearchOpts.powerto) {
+            const noHp = { ...strictSearchOpts };
+            delete noHp.powerfrom;
+            delete noHp.powerto;
+            pushBonusStrategy("Sans HP \xB11an", noHp, 3);
           }
-          const html = await resp.text();
-          const prices = parseSearchPrices(html, job.make);
-          console.log("[CoPilot] AS24 bonus %s %s %d %s: %d prix", job.make, job.model, jobYear, job.region, prices.length);
-          if (prices.length >= MIN_BONUS_PRICES) {
-            const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price >= 500);
+          if (strictSearchOpts.gear) {
+            const noGear = { ...strictSearchOpts };
+            delete noGear.gear;
+            pushBonusStrategy("Sans boite \xB11an", noGear, 3);
+          }
+          if (strictSearchOpts.zip) {
+            const national = { ...strictSearchOpts };
+            delete national.zip;
+            delete national.radius;
+            pushBonusStrategy("National \xB11an", national, 2);
+            const nationalWide = { ...national, yearSpread: 2 };
+            pushBonusStrategy("National \xB12ans", nationalWide, 2);
+          } else {
+            pushBonusStrategy("National \xB12ans", { ...strictSearchOpts, yearSpread: 2 }, 2);
+          }
+          const fuelOnlyWide = { yearSpread: 2 };
+          if (strictSearchOpts.fuel) fuelOnlyWide.fuel = strictSearchOpts.fuel;
+          pushBonusStrategy("National fuel \xB12ans", fuelOnlyWide, 2);
+          let selected = null;
+          let selectedPrices = [];
+          let selectedSearchUrl = null;
+          let selectedLearned = { makeSlug: null, modelSlug: null };
+          let bestAdsCount = 0;
+          let httpFailure = null;
+          const bonusSearchLog = [];
+          for (let step = 0; step < bonusStrategies.length; step++) {
+            if (step > 0) await new Promise((r) => setTimeout(r, 400 + Math.random() * 300));
+            const strategy = bonusStrategies[step];
+            const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...strategy.opts, lang });
+            const resp = await fetch(searchUrl, { credentials: "same-origin" });
+            const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
+            const yearMeta = _as24YearWindow(jobYear, strategy.opts.yearSpread || 1);
+            const criteriaSummary = _bonusCriteriaSummary(job, strategy.opts, yearMeta, jobMakeKey, jobModelKey);
+            if (!resp.ok) {
+              httpFailure = httpFailure || resp.status;
+              bonusSearchLog.push({
+                step: step + 1,
+                precision: strategy.precision,
+                location_type: strategy.opts.zip ? "canton" : "national",
+                year_spread: strategy.opts.yearSpread || 1,
+                year_from: yearMeta.year_from,
+                year_to: yearMeta.year_to,
+                year_filter: yearMeta.year_filter,
+                criteria_summary: criteriaSummary,
+                filters_applied: _bonusFiltersApplied(strategy.opts),
+                ads_found: 0,
+                unique_added: 0,
+                url_verdict: "empty",
+                url: searchUrl,
+                was_selected: false,
+                reason: `HTTP ${resp.status}`
+              });
+              continue;
+            }
+            const html = await resp.text();
+            const prices = parseSearchPrices(html, job.make);
+            bestAdsCount = Math.max(bestAdsCount, prices.length);
+            console.log(
+              "[CoPilot] AS24 bonus %s %s %d %s [%s]: %d prix",
+              job.make,
+              job.model,
+              jobYear,
+              job.region,
+              strategy.label,
+              prices.length
+            );
+            bonusSearchLog.push({
+              step: step + 1,
+              precision: strategy.precision,
+              location_type: strategy.opts.zip ? "canton" : "national",
+              year_spread: strategy.opts.yearSpread || 1,
+              year_from: yearMeta.year_from,
+              year_to: yearMeta.year_to,
+              year_filter: yearMeta.year_filter,
+              criteria_summary: criteriaSummary,
+              filters_applied: _bonusFiltersApplied(strategy.opts),
+              ads_found: prices.length,
+              unique_added: prices.length,
+              url_verdict: _urlVerdict(prices.length, prices.length),
+              url: searchUrl,
+              was_selected: prices.length >= MIN_BONUS_PRICES,
+              reason: prices.length >= MIN_BONUS_PRICES ? `total ${prices.length} >= ${MIN_BONUS_PRICES}` : `total ${prices.length} < ${MIN_BONUS_PRICES}`
+            });
+            if (prices.length >= MIN_BONUS_PRICES) {
+              selected = strategy;
+              selectedPrices = prices;
+              selectedSearchUrl = searchUrl;
+              selectedLearned = learned;
+              break;
+            }
+          }
+          if (selected && selectedPrices.length >= MIN_BONUS_PRICES) {
+            const priceDetails = selectedPrices.filter((p) => Number.isInteger(p?.price) && p.price >= 500);
             const priceInts = priceDetails.map((p) => p.price);
             if (priceInts.length < MIN_BONUS_PRICES) {
               await this._reportJobDone(jobDoneUrl, job.job_id, false);
@@ -3093,7 +3415,7 @@
               }
               continue;
             }
-            const bonusPrecision = prices.length >= 20 ? 4 : 2;
+            const bonusPrecision = selected.precision;
             const bonusPayload = {
               make: String(job.make || "").trim(),
               model: String(job.model || "").trim(),
@@ -3105,23 +3427,9 @@
               hp_range: job.hp_range || null,
               precision: bonusPrecision,
               country: countryCode,
-              as24_slug_make: learned.makeSlug || jobMakeKey,
-              as24_slug_model: learned.modelSlug || (searchOpts.brandOnly ? null : jobModelKey),
-              search_log: [{
-                step: 1,
-                precision: bonusPrecision,
-                location_type: cantonZip ? "canton" : "national",
-                year_spread: 1,
-                filters_applied: [
-                  ...searchOpts.fuel ? ["fuel"] : [],
-                  ...searchOpts.gear ? ["gearbox"] : [],
-                  ...searchOpts.powerfrom || searchOpts.powerto ? ["hp"] : []
-                ],
-                ads_found: prices.length,
-                url: searchUrl,
-                was_selected: true,
-                reason: `bonus job: ${prices.length} annonces`
-              }]
+              as24_slug_make: selectedLearned.makeSlug || jobMakeKey,
+              as24_slug_model: selectedLearned.modelSlug || (selected.opts.brandOnly ? null : jobModelKey),
+              search_log: bonusSearchLog
             };
             const postResp = await this._fetch(marketUrl, {
               method: "POST",
@@ -3144,7 +3452,7 @@
                 "bonus",
                 `${job.make} ${job.model} \xB7 ${job.region}`,
                 postResp.ok ? "done" : "error",
-                postResp.ok ? `${priceInts.length} prix` : `${errMsg || `HTTP ${postResp.status}`}`
+                postResp.ok ? `${priceInts.length} prix (${selected.label}) \xB7 ${_bonusCriteriaSummary(job, selected.opts, _as24YearWindow(jobYear, selected.opts.yearSpread || 1), jobMakeKey, jobModelKey)}` : `${errMsg || `HTTP ${postResp.status}`}`
               );
             }
           } else {
@@ -3154,7 +3462,7 @@
                 "bonus",
                 `${job.make} ${job.model} \xB7 ${job.region}`,
                 "skip",
-                `${prices.length} annonces (<${MIN_BONUS_PRICES})`
+                bestAdsCount > 0 ? `${bestAdsCount} annonces max (<${MIN_BONUS_PRICES})` : `${httpFailure ? `HTTP ${httpFailure}` : `0 annonce`} (<${MIN_BONUS_PRICES})`
               );
             }
           }
