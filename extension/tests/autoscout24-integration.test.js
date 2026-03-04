@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { parseJsonLd, normalizeToAdData, buildBonusSignals } from '../extractors/autoscout24.js';
+import { parseJsonLd, normalizeToAdData, buildBonusSignals } from '../extractors/autoscout24/index.js';
 
 
 describe('AutoScout24 integration', () => {

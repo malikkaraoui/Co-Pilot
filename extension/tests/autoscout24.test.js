@@ -30,7 +30,7 @@ import {
   parseHpRange,
   AS24_URL_PATTERNS,
   AutoScout24Extractor,
-} from '../extractors/autoscout24.js';
+} from '../extractors/autoscout24/index.js';
 import { getExtractor } from '../extractors/index.js';
 import { JSDOM } from 'jsdom';
 

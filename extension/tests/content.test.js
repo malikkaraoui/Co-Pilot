@@ -39,7 +39,7 @@ import {
   getAdDetails,
   reportJobDone,
 } from '../content.js';
-import { initLbcDeps } from '../extractors/leboncoin.js';
+import { initLbcDeps } from '../extractors/leboncoin/index.js';
 
 // Inject dependencies for leboncoin.js functions used in tests.
 // In the test environment, backendFetch simply delegates to global.fetch

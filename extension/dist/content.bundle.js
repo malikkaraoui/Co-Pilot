@@ -1,120 +1,66 @@
 "use strict";
 (() => {
-  // extension/extractors/base.js
-  var SiteExtractor = class {
-    /** Identifiant du site ('leboncoin', 'autoscout24'). */
-    static SITE_ID = "";
-    /** Patterns regex pour detecter le site depuis l'URL. */
-    static URL_PATTERNS = [];
-    /** @type {Function|null} Backend fetch proxy (injected by content.js) */
-    _fetch = null;
-    /** @type {string|null} API base URL (injected by content.js) */
-    _apiUrl = null;
-    /**
-     * Injecte les dependances communes (backendFetch, apiUrl).
-     * Appele par content.js apres construction de l'extracteur.
-     * @param {{fetch: Function, apiUrl: string}} deps
-     */
-    initDeps(deps) {
-      this._fetch = deps.fetch;
-      this._apiUrl = deps.apiUrl;
-    }
-    /**
-     * Detecte si l'URL courante est une page d'annonce.
-     * @param {string} url
-     * @returns {boolean}
-     */
-    isAdPage(url) {
-      throw new Error("isAdPage() must be implemented");
-    }
-    /**
-     * Extrait les donnees vehicule de la page.
-     *
-     * Retourne un objet avec:
-     * - type: 'raw' (envoyer next_data brut) ou 'normalized' (ad_data pre-digere)
-     * - next_data: payload brut (si type='raw')
-     * - ad_data: dict normalise au format extract_ad_data() (si type='normalized')
-     * - source: identifiant du site
-     *
-     * @returns {Promise<{type: string, source: string, next_data?: object, ad_data?: object}|null>}
-     */
-    async extract() {
-      throw new Error("extract() must be implemented");
-    }
-    /**
-     * Revele le numero de telephone du vendeur si possible.
-     * @returns {Promise<string|null>}
-     */
-    async revealPhone() {
-      return null;
-    }
-    /**
-     * Detecte un rapport gratuit (Autoviza, etc.) sur la page.
-     * @returns {Promise<string|null>}
-     */
-    async detectFreeReport() {
-      return null;
-    }
-    /**
-     * Verifie si l'utilisateur est connecte sur le site.
-     * @returns {boolean}
-     */
-    isLoggedIn() {
-      return false;
-    }
-    /**
-     * Indique si l'annonce a un telephone revelable.
-     * @returns {boolean}
-     */
-    hasPhone() {
-      return false;
-    }
-    /**
-     * Collecte les prix du marche pour le vehicule courant.
-     * @param {object} progress - Progress tracker pour l'UI
-     * @returns {Promise<{submitted: boolean}>}
-     */
-    async collectMarketPrices(progress) {
-      return { submitted: false };
-    }
-    /**
-     * Retourne les signaux bonus specifiques au site.
-     * Affiches dans une section popup dediee, pas envoyes au backend.
-     *
-     * @returns {Array<{label: string, value: string, status: string}>}
-     */
-    getBonusSignals() {
-      return [];
-    }
-    /**
-     * Extrait un resume vehicule court pour le header du progress tracker.
-     * @returns {{make: string, model: string, year: string}|null}
-     */
-    getVehicleSummary() {
-      return null;
-    }
+  // extension/extractors/leboncoin/_deps.js
+  var lbcDeps = {
+    backendFetch: null,
+    sleep: null,
+    apiUrl: null
   };
-
-  // extension/extractors/leboncoin.js
-  var _backendFetch;
-  var _sleep;
-  var _apiUrl;
   function initLbcDeps(deps) {
-    _backendFetch = deps.backendFetch;
-    _sleep = deps.sleep;
-    _apiUrl = deps.apiUrl;
+    lbcDeps.backendFetch = deps.backendFetch;
+    lbcDeps.sleep = deps.sleep;
+    lbcDeps.apiUrl = deps.apiUrl;
   }
-  function isChromeRuntimeAvailable() {
-    try {
-      return typeof chrome !== "undefined" && !!chrome.runtime && typeof chrome.runtime.sendMessage === "function";
-    } catch {
-      return false;
-    }
+
+  // extension/shared/cooldown.js
+  var COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
+  var STORAGE_KEY = "copilot_last_collect";
+  function shouldSkipCollection() {
+    const lastCollect = parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
+    return Date.now() - lastCollect < COLLECT_COOLDOWN_MS;
   }
-  function isBenignRuntimeTeardownError(err) {
-    const msg = String(err?.message || err || "").toLowerCase();
-    return msg.includes("extension context invalidated") || msg.includes("runtime_unavailable_for_local_backend") || msg.includes("receiving end does not exist");
+  function markCollected() {
+    localStorage.setItem(STORAGE_KEY, String(Date.now()));
   }
+
+  // extension/shared/brand.js
+  function normalizeBrand(brand) {
+    if (!brand) return "";
+    return brand.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-_]/g, " ").trim();
+  }
+  function brandsMatch(adBrand, targetMake) {
+    if (!adBrand || !targetMake) return true;
+    const a = normalizeBrand(adBrand);
+    const t = normalizeBrand(targetMake);
+    if (!a || !t) return true;
+    if (a === t) return true;
+    if (a === "vw" && t === "volkswagen" || a === "volkswagen" && t === "vw") return true;
+    if (a.startsWith("mercedes") && t.startsWith("mercedes")) return true;
+    if (a.includes(t) || t.includes(a)) return true;
+    return false;
+  }
+
+  // extension/shared/ranges.js
+  function getHpRange(hp) {
+    if (!hp || hp <= 0) return null;
+    if (hp < 80) return "min-90";
+    if (hp < 110) return "70-120";
+    if (hp < 140) return "100-150";
+    if (hp < 180) return "130-190";
+    if (hp < 250) return "170-260";
+    if (hp < 350) return "240-360";
+    return "340-max";
+  }
+  function getMileageRange(km) {
+    if (!km || km <= 0) return null;
+    if (km <= 1e4) return "min-20000";
+    if (km <= 3e4) return "min-50000";
+    if (km <= 6e4) return "20000-80000";
+    if (km <= 12e4) return "50000-150000";
+    return "100000-max";
+  }
+
+  // extension/extractors/leboncoin/constants.js
   var GENERIC_MODELS = ["autres", "autre", "other", "divers"];
   var EXCLUDED_CATEGORIES = ["motos", "equipement_moto", "caravaning", "nautisme"];
   var LBC_BRAND_ALIASES = {
@@ -124,7 +70,6 @@
     DS: "CITROEN"
   };
   var LBC_REGIONS = {
-    // Regions post-2016
     "\xCEle-de-France": "rn_12",
     "Auvergne-Rh\xF4ne-Alpes": "rn_22",
     "Provence-Alpes-C\xF4te d'Azur": "rn_21",
@@ -138,7 +83,6 @@
     "Bourgogne-Franche-Comt\xE9": "rn_5",
     "Centre-Val de Loire": "rn_7",
     "Corse": "rn_9",
-    // Anciennes regions (pre-2016) -- LBC retourne parfois ces noms
     "Nord-Pas-de-Calais": "rn_17",
     "Picardie": "rn_17",
     "Rh\xF4ne-Alpes": "rn_22",
@@ -176,9 +120,14 @@
     "manuelle": 1,
     "automatique": 2
   };
-  var COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
+  var COLLECT_COOLDOWN_MS2 = COLLECT_COOLDOWN_MS;
   var DEFAULT_SEARCH_RADIUS = 3e4;
   var MIN_PRICES_FOR_ARGUS = 20;
+  var getHorsePowerRange = getHpRange;
+  var getMileageRange2 = getMileageRange;
+  var brandMatches = brandsMatch;
+
+  // extension/extractors/leboncoin/parser.js
   function isStaleData(data) {
     const urlMatch = window.location.href.match(/\/(\d+)(?:[?#]|$)/);
     if (!urlMatch) return false;
@@ -340,94 +289,6 @@
     }
     return null;
   }
-  function isUserLoggedIn() {
-    const header = document.querySelector("header");
-    if (!header) return false;
-    const text = header.textContent.toLowerCase();
-    return !text.includes("se connecter") && !text.includes("s'identifier");
-  }
-  async function detectAutovizaUrl(nextData) {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const directLink = document.querySelector('a[href*="autoviza.fr"]');
-      if (directLink) return directLink.href;
-      const redirectLink = document.querySelector('a[href*="autoviza"]');
-      if (redirectLink) {
-        const href = redirectLink.href;
-        const match = href.match(/(https?:\/\/[^\s&"]*autoviza\.fr[^\s&"]*)/);
-        if (match) return match[1];
-        return href;
-      }
-      const allLinks = document.querySelectorAll("a[href], button[data-href]");
-      for (const el of allLinks) {
-        const text = (el.textContent || "").toLowerCase();
-        if (text.includes("rapport") && text.includes("historique") || text.includes("autoviza")) {
-          const href = el.href || el.dataset.href || "";
-          if (href && href.includes("autoviza")) return href;
-        }
-      }
-      if (attempt < 3) await _sleep(800);
-    }
-    if (nextData) {
-      const json = JSON.stringify(nextData);
-      const match = json.match(/(https?:\/\/[^\s"]*autoviza\.fr[^\s"]*)/);
-      if (match) return match[1];
-    }
-    return null;
-  }
-  async function revealPhoneNumber() {
-    const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
-    for (const link of existingTelLinks) {
-      const phone = link.href.replace("tel:", "").trim();
-      if (phone && phone.length >= 10) return phone;
-    }
-    const candidates = document.querySelectorAll('button, a, [role="button"]');
-    let phoneBtn = null;
-    for (const el of candidates) {
-      const text = (el.textContent || "").toLowerCase().trim();
-      if (text.includes("voir le num\xE9ro") || text.includes("voir le numero") || text.includes("afficher le num\xE9ro") || text.includes("afficher le numero")) {
-        phoneBtn = el;
-        break;
-      }
-    }
-    if (!phoneBtn) return null;
-    phoneBtn.click();
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await _sleep(500);
-      const telLinks = document.querySelectorAll('a[href^="tel:"]');
-      for (const link of telLinks) {
-        const phone = link.href.replace("tel:", "").trim();
-        if (phone && phone.length >= 10) return phone;
-      }
-      const container = phoneBtn.closest("div") || phoneBtn.parentElement;
-      if (container) {
-        const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
-        if (match) return match[0].replace(/[\s.-]/g, "");
-      }
-    }
-    return null;
-  }
-  function isAdPageLBC() {
-    const url = window.location.href;
-    return url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/");
-  }
-  function getHorsePowerRange(hp) {
-    if (!hp || hp <= 0) return null;
-    if (hp < 80) return "min-90";
-    if (hp < 110) return "70-120";
-    if (hp < 140) return "100-150";
-    if (hp < 180) return "130-190";
-    if (hp < 250) return "170-260";
-    if (hp < 350) return "240-360";
-    return "340-max";
-  }
-  function getMileageRange(km) {
-    if (!km || km <= 0) return null;
-    if (km <= 1e4) return "min-20000";
-    if (km <= 3e4) return "min-50000";
-    if (km <= 6e4) return "20000-80000";
-    if (km <= 12e4) return "50000-150000";
-    return "100000-max";
-  }
   function extractRegionFromNextData(nextData) {
     if (!nextData) return "";
     const loc = nextData?.props?.pageProps?.ad?.location;
@@ -474,6 +335,184 @@
     if (maxStr && maxStr !== "max") range.max = parseInt(maxStr, 10);
     return Object.keys(range).length > 0 ? range : null;
   }
+  function extractMileageFromNextData(nextData) {
+    const ad = nextData?.props?.pageProps?.ad;
+    if (!ad) return 0;
+    const attrs = (ad.attributes || []).reduce((acc, a) => {
+      const key = a.key || a.key_label || a.label || a.name;
+      const val = a.value_label || a.value || a.text || a.value_text;
+      if (key) acc[key] = val;
+      return acc;
+    }, {});
+    const raw = attrs["mileage"] || attrs["Kilom\xE9trage"] || attrs["kilometrage"] || "0";
+    return parseInt(String(raw).replace(/\s/g, ""), 10) || 0;
+  }
+
+  // extension/extractors/leboncoin/dom.js
+  function isUserLoggedIn() {
+    const header = document.querySelector("header");
+    if (!header) return false;
+    const text = header.textContent.toLowerCase();
+    return !text.includes("se connecter") && !text.includes("s'identifier");
+  }
+  async function detectAutovizaUrl(nextData) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const directLink = document.querySelector('a[href*="autoviza.fr"]');
+      if (directLink) return directLink.href;
+      const redirectLink = document.querySelector('a[href*="autoviza"]');
+      if (redirectLink) {
+        const href = redirectLink.href;
+        const match = href.match(/(https?:\/\/[^\s&"]*autoviza\.fr[^\s&"]*)/);
+        if (match) return match[1];
+        return href;
+      }
+      const allLinks = document.querySelectorAll("a[href], button[data-href]");
+      for (const el of allLinks) {
+        const text = (el.textContent || "").toLowerCase();
+        if (text.includes("rapport") && text.includes("historique") || text.includes("autoviza")) {
+          const href = el.href || el.dataset.href || "";
+          if (href && href.includes("autoviza")) return href;
+        }
+      }
+      if (attempt < 3) await lbcDeps.sleep(800);
+    }
+    if (nextData) {
+      const json = JSON.stringify(nextData);
+      const match = json.match(/(https?:\/\/[^\s"]*autoviza\.fr[^\s"]*)/);
+      if (match) return match[1];
+    }
+    return null;
+  }
+  async function revealPhoneNumber() {
+    const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
+    for (const link of existingTelLinks) {
+      const phone = link.href.replace("tel:", "").trim();
+      if (phone && phone.length >= 10) return phone;
+    }
+    const candidates = document.querySelectorAll('button, a, [role="button"]');
+    let phoneBtn = null;
+    for (const el of candidates) {
+      const text = (el.textContent || "").toLowerCase().trim();
+      if (text.includes("voir le num\xE9ro") || text.includes("voir le numero") || text.includes("afficher le num\xE9ro") || text.includes("afficher le numero")) {
+        phoneBtn = el;
+        break;
+      }
+    }
+    if (!phoneBtn) return null;
+    phoneBtn.click();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await lbcDeps.sleep(500);
+      const telLinks = document.querySelectorAll('a[href^="tel:"]');
+      for (const link of telLinks) {
+        const phone = link.href.replace("tel:", "").trim();
+        if (phone && phone.length >= 10) return phone;
+      }
+      const container = phoneBtn.closest("div") || phoneBtn.parentElement;
+      if (container) {
+        const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+        if (match) return match[0].replace(/[\s.-]/g, "");
+      }
+    }
+    return null;
+  }
+  function isAdPageLBC() {
+    const url = window.location.href;
+    return url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/");
+  }
+
+  // extension/utils/fetch.js
+  function isChromeRuntimeAvailable() {
+    try {
+      return typeof chrome !== "undefined" && !!chrome.runtime && typeof chrome.runtime.sendMessage === "function";
+    } catch {
+      return false;
+    }
+  }
+  function isLocalBackendUrl(url) {
+    return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(String(url || ""));
+  }
+  function isBenignRuntimeTeardownError(err) {
+    const msg = String(err?.message || err || "").toLowerCase();
+    return msg.includes("extension context invalidated") || msg.includes("runtime_unavailable_for_local_backend") || msg.includes("receiving end does not exist");
+  }
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  async function backendFetch(url, options = {}) {
+    const isLocalBackend = isLocalBackendUrl(url);
+    if (!isChromeRuntimeAvailable()) {
+      try {
+        return await fetch(url, options);
+      } catch (err) {
+        if (isLocalBackend) {
+          throw new Error("runtime_unavailable_for_local_backend");
+        }
+        throw err;
+      }
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage(
+          {
+            action: "backend_fetch",
+            url,
+            method: options.method || "GET",
+            headers: options.headers || null,
+            body: options.body || null
+          },
+          (resp) => {
+            let runtimeErrorMsg = null;
+            try {
+              runtimeErrorMsg = chrome.runtime?.lastError?.message || null;
+            } catch (e) {
+              runtimeErrorMsg = e?.message || "extension context invalidated";
+            }
+            if (runtimeErrorMsg || !resp || resp.error) {
+              fetch(url, options).then(resolve).catch((fallbackErr) => {
+                if (isLocalBackend) {
+                  reject(new Error(runtimeErrorMsg || resp?.error || fallbackErr?.message || "runtime_unavailable_for_local_backend"));
+                  return;
+                }
+                reject(fallbackErr);
+              });
+              return;
+            }
+            let parsed;
+            try {
+              parsed = JSON.parse(resp.body);
+            } catch {
+              parsed = null;
+            }
+            resolve({
+              ok: resp.ok,
+              status: resp.status,
+              json: async () => {
+                if (parsed !== null) return parsed;
+                throw new SyntaxError("Invalid JSON");
+              },
+              text: async () => resp.body
+            });
+          }
+        );
+      } catch (err) {
+        if (isLocalBackend) {
+          reject(err);
+          return;
+        }
+        fetch(url, options).then(resolve).catch(reject);
+      }
+    });
+  }
+
+  // extension/extractors/leboncoin/search.js
+  function _extractAdBrand(ad) {
+    const attrs = Array.isArray(ad?.attributes) ? ad.attributes : [];
+    const brandAttr = attrs.find((a) => {
+      const key = (a?.key || "").toLowerCase();
+      return key === "u_car_brand" || key === "brand" || key === "marque";
+    });
+    return brandAttr?.value_label || brandAttr?.value || null;
+  }
   function buildApiFilters(searchUrl) {
     const url = new URL(searchUrl);
     const params = url.searchParams;
@@ -509,29 +548,6 @@
       }
     }
     return filters;
-  }
-  function _normalizeBrand(brand) {
-    if (!brand) return "";
-    return brand.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-_]/g, " ").trim();
-  }
-  function brandMatches(adBrand, targetMake) {
-    if (!adBrand || !targetMake) return true;
-    const a = _normalizeBrand(adBrand);
-    const t = _normalizeBrand(targetMake);
-    if (!a || !t) return true;
-    if (a === t) return true;
-    if (a === "vw" && t === "volkswagen" || a === "volkswagen" && t === "vw") return true;
-    if (a.startsWith("mercedes") && t.startsWith("mercedes")) return true;
-    if (a.includes(t) || t.includes(a)) return true;
-    return false;
-  }
-  function _extractAdBrand(ad) {
-    const attrs = Array.isArray(ad?.attributes) ? ad.attributes : [];
-    const brandAttr = attrs.find((a) => {
-      const key = (a?.key || "").toLowerCase();
-      return key === "u_car_brand" || key === "brand" || key === "marque";
-    });
-    return brandAttr?.value_label || brandAttr?.value || null;
   }
   function filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake = null) {
     return ads.filter((ad) => {
@@ -636,22 +652,12 @@
     }
     return LBC_REGIONS[location2.region] || "";
   }
-  function extractMileageFromNextData(nextData) {
-    const ad = nextData?.props?.pageProps?.ad;
-    if (!ad) return 0;
-    const attrs = (ad.attributes || []).reduce((acc, a) => {
-      const key = a.key || a.key_label || a.label || a.name;
-      const val = a.value_label || a.value || a.text || a.value_text;
-      if (key) acc[key] = val;
-      return acc;
-    }, {});
-    const raw = attrs["mileage"] || attrs["Kilom\xE9trage"] || attrs["kilometrage"] || "0";
-    return parseInt(String(raw).replace(/\s/g, ""), 10) || 0;
-  }
+
+  // extension/extractors/leboncoin/collect.js
   async function reportJobDone(jobDoneUrl, jobId, success) {
     if (!jobId) return;
     try {
-      await _backendFetch(jobDoneUrl, {
+      await lbcDeps.backendFetch(jobDoneUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: jobId, success })
@@ -666,8 +672,8 @@
   }
   async function executeBonusJobs(bonusJobs, progress) {
     const MIN_BONUS_PRICES = 5;
-    const marketUrl = _apiUrl.replace("/analyze", "/market-prices");
-    const jobDoneUrl = _apiUrl.replace("/analyze", "/market-prices/job-done");
+    const marketUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices");
+    const jobDoneUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/job-done");
     if (progress) progress.update("bonus", "running", "Ex\xE9cution de " + bonusJobs.length + " jobs");
     for (const job of bonusJobs) {
       try {
@@ -742,7 +748,7 @@
                 reason: `bonus job queue: ${bonusPrices.length} annonces`
               }]
             };
-            const bResp = await _backendFetch(marketUrl, {
+            const bResp = await lbcDeps.backendFetch(marketUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(bonusPayload)
@@ -803,11 +809,11 @@
     if (progress) progress.update("job", "running");
     const fuelForJob = (fuel || "").toLowerCase();
     const gearboxForJob = (gearbox || "").toLowerCase();
-    const jobUrl = _apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&site=lbc` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
+    const jobUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&site=lbc` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
     let jobResp;
     try {
       console.log("[CoPilot] next-job \u2192", jobUrl);
-      jobResp = await _backendFetch(jobUrl).then((r) => r.json());
+      jobResp = await lbcDeps.backendFetch(jobUrl).then((r) => r.json());
       console.log("[CoPilot] next-job \u2190", JSON.stringify(jobResp));
     } catch (err) {
       console.warn("[CoPilot] next-job erreur:", err);
@@ -838,7 +844,7 @@
         progress.update("submit", "skip");
       }
       await executeBonusJobs(queuedJobs, progress);
-      localStorage.setItem("copilot_last_collect", String(Date.now()));
+      markCollected();
       return { submitted: false };
     }
     const target = jobResp.data.vehicle;
@@ -848,8 +854,7 @@
     console.log("[CoPilot] next-job: %d bonus jobs", bonusJobs.length);
     const isCurrentVehicle = target.make.toLowerCase() === make.toLowerCase() && target.model.toLowerCase() === model.toLowerCase();
     if (!isCurrentVehicle) {
-      const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
-      if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS) {
+      if (shouldSkipCollection()) {
         console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte redirect \u2014 bonus jobs toujours executes");
         if (progress) {
           progress.update("job", "done", "Cooldown actif (autre v\xE9hicule collect\xE9 r\xE9cemment)");
@@ -904,7 +909,7 @@
       fuelCode = LBC_FUEL_CODES[targetFuel];
       fuelParam = fuelCode ? `&fuel=${fuelCode}` : "";
       if (mileageKm > 0) {
-        const mileageRange = getMileageRange(mileageKm);
+        const mileageRange = getMileageRange2(mileageKm);
         if (mileageRange) mileageParam = `&mileage=${mileageRange}`;
       }
       gearboxCode = LBC_GEARBOX_CODES[(gearbox || "").toLowerCase()];
@@ -1105,7 +1110,7 @@
             return { submitted: false, isCurrentVehicle };
           }
         }
-        const marketUrl = _apiUrl.replace("/analyze", "/market-prices");
+        const marketUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices");
         const payload = {
           make: target.make,
           model: target.model,
@@ -1122,7 +1127,7 @@
           site_model_token: isCurrentVehicle ? vehicle.site_model_token : null
         };
         console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
-        const marketResp = await _backendFetch(marketUrl, {
+        const marketResp = await lbcDeps.backendFetch(marketUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -1149,8 +1154,8 @@
           progress.update("bonus", "skip");
         }
         try {
-          const failedUrl = _apiUrl.replace("/analyze", "/market-prices/failed-search");
-          await _backendFetch(failedUrl, {
+          const failedUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/failed-search");
+          await lbcDeps.backendFetch(failedUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1164,7 +1169,6 @@
               model_token_used: effectiveModel,
               token_source: tokenSource,
               search_log: searchLog,
-              // Persist DOM tokens even on failure (auto-learning)
               site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
               site_model_token: isCurrentVehicle ? vehicle.site_model_token : null
             })
@@ -1182,9 +1186,106 @@
         progress.update("bonus", "skip");
       }
     }
-    localStorage.setItem("copilot_last_collect", String(Date.now()));
+    markCollected();
     return { submitted, isCurrentVehicle };
   }
+
+  // extension/extractors/base.js
+  var SiteExtractor = class {
+    /** Identifiant du site ('leboncoin', 'autoscout24'). */
+    static SITE_ID = "";
+    /** Patterns regex pour detecter le site depuis l'URL. */
+    static URL_PATTERNS = [];
+    /** @type {Function|null} Backend fetch proxy (injected by content.js) */
+    _fetch = null;
+    /** @type {string|null} API base URL (injected by content.js) */
+    _apiUrl = null;
+    /**
+     * Injecte les dependances communes (backendFetch, apiUrl).
+     * Appele par content.js apres construction de l'extracteur.
+     * @param {{fetch: Function, apiUrl: string}} deps
+     */
+    initDeps(deps) {
+      this._fetch = deps.fetch;
+      this._apiUrl = deps.apiUrl;
+    }
+    /**
+     * Detecte si l'URL courante est une page d'annonce.
+     * @param {string} url
+     * @returns {boolean}
+     */
+    isAdPage(url) {
+      throw new Error("isAdPage() must be implemented");
+    }
+    /**
+     * Extrait les donnees vehicule de la page.
+     *
+     * Retourne un objet avec:
+     * - type: 'raw' (envoyer next_data brut) ou 'normalized' (ad_data pre-digere)
+     * - next_data: payload brut (si type='raw')
+     * - ad_data: dict normalise au format extract_ad_data() (si type='normalized')
+     * - source: identifiant du site
+     *
+     * @returns {Promise<{type: string, source: string, next_data?: object, ad_data?: object}|null>}
+     */
+    async extract() {
+      throw new Error("extract() must be implemented");
+    }
+    /**
+     * Revele le numero de telephone du vendeur si possible.
+     * @returns {Promise<string|null>}
+     */
+    async revealPhone() {
+      return null;
+    }
+    /**
+     * Detecte un rapport gratuit (Autoviza, etc.) sur la page.
+     * @returns {Promise<string|null>}
+     */
+    async detectFreeReport() {
+      return null;
+    }
+    /**
+     * Verifie si l'utilisateur est connecte sur le site.
+     * @returns {boolean}
+     */
+    isLoggedIn() {
+      return false;
+    }
+    /**
+     * Indique si l'annonce a un telephone revelable.
+     * @returns {boolean}
+     */
+    hasPhone() {
+      return false;
+    }
+    /**
+     * Collecte les prix du marche pour le vehicule courant.
+     * @param {object} progress - Progress tracker pour l'UI
+     * @returns {Promise<{submitted: boolean}>}
+     */
+    async collectMarketPrices(progress) {
+      return { submitted: false };
+    }
+    /**
+     * Retourne les signaux bonus specifiques au site.
+     * Affiches dans une section popup dediee, pas envoyes au backend.
+     *
+     * @returns {Array<{label: string, value: string, status: string}>}
+     */
+    getBonusSignals() {
+      return [];
+    }
+    /**
+     * Extrait un resume vehicule court pour le header du progress tracker.
+     * @returns {{make: string, model: string, year: string}|null}
+     */
+    getVehicleSummary() {
+      return null;
+    }
+  };
+
+  // extension/extractors/leboncoin/extractor.js
   var LeBonCoinExtractor = class extends SiteExtractor {
     static SITE_ID = "leboncoin";
     static URL_PATTERNS = [/leboncoin\.fr\/ad\//, /leboncoin\.fr\/voitures\//];
@@ -1240,7 +1341,7 @@
     }
   };
 
-  // extension/extractors/autoscout24.js
+  // extension/extractors/autoscout24/constants.js
   var AS24_URL_PATTERNS = [
     /autoscout24\.\w+\/(?:fr|de|it|en|nl|es)?\/?d\//,
     /autoscout24\.\w+\/angebote\//,
@@ -1372,14 +1473,7 @@
     "96": "Saint-Gall",
     "97": "Saint-Gall"
   };
-  function getCantonFromZip(zipcode) {
-    const zip = String(zipcode || "").trim();
-    if (zip.length < 4) return null;
-    const prefix = zip.slice(0, 2);
-    return SWISS_ZIP_TO_CANTON[prefix] || null;
-  }
   var MIN_PRICES = 10;
-  var COLLECT_COOLDOWN_MS2 = 24 * 60 * 60 * 1e3;
   var FUEL_MAP = {
     gasoline: "Essence",
     diesel: "Diesel",
@@ -1391,7 +1485,6 @@
     cng: "GNV",
     lpg: "GPL",
     hydrogen: "Hydrogene",
-    // Variantes supplementaires vues sur AS24 (noms longs dans le RSC)
     hybrid: "Hybride",
     "hybrid-diesel": "Hybride",
     "hybrid-gasoline": "Hybride",
@@ -1405,24 +1498,11 @@
     "e85": "Ethanol",
     bifuel: "Bicarburation"
   };
-  function mapFuelType(fuelType) {
-    const key = (fuelType || "").toLowerCase().trim();
-    if (FUEL_MAP[key]) return FUEL_MAP[key];
-    if (key.includes("diesel")) return "Diesel";
-    if (key.includes("gasoline") || key.includes("benzin") || key.includes("essence")) return "Essence";
-    if (key.includes("hybrid") || key.includes("hybride")) return "Hybride";
-    if (key.includes("electri")) return "Electrique";
-    return fuelType.length > 50 ? fuelType.slice(0, 50) : fuelType;
-  }
   var TRANSMISSION_MAP = {
     automatic: "Automatique",
     manual: "Manuelle",
     "semi-automatic": "Automatique"
   };
-  function mapTransmission(transmission) {
-    const key = (transmission || "").toLowerCase();
-    return TRANSMISSION_MAP[key] || transmission;
-  }
   var AS24_GEAR_MAP = {
     automatic: "A",
     automatique: "A",
@@ -1430,11 +1510,7 @@
     manual: "M",
     manuelle: "M"
   };
-  function getAs24GearCode(gearbox) {
-    return AS24_GEAR_MAP[(gearbox || "").toLowerCase()] || null;
-  }
   var AS24_FUEL_CODE_MAP = {
-    // RSC fuelType keys (English)
     gasoline: "B",
     diesel: "D",
     electric: "E",
@@ -1445,7 +1521,6 @@
     "mhev-gasoline": "B",
     "phev-diesel": "2",
     "phev-gasoline": "2",
-    // French labels (from backend bonus jobs)
     essence: "B",
     electrique: "E",
     gnv: "C",
@@ -1453,46 +1528,6 @@
     hydrogene: "H",
     "hybride rechargeable": "2"
   };
-  function getAs24FuelCode(fuel) {
-    return AS24_FUEL_CODE_MAP[(fuel || "").toLowerCase()] || null;
-  }
-  function getAs24PowerParams(hp) {
-    if (!hp || hp <= 0) return {};
-    if (hp < 80) return { powerto: 90 };
-    if (hp < 110) return { powerfrom: 70, powerto: 120 };
-    if (hp < 140) return { powerfrom: 100, powerto: 150 };
-    if (hp < 180) return { powerfrom: 130, powerto: 190 };
-    if (hp < 250) return { powerfrom: 170, powerto: 260 };
-    if (hp < 350) return { powerfrom: 240, powerto: 360 };
-    return { powerfrom: 340 };
-  }
-  function getAs24KmParams(km) {
-    if (!km || km <= 0) return {};
-    if (km <= 1e4) return { kmto: 2e4 };
-    if (km <= 3e4) return { kmto: 5e4 };
-    if (km <= 6e4) return { kmfrom: 2e4, kmto: 8e4 };
-    if (km <= 12e4) return { kmfrom: 5e4, kmto: 15e4 };
-    return { kmfrom: 1e5 };
-  }
-  function getHpRangeString(hp) {
-    if (!hp || hp <= 0) return null;
-    if (hp < 80) return "min-90";
-    if (hp < 110) return "70-120";
-    if (hp < 140) return "100-150";
-    if (hp < 180) return "130-190";
-    if (hp < 250) return "170-260";
-    if (hp < 350) return "240-360";
-    return "340-max";
-  }
-  function parseHpRange(hpRange) {
-    if (!hpRange) return {};
-    const parts = hpRange.split("-");
-    if (parts.length !== 2) return {};
-    const result = {};
-    if (parts[0] !== "min") result.powerfrom = parseInt(parts[0], 10);
-    if (parts[1] !== "max") result.powerto = parseInt(parts[1], 10);
-    return result;
-  }
   var CANTON_CENTER_ZIP = {
     "Zurich": "8000",
     "Berne": "3000",
@@ -1521,9 +1556,535 @@
     "Geneve": "1200",
     "Jura": "2800"
   };
+  var SMG_TLDS = /* @__PURE__ */ new Set(["ch"]);
+
+  // extension/extractors/autoscout24/helpers.js
+  function getCantonFromZip(zipcode) {
+    const zip = String(zipcode || "").trim();
+    if (zip.length < 4) return null;
+    const prefix = zip.slice(0, 2);
+    return SWISS_ZIP_TO_CANTON[prefix] || null;
+  }
+  function mapFuelType(fuelType) {
+    const key = (fuelType || "").toLowerCase().trim();
+    if (FUEL_MAP[key]) return FUEL_MAP[key];
+    if (key.includes("diesel")) return "Diesel";
+    if (key.includes("gasoline") || key.includes("benzin") || key.includes("essence")) return "Essence";
+    if (key.includes("hybrid") || key.includes("hybride")) return "Hybride";
+    if (key.includes("electri")) return "Electrique";
+    return fuelType.length > 50 ? fuelType.slice(0, 50) : fuelType;
+  }
+  function mapTransmission(transmission) {
+    const key = (transmission || "").toLowerCase();
+    return TRANSMISSION_MAP[key] || transmission;
+  }
+  function getAs24GearCode(gearbox) {
+    return AS24_GEAR_MAP[(gearbox || "").toLowerCase()] || null;
+  }
+  function getAs24FuelCode(fuel) {
+    return AS24_FUEL_CODE_MAP[(fuel || "").toLowerCase()] || null;
+  }
+  function getAs24PowerParams(hp) {
+    if (!hp || hp <= 0) return {};
+    if (hp < 80) return { powerto: 90 };
+    if (hp < 110) return { powerfrom: 70, powerto: 120 };
+    if (hp < 140) return { powerfrom: 100, powerto: 150 };
+    if (hp < 180) return { powerfrom: 130, powerto: 190 };
+    if (hp < 250) return { powerfrom: 170, powerto: 260 };
+    if (hp < 350) return { powerfrom: 240, powerto: 360 };
+    return { powerfrom: 340 };
+  }
+  function getAs24KmParams(km) {
+    if (!km || km <= 0) return {};
+    if (km <= 1e4) return { kmto: 2e4 };
+    if (km <= 3e4) return { kmto: 5e4 };
+    if (km <= 6e4) return { kmfrom: 2e4, kmto: 8e4 };
+    if (km <= 12e4) return { kmfrom: 5e4, kmto: 15e4 };
+    return { kmfrom: 1e5 };
+  }
+  var getHpRangeString = getHpRange;
+  function parseHpRange(hpRange) {
+    if (!hpRange) return {};
+    const parts = hpRange.split("-");
+    if (parts.length !== 2) return {};
+    const result = {};
+    if (parts[0] !== "min") result.powerfrom = parseInt(parts[0], 10);
+    if (parts[1] !== "max") result.powerto = parseInt(parts[1], 10);
+    return result;
+  }
   function getCantonCenterZip(canton) {
     return CANTON_CENTER_ZIP[canton] || null;
   }
+
+  // extension/extractors/autoscout24/search.js
+  function extractTld(url) {
+    const match = url.match(/autoscout24\.(\w+)/);
+    return match ? match[1] : "de";
+  }
+  function extractLang(url) {
+    const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
+    return match ? match[1] : null;
+  }
+  function toAs24Slug(name) {
+    return String(name || "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
+  }
+  function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
+    try {
+      const u = new URL(url);
+      const hostMatch = u.hostname.match(/autoscout24\.(\w+)$/i);
+      const tld = (tldHint || (hostMatch ? hostMatch[1] : "") || "").toLowerCase();
+      const path = decodeURIComponent(u.pathname || "");
+      if (SMG_TLDS.has(tld)) {
+        const smg = path.match(/\/s\/(?:mo-([^/]+)\/)?mk-([^/?#]+)/i);
+        if (!smg) return { makeSlug: null, modelSlug: null };
+        const modelSlug2 = smg[1] ? toAs24Slug(smg[1]) : null;
+        const makeSlug2 = smg[2] ? toAs24Slug(smg[2]) : null;
+        return { makeSlug: makeSlug2, modelSlug: modelSlug2 };
+      }
+      const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, "");
+      const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
+      if (!gmbh) return { makeSlug: null, modelSlug: null };
+      const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;
+      const modelSlug = gmbh[2] ? toAs24Slug(gmbh[2]) : null;
+      return { makeSlug, modelSlug };
+    } catch {
+      return { makeSlug: null, modelSlug: null };
+    }
+  }
+  function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
+    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang, brandOnly } = options;
+    const makeSlug = toAs24Slug(makeKey);
+    const modelSlug = brandOnly ? "" : toAs24Slug(modelKey);
+    let base;
+    if (SMG_TLDS.has(tld)) {
+      const langPrefix = lang ? `/${lang}` : "/fr";
+      if (modelSlug) {
+        base = `https://www.autoscout24.${tld}${langPrefix}/s/mo-${modelSlug}/mk-${makeSlug}`;
+      } else {
+        base = `https://www.autoscout24.${tld}${langPrefix}/s/mk-${makeSlug}`;
+      }
+    } else {
+      const langSegment = lang ? `/${lang}` : "";
+      if (modelSlug) {
+        base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}/${modelSlug}`;
+      } else {
+        base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}`;
+      }
+    }
+    const params = new URLSearchParams({
+      fregfrom: String(year - yearSpread),
+      fregto: String(year + yearSpread),
+      sort: "standard",
+      desc: "0",
+      atype: "C",
+      ustate: "N,U"
+    });
+    if (fuel) params.set("fuel", fuel);
+    if (gear) params.set("gear", gear);
+    if (powerfrom) {
+      params.set("powerfrom", String(powerfrom));
+      params.set("powertype", "ps");
+    }
+    if (powerto) {
+      params.set("powerto", String(powerto));
+      params.set("powertype", "ps");
+    }
+    if (kmfrom) params.set("kmfrom", String(kmfrom));
+    if (kmto) params.set("kmto", String(kmto));
+    if (zip) {
+      params.set("zip", String(zip));
+      params.set("zipr", String(radius || 50));
+    }
+    return `${base}?${params}`;
+  }
+  var brandMatchesAs24 = brandsMatch;
+  function _extractJsonLdBrand(item) {
+    return item?.brand?.name || item?.offers?.itemOffered?.brand?.name || item?.manufacturer || item?.offers?.itemOffered?.manufacturer || null;
+  }
+  function parseSearchPrices(html, targetMake = null) {
+    const results = _parseSearchPricesRSC(html);
+    if (results.length === 0) {
+      const nextDataResults = _parseSearchPricesNextData(html, targetMake);
+      if (nextDataResults.length > 0) return nextDataResults;
+    }
+    if (results.length === 0) {
+      const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
+      if (jsonLdResults.length > 0) return jsonLdResults;
+    }
+    return results;
+  }
+  function _parseSearchPricesRSC(html) {
+    const results = [];
+    const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
+    let match;
+    while ((match = listingPattern.exec(html)) !== null) {
+      const price = parseInt(match[1], 10);
+      const mileage = parseInt(match[2], 10);
+      if (price > 500 && price < 5e5) {
+        results.push({ price, year: null, km: mileage, fuel: null });
+      }
+    }
+    return _dedup(results);
+  }
+  function _parseSearchPricesNextData(html, targetMake = null) {
+    const results = [];
+    const match = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
+    if (!match) return results;
+    try {
+      const data = JSON.parse(match[1]);
+      const listings = data?.props?.pageProps?.listings;
+      if (!Array.isArray(listings)) return results;
+      for (const listing of listings) {
+        const tracking = listing.tracking || {};
+        const vehicle = listing.vehicle || {};
+        const price = parseInt(tracking.price, 10) || null;
+        const km = parseInt(tracking.mileage, 10) || null;
+        let year = null;
+        if (tracking.firstRegistration) {
+          const ym = tracking.firstRegistration.match(/(\d{4})/);
+          if (ym) year = parseInt(ym[1], 10);
+        }
+        const fuel = vehicle.fuel || null;
+        if (targetMake) {
+          const adBrand = vehicle.make;
+          if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+            continue;
+          }
+        }
+        if (price && price > 500 && price < 5e5) {
+          results.push({
+            price,
+            year,
+            km,
+            fuel,
+            gearbox: vehicle.transmission || null,
+            horse_power: _parseHpFromVehicleDetails(listing.vehicleDetails),
+            _uid: listing.id || null
+          });
+        }
+      }
+    } catch (_) {
+    }
+    return _dedup(results);
+  }
+  function _parseHpFromVehicleDetails(details) {
+    if (!Array.isArray(details)) return null;
+    const power = details.find((d) => d.ariaLabel === "Leistung" || d.iconName === "speedometer");
+    if (!power?.data) return null;
+    const m = power.data.match(/\((\d+)\s*PS\)/i);
+    return m ? parseInt(m[1], 10) : null;
+  }
+  function _parseSearchPricesJsonLd(html, targetMake = null) {
+    const results = [];
+    const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let scriptMatch;
+    while ((scriptMatch = scriptPattern.exec(html)) !== null) {
+      try {
+        const data = JSON.parse(scriptMatch[1]);
+        const items = _extractOfferCatalogItems(data);
+        for (const item of items) {
+          const price = _extractJsonLdPrice(item);
+          const km = _extractJsonLdMileage(item);
+          const fuel = _extractJsonLdFuel(item);
+          const year = _extractJsonLdYear(item);
+          const uid = _extractJsonLdUid(item);
+          if (price && price > 500 && price < 5e5) {
+            if (targetMake) {
+              const adBrand = _extractJsonLdBrand(item);
+              if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
+                console.debug("[CoPilot] AS24 brand safety: rejet %s (cible: %s)", adBrand, targetMake);
+                continue;
+              }
+            }
+            results.push({ price, year, km, fuel, _uid: uid });
+          }
+        }
+      } catch (_) {
+      }
+    }
+    return _dedup(results);
+  }
+  function _extractOfferCatalogItems(data) {
+    if (data?.["@type"] === "OfferCatalog" && Array.isArray(data.itemListElement)) {
+      return data.itemListElement;
+    }
+    const offers = data?.mainEntity?.offers || data?.offers;
+    if (offers?.["@type"] === "OfferCatalog" && Array.isArray(offers.itemListElement)) {
+      return offers.itemListElement;
+    }
+    if (Array.isArray(data?.["@graph"])) {
+      for (const node of data["@graph"]) {
+        const items = _extractOfferCatalogItems(node);
+        if (items.length > 0) return items;
+      }
+    }
+    return [];
+  }
+  function _extractJsonLdPrice(item) {
+    const price = item?.offers?.price ?? item?.price;
+    if (typeof price === "number") return price;
+    if (typeof price === "string") return parseInt(price, 10) || null;
+    return null;
+  }
+  function _extractJsonLdMileage(item) {
+    const car = item?.offers?.itemOffered || item;
+    const odometer = car?.mileageFromOdometer;
+    if (!odometer) return null;
+    const val = odometer?.value ?? odometer;
+    if (typeof val === "number") return val;
+    if (typeof val === "string") return parseInt(val, 10) || null;
+    return null;
+  }
+  function _extractJsonLdFuel(item) {
+    const car = item?.offers?.itemOffered || item;
+    const eng = car?.vehicleEngine;
+    const engine = Array.isArray(eng) ? eng[0] : eng;
+    return engine?.fuelType || null;
+  }
+  function _extractJsonLdYear(item) {
+    const car = item?.offers?.itemOffered || item;
+    const date = car?.vehicleModelDate || car?.productionDate;
+    if (!date) return null;
+    const y = parseInt(String(date).slice(0, 4), 10);
+    return y > 1900 && y < 2100 ? y : null;
+  }
+  function _extractJsonLdUid(item) {
+    const url = item?.url || item?.offers?.url;
+    if (!url) return null;
+    const m = url.match(/(\d{6,})(?:[/?#]|$)/);
+    return m ? m[1] : url;
+  }
+  function _dedup(results) {
+    const seen = /* @__PURE__ */ new Set();
+    return results.filter((r) => {
+      const key = r._uid || `${r.price}-${r.km}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map(({ _uid, ...rest }) => rest);
+  }
+
+  // extension/extractors/autoscout24/normalize.js
+  function _yearFromDate(dateStr) {
+    if (!dateStr) return null;
+    const m = String(dateStr).match(/^(\d{4})/);
+    return m ? m[1] : dateStr;
+  }
+  function _daysOnline(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    return Math.max(Math.floor((Date.now() - d.getTime()) / 864e5), 0);
+  }
+  function _daysSinceRefresh(createdStr, modifiedStr) {
+    if (!createdStr || !modifiedStr) return null;
+    const modified = new Date(modifiedStr);
+    if (Number.isNaN(modified.getTime())) return null;
+    return Math.max(Math.floor((Date.now() - modified.getTime()) / 864e5), 0);
+  }
+  function _isRepublished(createdStr, modifiedStr) {
+    if (!createdStr || !modifiedStr) return false;
+    const created = new Date(createdStr);
+    const modified = new Date(modifiedStr);
+    if (Number.isNaN(created.getTime()) || Number.isNaN(modified.getTime())) return false;
+    return Math.abs(modified.getTime() - created.getTime()) > 864e5;
+  }
+  function normalizeToAdData(rsc, jsonLd) {
+    const ld = jsonLd || {};
+    const offers = ld.offers || {};
+    const seller = offers.seller || offers.offeredBy || {};
+    const sellerAddress = seller.address || {};
+    const rawEngine = ld.vehicleEngine || {};
+    const engine = Array.isArray(rawEngine) ? rawEngine[0] || {} : rawEngine;
+    function resolveOwnerType() {
+      if (rsc && rsc.sellerId) return "pro";
+      if (seller["@type"] === "AutoDealer") return "pro";
+      return "private";
+    }
+    function resolveMake() {
+      if (rsc) {
+        const m = typeof rsc.make === "string" ? rsc.make : rsc.make?.name;
+        if (m) return m;
+      }
+      return ld.brand?.name || (typeof ld.brand === "string" ? ld.brand : null) || ld.manufacturer || null;
+    }
+    function resolveModel() {
+      if (rsc) {
+        const m = typeof rsc.model === "string" ? rsc.model : rsc.model?.name;
+        if (m) return m;
+      }
+      return ld.model || null;
+    }
+    function resolveDescription() {
+      if (rsc) {
+        const full = typeof rsc.description === "string" ? rsc.description.trim() : "";
+        if (full) return full;
+        const short = typeof rsc.teaser === "string" ? rsc.teaser.trim() : "";
+        if (short) return short;
+      }
+      const ldDesc = typeof ld.description === "string" ? ld.description.trim() : "";
+      if (ldDesc) return ldDesc;
+      return null;
+    }
+    const rating = seller.aggregateRating || {};
+    const dealerRating = rating.ratingValue ?? null;
+    const dealerReviewCount = rating.reviewCount ?? null;
+    const zipcode = sellerAddress.postalCode || null;
+    const tld = typeof window !== "undefined" ? extractTld(window.location.href) : null;
+    const countryCode = tld ? TLD_TO_COUNTRY_CODE[tld] || null : null;
+    const derivedRegion = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : tld ? TLD_TO_COUNTRY[tld] || null : null;
+    const resolvedCurrency = offers.priceCurrency || (tld ? TLD_TO_CURRENCY[tld] || null : null) || null;
+    if (rsc) {
+      return {
+        title: rsc.versionFullName || ld.name || null,
+        price_eur: rsc.price ?? offers.price ?? null,
+        currency: resolvedCurrency,
+        make: resolveMake(),
+        model: resolveModel(),
+        year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
+        mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
+        fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : engine.fuelType || null,
+        gearbox: rsc.transmissionType ? mapTransmission(rsc.transmissionType) : ld.vehicleTransmission || null,
+        doors: rsc.doors ?? ld.numberOfDoors ?? null,
+        seats: rsc.seats ?? ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
+        first_registration: rsc.firstRegistrationDate || ld.productionDate || null,
+        color: rsc.bodyColor || ld.color || null,
+        power_fiscal_cv: null,
+        power_din_hp: rsc.horsePower ?? (Array.isArray(engine.enginePower) ? engine.enginePower[0]?.value : engine.enginePower?.value) ?? null,
+        country: countryCode,
+        location: {
+          city: sellerAddress.addressLocality || null,
+          zipcode,
+          department: null,
+          region: derivedRegion,
+          lat: null,
+          lng: null
+        },
+        phone: seller.telephone || null,
+        description: resolveDescription(),
+        owner_type: resolveOwnerType(),
+        owner_name: seller.name || null,
+        siret: null,
+        dealer_rating: dealerRating,
+        dealer_review_count: dealerReviewCount,
+        raw_attributes: {},
+        image_count: Array.isArray(rsc.images) && rsc.images.length > 0 ? rsc.images.length : Array.isArray(ld.image) ? ld.image.length : 0,
+        has_phone: Boolean(seller.telephone),
+        has_urgent: false,
+        has_highlight: false,
+        has_boost: false,
+        publication_date: rsc.createdDate || null,
+        days_online: _daysOnline(rsc.createdDate),
+        index_date: rsc.lastModifiedDate || null,
+        days_since_refresh: _daysSinceRefresh(rsc.createdDate, rsc.lastModifiedDate),
+        republished: _isRepublished(rsc.createdDate, rsc.lastModifiedDate),
+        lbc_estimation: null
+      };
+    }
+    return {
+      title: ld.name || null,
+      price_eur: offers.price ?? null,
+      currency: resolvedCurrency,
+      make: ld.brand?.name || ld.manufacturer || null,
+      model: ld.model || null,
+      year_model: ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
+      mileage_km: ld.mileageFromOdometer?.value ?? null,
+      fuel: engine.fuelType || null,
+      gearbox: ld.vehicleTransmission || null,
+      doors: ld.numberOfDoors ?? null,
+      seats: ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
+      first_registration: ld.productionDate || null,
+      color: ld.color || null,
+      power_fiscal_cv: null,
+      power_din_hp: (Array.isArray(engine.enginePower) ? engine.enginePower[0]?.value : engine.enginePower?.value) ?? null,
+      country: countryCode,
+      location: {
+        city: sellerAddress.addressLocality || null,
+        zipcode,
+        department: null,
+        region: derivedRegion,
+        lat: null,
+        lng: null
+      },
+      phone: seller.telephone || null,
+      description: typeof ld.description === "string" && ld.description.trim() || null,
+      owner_type: resolveOwnerType(),
+      owner_name: seller.name || null,
+      siret: null,
+      dealer_rating: dealerRating,
+      dealer_review_count: dealerReviewCount,
+      raw_attributes: {},
+      image_count: Array.isArray(ld.image) ? ld.image.length : 0,
+      has_phone: Boolean(seller.telephone),
+      has_urgent: false,
+      has_highlight: false,
+      has_boost: false,
+      publication_date: null,
+      days_online: null,
+      index_date: null,
+      days_since_refresh: null,
+      republished: false,
+      lbc_estimation: null
+    };
+  }
+  function buildBonusSignals(rsc, jsonLd) {
+    const signals = [];
+    if (!rsc) return signals;
+    if (typeof rsc.hadAccident === "boolean") {
+      signals.push({
+        label: "Accident",
+        value: rsc.hadAccident ? "Oui" : "Non",
+        status: rsc.hadAccident ? "fail" : "pass"
+      });
+    }
+    if (typeof rsc.inspected === "boolean") {
+      signals.push({
+        label: "CT",
+        value: rsc.inspected ? "Passe" : "Non communique",
+        status: rsc.inspected ? "pass" : "warning"
+      });
+    }
+    if (rsc.warranty && rsc.warranty.duration) {
+      signals.push({
+        label: "Garantie",
+        value: `${rsc.warranty.duration} mois / ${rsc.warranty.mileage || "?"} km`,
+        status: "pass"
+      });
+    }
+    if (rsc.listPrice && rsc.price) {
+      signals.push({
+        label: "Prix catalogue",
+        value: `${rsc.listPrice} EUR`,
+        status: "info"
+      });
+      const decote = Math.round((1 - rsc.price / rsc.listPrice) * 100);
+      signals.push({
+        label: "Decote",
+        value: `${decote}%`,
+        status: "info"
+      });
+    }
+    const ld = jsonLd || {};
+    const seller = ld.offers?.seller || ld.offers?.offeredBy || {};
+    const rating = seller.aggregateRating;
+    if (rating && rating.ratingValue) {
+      signals.push({
+        label: "Note Google",
+        value: `${rating.ratingValue}/5 (${rating.reviewCount} avis)`,
+        status: "info"
+      });
+    }
+    if (rsc.directImport === true) {
+      signals.push({
+        label: "Import",
+        value: "Import direct",
+        status: "warning"
+      });
+    }
+    return signals;
+  }
+
+  // extension/extractors/autoscout24/parser.js
   function* extractJsonObjects(text) {
     let i = 0;
     while (i < text.length) {
@@ -1934,485 +2495,8 @@
     }
     return best?.vehicle || null;
   }
-  function _yearFromDate(dateStr) {
-    if (!dateStr) return null;
-    const m = String(dateStr).match(/^(\d{4})/);
-    return m ? m[1] : dateStr;
-  }
-  function _daysOnline(dateStr) {
-    if (!dateStr) return null;
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) return null;
-    return Math.max(Math.floor((Date.now() - d.getTime()) / 864e5), 0);
-  }
-  function _daysSinceRefresh(createdStr, modifiedStr) {
-    if (!createdStr || !modifiedStr) return null;
-    const modified = new Date(modifiedStr);
-    if (Number.isNaN(modified.getTime())) return null;
-    return Math.max(Math.floor((Date.now() - modified.getTime()) / 864e5), 0);
-  }
-  function _isRepublished(createdStr, modifiedStr) {
-    if (!createdStr || !modifiedStr) return false;
-    const created = new Date(createdStr);
-    const modified = new Date(modifiedStr);
-    if (Number.isNaN(created.getTime()) || Number.isNaN(modified.getTime())) return false;
-    return Math.abs(modified.getTime() - created.getTime()) > 864e5;
-  }
-  function normalizeToAdData(rsc, jsonLd) {
-    const ld = jsonLd || {};
-    const offers = ld.offers || {};
-    const seller = offers.seller || offers.offeredBy || {};
-    const sellerAddress = seller.address || {};
-    const rawEngine = ld.vehicleEngine || {};
-    const engine = Array.isArray(rawEngine) ? rawEngine[0] || {} : rawEngine;
-    function resolveOwnerType() {
-      if (rsc && rsc.sellerId) return "pro";
-      if (seller["@type"] === "AutoDealer") return "pro";
-      return "private";
-    }
-    function resolveMake() {
-      if (rsc) {
-        const m = typeof rsc.make === "string" ? rsc.make : rsc.make?.name;
-        if (m) return m;
-      }
-      return ld.brand?.name || (typeof ld.brand === "string" ? ld.brand : null) || ld.manufacturer || null;
-    }
-    function resolveModel() {
-      if (rsc) {
-        const m = typeof rsc.model === "string" ? rsc.model : rsc.model?.name;
-        if (m) return m;
-      }
-      return ld.model || null;
-    }
-    function resolveDescription() {
-      if (rsc) {
-        const full = typeof rsc.description === "string" ? rsc.description.trim() : "";
-        if (full) return full;
-        const short = typeof rsc.teaser === "string" ? rsc.teaser.trim() : "";
-        if (short) return short;
-      }
-      const ldDesc = typeof ld.description === "string" ? ld.description.trim() : "";
-      if (ldDesc) return ldDesc;
-      return null;
-    }
-    const rating = seller.aggregateRating || {};
-    const dealerRating = rating.ratingValue ?? null;
-    const dealerReviewCount = rating.reviewCount ?? null;
-    const zipcode = sellerAddress.postalCode || null;
-    const tld = typeof window !== "undefined" ? extractTld(window.location.href) : null;
-    const countryCode = tld ? TLD_TO_COUNTRY_CODE[tld] || null : null;
-    const derivedRegion = tld === "ch" && zipcode ? getCantonFromZip(zipcode) : tld ? TLD_TO_COUNTRY[tld] || null : null;
-    const resolvedCurrency = offers.priceCurrency || (tld ? TLD_TO_CURRENCY[tld] || null : null) || null;
-    if (rsc) {
-      return {
-        title: rsc.versionFullName || ld.name || null,
-        price_eur: rsc.price ?? offers.price ?? null,
-        currency: resolvedCurrency,
-        make: resolveMake(),
-        model: resolveModel(),
-        year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
-        mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
-        fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : engine.fuelType || null,
-        gearbox: rsc.transmissionType ? mapTransmission(rsc.transmissionType) : ld.vehicleTransmission || null,
-        doors: rsc.doors ?? ld.numberOfDoors ?? null,
-        seats: rsc.seats ?? ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
-        first_registration: rsc.firstRegistrationDate || ld.productionDate || null,
-        color: rsc.bodyColor || ld.color || null,
-        power_fiscal_cv: null,
-        power_din_hp: rsc.horsePower ?? (Array.isArray(engine.enginePower) ? engine.enginePower[0]?.value : engine.enginePower?.value) ?? null,
-        country: countryCode,
-        location: {
-          city: sellerAddress.addressLocality || null,
-          zipcode,
-          department: null,
-          region: derivedRegion,
-          lat: null,
-          lng: null
-        },
-        phone: seller.telephone || null,
-        description: resolveDescription(),
-        owner_type: resolveOwnerType(),
-        owner_name: seller.name || null,
-        siret: null,
-        dealer_rating: dealerRating,
-        dealer_review_count: dealerReviewCount,
-        raw_attributes: {},
-        image_count: Array.isArray(rsc.images) && rsc.images.length > 0 ? rsc.images.length : Array.isArray(ld.image) ? ld.image.length : 0,
-        has_phone: Boolean(seller.telephone),
-        has_urgent: false,
-        has_highlight: false,
-        has_boost: false,
-        publication_date: rsc.createdDate || null,
-        days_online: _daysOnline(rsc.createdDate),
-        index_date: rsc.lastModifiedDate || null,
-        days_since_refresh: _daysSinceRefresh(rsc.createdDate, rsc.lastModifiedDate),
-        republished: _isRepublished(rsc.createdDate, rsc.lastModifiedDate),
-        lbc_estimation: null
-      };
-    }
-    return {
-      title: ld.name || null,
-      price_eur: offers.price ?? null,
-      currency: resolvedCurrency,
-      make: ld.brand?.name || ld.manufacturer || null,
-      model: ld.model || null,
-      year_model: ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
-      mileage_km: ld.mileageFromOdometer?.value ?? null,
-      fuel: engine.fuelType || null,
-      gearbox: ld.vehicleTransmission || null,
-      doors: ld.numberOfDoors ?? null,
-      seats: ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
-      first_registration: ld.productionDate || null,
-      color: ld.color || null,
-      power_fiscal_cv: null,
-      power_din_hp: (Array.isArray(engine.enginePower) ? engine.enginePower[0]?.value : engine.enginePower?.value) ?? null,
-      country: countryCode,
-      location: {
-        city: sellerAddress.addressLocality || null,
-        zipcode,
-        department: null,
-        region: derivedRegion,
-        lat: null,
-        lng: null
-      },
-      phone: seller.telephone || null,
-      description: typeof ld.description === "string" && ld.description.trim() || null,
-      owner_type: resolveOwnerType(),
-      owner_name: seller.name || null,
-      siret: null,
-      dealer_rating: dealerRating,
-      dealer_review_count: dealerReviewCount,
-      raw_attributes: {},
-      image_count: Array.isArray(ld.image) ? ld.image.length : 0,
-      has_phone: Boolean(seller.telephone),
-      has_urgent: false,
-      has_highlight: false,
-      has_boost: false,
-      publication_date: null,
-      days_online: null,
-      index_date: null,
-      days_since_refresh: null,
-      republished: false,
-      lbc_estimation: null
-    };
-  }
-  function buildBonusSignals(rsc, jsonLd) {
-    const signals = [];
-    if (!rsc) return signals;
-    if (typeof rsc.hadAccident === "boolean") {
-      signals.push({
-        label: "Accident",
-        value: rsc.hadAccident ? "Oui" : "Non",
-        status: rsc.hadAccident ? "fail" : "pass"
-      });
-    }
-    if (typeof rsc.inspected === "boolean") {
-      signals.push({
-        label: "CT",
-        value: rsc.inspected ? "Passe" : "Non communique",
-        status: rsc.inspected ? "pass" : "warning"
-      });
-    }
-    if (rsc.warranty && rsc.warranty.duration) {
-      signals.push({
-        label: "Garantie",
-        value: `${rsc.warranty.duration} mois / ${rsc.warranty.mileage || "?"} km`,
-        status: "pass"
-      });
-    }
-    if (rsc.listPrice && rsc.price) {
-      signals.push({
-        label: "Prix catalogue",
-        value: `${rsc.listPrice} EUR`,
-        status: "info"
-      });
-      const decote = Math.round((1 - rsc.price / rsc.listPrice) * 100);
-      signals.push({
-        label: "Decote",
-        value: `${decote}%`,
-        status: "info"
-      });
-    }
-    const ld = jsonLd || {};
-    const seller = ld.offers?.seller || ld.offers?.offeredBy || {};
-    const rating = seller.aggregateRating;
-    if (rating && rating.ratingValue) {
-      signals.push({
-        label: "Note Google",
-        value: `${rating.ratingValue}/5 (${rating.reviewCount} avis)`,
-        status: "info"
-      });
-    }
-    if (rsc.directImport === true) {
-      signals.push({
-        label: "Import",
-        value: "Import direct",
-        status: "warning"
-      });
-    }
-    return signals;
-  }
-  function extractTld(url) {
-    const match = url.match(/autoscout24\.(\w+)/);
-    return match ? match[1] : "de";
-  }
-  function extractLang(url) {
-    const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
-    return match ? match[1] : null;
-  }
-  var SMG_TLDS = /* @__PURE__ */ new Set(["ch"]);
-  function toAs24Slug(name) {
-    return String(name || "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
-  }
-  function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
-    try {
-      const u = new URL(url);
-      const hostMatch = u.hostname.match(/autoscout24\.(\w+)$/i);
-      const tld = (tldHint || (hostMatch ? hostMatch[1] : "") || "").toLowerCase();
-      const path = decodeURIComponent(u.pathname || "");
-      if (SMG_TLDS.has(tld)) {
-        const smg = path.match(/\/s\/(?:mo-([^/]+)\/)?mk-([^/?#]+)/i);
-        if (!smg) return { makeSlug: null, modelSlug: null };
-        const modelSlug2 = smg[1] ? toAs24Slug(smg[1]) : null;
-        const makeSlug2 = smg[2] ? toAs24Slug(smg[2]) : null;
-        return { makeSlug: makeSlug2, modelSlug: modelSlug2 };
-      }
-      const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, "");
-      const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
-      if (!gmbh) return { makeSlug: null, modelSlug: null };
-      const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;
-      const modelSlug = gmbh[2] ? toAs24Slug(gmbh[2]) : null;
-      return { makeSlug, modelSlug };
-    } catch {
-      return { makeSlug: null, modelSlug: null };
-    }
-  }
-  function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
-    const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang, brandOnly } = options;
-    const makeSlug = toAs24Slug(makeKey);
-    const modelSlug = brandOnly ? "" : toAs24Slug(modelKey);
-    let base;
-    if (SMG_TLDS.has(tld)) {
-      const langPrefix = lang ? `/${lang}` : "/fr";
-      if (modelSlug) {
-        base = `https://www.autoscout24.${tld}${langPrefix}/s/mo-${modelSlug}/mk-${makeSlug}`;
-      } else {
-        base = `https://www.autoscout24.${tld}${langPrefix}/s/mk-${makeSlug}`;
-      }
-    } else {
-      const langSegment = lang ? `/${lang}` : "";
-      if (modelSlug) {
-        base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}/${modelSlug}`;
-      } else {
-        base = `https://www.autoscout24.${tld}${langSegment}/lst/${makeSlug}`;
-      }
-    }
-    const params = new URLSearchParams({
-      fregfrom: String(year - yearSpread),
-      fregto: String(year + yearSpread),
-      sort: "standard",
-      desc: "0",
-      atype: "C",
-      ustate: "N,U"
-    });
-    if (fuel) params.set("fuel", fuel);
-    if (gear) params.set("gear", gear);
-    if (powerfrom) {
-      params.set("powerfrom", String(powerfrom));
-      params.set("powertype", "ps");
-    }
-    if (powerto) {
-      params.set("powerto", String(powerto));
-      params.set("powertype", "ps");
-    }
-    if (kmfrom) params.set("kmfrom", String(kmfrom));
-    if (kmto) params.set("kmto", String(kmto));
-    if (zip) {
-      params.set("zip", String(zip));
-      params.set("zipr", String(radius || 50));
-    }
-    return `${base}?${params}`;
-  }
-  function _normalizeBrand2(brand) {
-    if (!brand) return "";
-    return brand.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-_]/g, " ").trim();
-  }
-  function brandMatchesAs24(adBrand, targetMake) {
-    if (!adBrand || !targetMake) return true;
-    const a = _normalizeBrand2(adBrand);
-    const t = _normalizeBrand2(targetMake);
-    if (!a || !t) return true;
-    if (a === t) return true;
-    if (a === "vw" && t === "volkswagen" || a === "volkswagen" && t === "vw") return true;
-    if (a.startsWith("mercedes") && t.startsWith("mercedes")) return true;
-    if (a.includes(t) || t.includes(a)) return true;
-    return false;
-  }
-  function _extractJsonLdBrand(item) {
-    return item?.brand?.name || item?.offers?.itemOffered?.brand?.name || item?.manufacturer || item?.offers?.itemOffered?.manufacturer || null;
-  }
-  function parseSearchPrices(html, targetMake = null) {
-    const results = _parseSearchPricesRSC(html);
-    if (results.length === 0) {
-      const nextDataResults = _parseSearchPricesNextData(html, targetMake);
-      if (nextDataResults.length > 0) return nextDataResults;
-    }
-    if (results.length === 0) {
-      const jsonLdResults = _parseSearchPricesJsonLd(html, targetMake);
-      if (jsonLdResults.length > 0) return jsonLdResults;
-    }
-    return results;
-  }
-  function _parseSearchPricesRSC(html) {
-    const results = [];
-    const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
-    let match;
-    while ((match = listingPattern.exec(html)) !== null) {
-      const price = parseInt(match[1], 10);
-      const mileage = parseInt(match[2], 10);
-      if (price > 500 && price < 5e5) {
-        results.push({ price, year: null, km: mileage, fuel: null });
-      }
-    }
-    return _dedup(results);
-  }
-  function _parseSearchPricesNextData(html, targetMake = null) {
-    const results = [];
-    const match = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
-    if (!match) return results;
-    try {
-      const data = JSON.parse(match[1]);
-      const listings = data?.props?.pageProps?.listings;
-      if (!Array.isArray(listings)) return results;
-      for (const listing of listings) {
-        const tracking = listing.tracking || {};
-        const vehicle = listing.vehicle || {};
-        const price = parseInt(tracking.price, 10) || null;
-        const km = parseInt(tracking.mileage, 10) || null;
-        let year = null;
-        if (tracking.firstRegistration) {
-          const ym = tracking.firstRegistration.match(/(\d{4})/);
-          if (ym) year = parseInt(ym[1], 10);
-        }
-        const fuel = vehicle.fuel || null;
-        if (targetMake) {
-          const adBrand = vehicle.make;
-          if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
-            continue;
-          }
-        }
-        if (price && price > 500 && price < 5e5) {
-          results.push({
-            price,
-            year,
-            km,
-            fuel,
-            gearbox: vehicle.transmission || null,
-            horse_power: _parseHpFromVehicleDetails(listing.vehicleDetails),
-            _uid: listing.id || null
-          });
-        }
-      }
-    } catch (_) {
-    }
-    return _dedup(results);
-  }
-  function _parseHpFromVehicleDetails(details) {
-    if (!Array.isArray(details)) return null;
-    const power = details.find((d) => d.ariaLabel === "Leistung" || d.iconName === "speedometer");
-    if (!power?.data) return null;
-    const m = power.data.match(/\((\d+)\s*PS\)/i);
-    return m ? parseInt(m[1], 10) : null;
-  }
-  function _parseSearchPricesJsonLd(html, targetMake = null) {
-    const results = [];
-    const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-    let scriptMatch;
-    while ((scriptMatch = scriptPattern.exec(html)) !== null) {
-      try {
-        const data = JSON.parse(scriptMatch[1]);
-        const items = _extractOfferCatalogItems(data);
-        for (const item of items) {
-          const price = _extractJsonLdPrice(item);
-          const km = _extractJsonLdMileage(item);
-          const fuel = _extractJsonLdFuel(item);
-          const year = _extractJsonLdYear(item);
-          const uid = _extractJsonLdUid(item);
-          if (price && price > 500 && price < 5e5) {
-            if (targetMake) {
-              const adBrand = _extractJsonLdBrand(item);
-              if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
-                console.debug("[CoPilot] AS24 brand safety: rejet %s (cible: %s)", adBrand, targetMake);
-                continue;
-              }
-            }
-            results.push({ price, year, km, fuel, _uid: uid });
-          }
-        }
-      } catch (_) {
-      }
-    }
-    return _dedup(results);
-  }
-  function _extractOfferCatalogItems(data) {
-    if (data?.["@type"] === "OfferCatalog" && Array.isArray(data.itemListElement)) {
-      return data.itemListElement;
-    }
-    const offers = data?.mainEntity?.offers || data?.offers;
-    if (offers?.["@type"] === "OfferCatalog" && Array.isArray(offers.itemListElement)) {
-      return offers.itemListElement;
-    }
-    if (Array.isArray(data?.["@graph"])) {
-      for (const node of data["@graph"]) {
-        const items = _extractOfferCatalogItems(node);
-        if (items.length > 0) return items;
-      }
-    }
-    return [];
-  }
-  function _extractJsonLdPrice(item) {
-    const price = item?.offers?.price ?? item?.price;
-    if (typeof price === "number") return price;
-    if (typeof price === "string") return parseInt(price, 10) || null;
-    return null;
-  }
-  function _extractJsonLdMileage(item) {
-    const car = item?.offers?.itemOffered || item;
-    const odometer = car?.mileageFromOdometer;
-    if (!odometer) return null;
-    const val = odometer?.value ?? odometer;
-    if (typeof val === "number") return val;
-    if (typeof val === "string") return parseInt(val, 10) || null;
-    return null;
-  }
-  function _extractJsonLdFuel(item) {
-    const car = item?.offers?.itemOffered || item;
-    const eng = car?.vehicleEngine;
-    const engine = Array.isArray(eng) ? eng[0] : eng;
-    return engine?.fuelType || null;
-  }
-  function _extractJsonLdYear(item) {
-    const car = item?.offers?.itemOffered || item;
-    const date = car?.vehicleModelDate || car?.productionDate;
-    if (!date) return null;
-    const y = parseInt(String(date).slice(0, 4), 10);
-    return y > 1900 && y < 2100 ? y : null;
-  }
-  function _extractJsonLdUid(item) {
-    const url = item?.url || item?.offers?.url;
-    if (!url) return null;
-    const m = url.match(/(\d{6,})(?:[/?#]|$)/);
-    return m ? m[1] : url;
-  }
-  function _dedup(results) {
-    const seen = /* @__PURE__ */ new Set();
-    return results.filter((r) => {
-      const key = r._uid || `${r.price}-${r.km}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).map(({ _uid, ...rest }) => rest);
-  }
+
+  // extension/extractors/autoscout24/extractor.js
   var AutoScout24Extractor = class extends SiteExtractor {
     static SITE_ID = "autoscout24";
     static URL_PATTERNS = AS24_URL_PATTERNS;
@@ -2422,17 +2506,9 @@
     _jsonLd = null;
     /** @type {object|null} Cached ad_data */
     _adData = null;
-    /**
-     * @param {string} url
-     * @returns {boolean}
-     */
     isAdPage(url) {
       return AD_PAGE_PATTERN.test(url);
     }
-    /**
-     * Extracts vehicle data from the current page.
-     * @returns {Promise<{type: string, source: string, ad_data: object}|null>}
-     */
     async extract() {
       this._rsc = parseRSCPayload(document, window.location.href);
       this._jsonLd = parseJsonLd(document);
@@ -2504,9 +2580,6 @@
         ad_data: this._adData
       };
     }
-    /**
-     * @returns {{make: string, model: string, year: string}|null}
-     */
     getVehicleSummary() {
       if (!this._adData) return null;
       return {
@@ -2515,45 +2588,18 @@
         year: String(this._adData.year_model || "")
       };
     }
-    /**
-     * AS24 phone data is public (JSON-LD), no login needed.
-     * @returns {boolean}
-     */
     isLoggedIn() {
       return true;
     }
-    /**
-     * Returns the phone number already extracted from JSON-LD.
-     * No DOM interaction needed (unlike LBC where a button click reveals it).
-     * @returns {Promise<string|null>}
-     */
     async revealPhone() {
       return this._adData?.phone || null;
     }
-    /**
-     * AS24 ads include the phone in JSON-LD (seller.telephone).
-     * @returns {boolean}
-     */
     hasPhone() {
       return Boolean(this._adData?.phone);
     }
-    /**
-     * @returns {Array<{label: string, value: string, status: string}>}
-     */
     getBonusSignals() {
       return buildBonusSignals(this._rsc, this._jsonLd);
     }
-    /**
-     * Collects market prices from AS24 search results.
-     * Full next-job integration:
-     *   1. Ask server which vehicle to collect (next-job API)
-     *   2. Run 7-strategy cascade for the target vehicle
-     *   3. Submit prices or report failure
-     *   4. Execute bonus jobs from the collection queue
-     *
-     * @param {object} progress - Progress tracker for UI updates
-     * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
-     */
     async collectMarketPrices(progress) {
       if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
         return { submitted: false, isCurrentVehicle: false };
@@ -2623,8 +2669,7 @@
       const bonusJobs = jobResp.data.bonus_jobs || [];
       const isCurrentVehicle = target.make.toLowerCase() === this._adData.make.toLowerCase() && target.model.toLowerCase() === this._adData.model.toLowerCase();
       if (!isCurrentVehicle) {
-        const lastCollect = parseInt(localStorage.getItem("copilot_last_collect") || "0", 10);
-        if (Date.now() - lastCollect < COLLECT_COOLDOWN_MS2) {
+        if (shouldSkipCollection()) {
           if (progress) {
             progress.update("job", "done", "Cooldown actif (autre v\xE9hicule collect\xE9 r\xE9cemment)");
             progress.update("collect", "skip", "Cooldown 24h");
@@ -2856,7 +2901,6 @@
               slug_make_used: learnedSlugMake || targetMakeKey,
               slug_model_used: learnedSlugModel || targetModelKey,
               slug_source: slugSource || "as24_generated_url",
-              // Persist learned slugs even on failure (auto-learning)
               as24_slug_make: learnedSlugMake || null,
               as24_slug_model: learnedSlugModel || null
             })
@@ -2870,19 +2914,10 @@
         progress.update("bonus", "skip", "Pas de jobs bonus");
       }
       if (!isCurrentVehicle) {
-        localStorage.setItem("copilot_last_collect", String(Date.now()));
+        markCollected();
       }
       return { submitted, isCurrentVehicle };
     }
-    /**
-     * Executes bonus collection jobs from the server queue.
-     * Each job specifies a vehicle+region to collect prices for.
-     * Only executes jobs matching the current site's country.
-     *
-     * @param {Array} bonusJobs - Jobs from next-job response
-     * @param {string} tld - Current site TLD (ch, de, etc.)
-     * @param {object} progress - Progress tracker
-     */
     async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
       const MIN_BONUS_PRICES = 5;
       const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
@@ -2987,12 +3022,6 @@
       }
       if (progress) progress.update("bonus", "done");
     }
-    /**
-     * Reports a bonus job as done/failed to the server.
-     * @param {string} jobDoneUrl
-     * @param {number} jobId
-     * @param {boolean} success
-     */
     async _reportJobDone(jobDoneUrl, jobId, success) {
       if (!jobId) return;
       try {
@@ -3019,103 +3048,107 @@
     return null;
   }
 
-  // extension/content.js
-  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
-  var lastScanId = null;
-  var ERROR_MESSAGES = [
-    "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
-    "Le moteur a cal\xE9... Notre serveur fait une pause, retentez !",
-    "Panne s\xE8che ! Impossible de joindre le serveur.",
-    "Embrayage patin\xE9... L'analyse n'a pas pu d\xE9marrer.",
-    "Vidange en cours ! Le serveur revient dans un instant."
-  ];
-  function isChromeRuntimeAvailable2() {
-    try {
-      return typeof chrome !== "undefined" && !!chrome.runtime && typeof chrome.runtime.sendMessage === "function";
-    } catch {
-      return false;
-    }
-  }
-  function isLocalBackendUrl(url) {
-    return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(String(url || ""));
-  }
-  async function backendFetch(url, options = {}) {
-    const isLocalBackend = isLocalBackendUrl(url);
-    if (!isChromeRuntimeAvailable2()) {
-      try {
-        return await fetch(url, options);
-      } catch (err) {
-        if (isLocalBackend) {
-          throw new Error("runtime_unavailable_for_local_backend");
-        }
-        throw err;
-      }
-    }
-    return new Promise((resolve, reject) => {
-      try {
-        chrome.runtime.sendMessage(
-          {
-            action: "backend_fetch",
-            url,
-            method: options.method || "GET",
-            headers: options.headers || null,
-            body: options.body || null
-          },
-          (resp) => {
-            let runtimeErrorMsg = null;
-            try {
-              runtimeErrorMsg = chrome.runtime?.lastError?.message || null;
-            } catch (e) {
-              runtimeErrorMsg = e?.message || "extension context invalidated";
-            }
-            if (runtimeErrorMsg || !resp || resp.error) {
-              fetch(url, options).then(resolve).catch((fallbackErr) => {
-                if (isLocalBackend) {
-                  reject(new Error(runtimeErrorMsg || resp?.error || fallbackErr?.message || "runtime_unavailable_for_local_backend"));
-                  return;
-                }
-                reject(fallbackErr);
-              });
-              return;
-            }
-            let parsed;
-            try {
-              parsed = JSON.parse(resp.body);
-            } catch {
-              parsed = null;
-            }
-            resolve({
-              ok: resp.ok,
-              status: resp.status,
-              json: async () => {
-                if (parsed !== null) return parsed;
-                throw new SyntaxError("Invalid JSON");
-              },
-              text: async () => resp.body
-            });
-          }
-        );
-      } catch (err) {
-        if (isLocalBackend) {
-          reject(err);
-          return;
-        }
-        fetch(url, options).then(resolve).catch(reject);
-      }
-    });
-  }
+  // extension/utils/format.js
   function escapeHTML(str) {
     if (typeof str !== "string") return String(str ?? "");
     const el = document.createElement("span");
     el.textContent = str;
     return el.innerHTML;
   }
-  function getRandomErrorMessage() {
-    return ERROR_MESSAGES[Math.floor(Math.random() * ERROR_MESSAGES.length)];
+  var DETAIL_LABELS = {
+    fields_present: "Champs renseign\xE9s",
+    fields_total: "Champs totaux",
+    missing_critical: "Champs critiques manquants",
+    missing_secondary: "Champs secondaires manquants",
+    matched_model: "Mod\xE8le reconnu",
+    confidence: "Confiance",
+    km_per_year: "Km / an",
+    expected_range: "Fourchette attendue",
+    actual_km: "Kilom\xE9trage r\xE9el",
+    expected_km: "Kilom\xE9trage attendu",
+    price: "Prix annonce",
+    argus_price: "Prix Argus",
+    price_diff: "\xC9cart de prix",
+    price_diff_pct: "\xC9cart (%)",
+    mean_price: "Prix moyen",
+    std_dev: "\xC9cart-type",
+    z_score: "Z-score",
+    phone_valid: "T\xE9l\xE9phone valide",
+    phone: "T\xE9l\xE9phone",
+    siret: "SIRET",
+    siret_valid: "SIRET valide",
+    company_name: "Raison sociale",
+    is_import: "V\xE9hicule import\xE9",
+    import_indicators: "Indicateurs import",
+    color: "Couleur",
+    phone_login_hint: "T\xE9l\xE9phone",
+    days_online: "Premi\xE8re publication (jours)",
+    republished: "Annonce republi\xE9e",
+    stale_below_market: "Prix bas + annonce ancienne",
+    delta_eur: "\xC9cart (\u20AC)",
+    delta_pct: "\xC9cart (%)",
+    price_annonce: "Prix annonce",
+    price_reference: "Prix r\xE9f\xE9rence",
+    sample_count: "Nb annonces compar\xE9es",
+    source: "Source prix",
+    price_argus_mid: "Argus (m\xE9dian)",
+    price_argus_low: "Argus (bas)",
+    price_argus_high: "Argus (haut)",
+    precision: "Pr\xE9cision",
+    lookup_make: "Lookup marque",
+    lookup_model: "Lookup mod\xE8le",
+    lookup_year: "Lookup ann\xE9e",
+    lookup_region_key: "Lookup r\xE9gion (cl\xE9)",
+    lookup_fuel_input: "Lookup \xE9nergie (brute)",
+    lookup_fuel_key: "Lookup \xE9nergie (cl\xE9)",
+    lookup_min_samples: "Seuil min annonces"
+  };
+  var PRECISION_LABELS = { 5: "Tres precis", 4: "Precis", 3: "Correct", 2: "Approximatif", 1: "Estimatif" };
+  function formatPrecisionStars(n) {
+    const filled = "\u2605".repeat(n);
+    const empty = "\u2606".repeat(5 - n);
+    const label = PRECISION_LABELS[n] || "";
+    return `${filled}${empty} ${n}/5 \u2013 ${label}`;
   }
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  function formatDetailValue(value) {
+    if (Array.isArray(value)) {
+      if (value.length === 0) return "Aucun";
+      return value.map((v) => escapeHTML(v)).join(", ");
+    }
+    if (typeof value === "boolean") return value ? "Oui" : "Non";
+    if (typeof value === "number") {
+      if (Number.isInteger(value)) return value.toLocaleString("fr-FR");
+      return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+    }
+    if (typeof value === "object" && value !== null) {
+      return Object.entries(value).map(([k, v]) => `${escapeHTML(DETAIL_LABELS[k] || k)}: ${formatDetailValue(v)}`).join(", ");
+    }
+    return escapeHTML(value);
   }
+  function buildDetailsHTML(details) {
+    let phoneHintHTML = "";
+    if (details.phone_login_hint) {
+      const hintText = typeof details.phone_login_hint === "string" ? details.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
+      phoneHintHTML = `
+      <div class="copilot-phone-login-hint">
+        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+        <span>${escapeHTML(hintText)}</span>
+        <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
+           class="copilot-phone-login-link">Se connecter</a>
+      </div>
+    `;
+    }
+    const entries = Object.entries(details).filter(([k, v]) => v !== null && v !== void 0 && k !== "phone_login_hint").map(([k, v]) => {
+      const label = DETAIL_LABELS[k] || k;
+      const val = k === "precision" && typeof v === "number" ? formatPrecisionStars(v) : formatDetailValue(v);
+      return `<div class="copilot-detail-row"><span class="copilot-detail-key">${escapeHTML(label)}</span><span class="copilot-detail-value">${val}</span></div>`;
+    }).join("");
+    if (!entries && !phoneHintHTML) return "";
+    const detailsBlock = entries ? `<details class="copilot-filter-details"><summary>Voir les d\xE9tails</summary><div class="copilot-details-content">${entries}</div></details>` : "";
+    return phoneHintHTML + detailsBlock;
+  }
+
+  // extension/utils/styles.js
   function scoreColor(score) {
     if (score >= 70) return "#22c55e";
     if (score >= 40) return "#f59e0b";
@@ -3168,6 +3201,96 @@
     };
     return labels[filterId] || filterId;
   }
+
+  // extension/ui/dom.js
+  var _runAnalysis = null;
+  var _apiUrl = null;
+  var _lastScanIdGetter = null;
+  function initDom({ runAnalysis: runAnalysis2, apiUrl, getLastScanId }) {
+    _runAnalysis = runAnalysis2;
+    _apiUrl = apiUrl;
+    _lastScanIdGetter = getLastScanId;
+  }
+  function removePopup() {
+    const existing = document.getElementById("copilot-popup");
+    if (existing) existing.remove();
+    const overlay = document.getElementById("copilot-overlay");
+    if (overlay) overlay.remove();
+  }
+  function showPopup(safeHTML) {
+    removePopup();
+    const overlay = document.createElement("div");
+    overlay.id = "copilot-overlay";
+    overlay.className = "copilot-overlay";
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) removePopup();
+    });
+    const template = document.createElement("template");
+    template.innerHTML = safeHTML;
+    const popupNode = template.content.firstElementChild;
+    overlay.appendChild(popupNode);
+    document.body.appendChild(overlay);
+    const closeBtn = document.getElementById("copilot-close");
+    if (closeBtn) closeBtn.addEventListener("click", removePopup);
+    const retryBtn = document.getElementById("copilot-retry");
+    if (retryBtn) retryBtn.addEventListener("click", () => {
+      removePopup();
+      if (_runAnalysis) _runAnalysis();
+    });
+    const premiumBtn = document.getElementById("copilot-premium-btn");
+    if (premiumBtn) {
+      premiumBtn.addEventListener("click", () => {
+        premiumBtn.textContent = "Bient\xF4t disponible !";
+        premiumBtn.disabled = true;
+      });
+    }
+    const emailBtn = document.getElementById("copilot-email-btn");
+    if (emailBtn) {
+      emailBtn.addEventListener("click", async () => {
+        const loading = document.getElementById("copilot-email-loading");
+        const result = document.getElementById("copilot-email-result");
+        const errorDiv = document.getElementById("copilot-email-error");
+        const textArea = document.getElementById("copilot-email-text");
+        emailBtn.style.display = "none";
+        loading.style.display = "flex";
+        errorDiv.style.display = "none";
+        try {
+          const emailUrl = _apiUrl.replace("/analyze", "/email-draft");
+          const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
+          const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: scanId }) });
+          const data = await resp.json();
+          if (data.success) {
+            textArea.value = data.data.generated_text;
+            result.style.display = "block";
+          } else {
+            errorDiv.textContent = data.error || "Erreur de g\xE9n\xE9ration";
+            errorDiv.style.display = "block";
+            emailBtn.style.display = "block";
+          }
+        } catch (err) {
+          errorDiv.textContent = "Service indisponible";
+          errorDiv.style.display = "block";
+          emailBtn.style.display = "block";
+        }
+        loading.style.display = "none";
+      });
+    }
+    const copyBtn = document.getElementById("copilot-email-copy");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", () => {
+        const textArea = document.getElementById("copilot-email-text");
+        navigator.clipboard.writeText(textArea.value).then(() => {
+          const copied = document.getElementById("copilot-email-copied");
+          copied.style.display = "inline";
+          setTimeout(() => {
+            copied.style.display = "none";
+          }, 2e3);
+        });
+      });
+    }
+  }
+
+  // extension/ui/components.js
   var RADAR_SHORT_LABELS = {
     L1: "Donn\xE9es",
     L2: "Mod\xE8le",
@@ -3251,9 +3374,7 @@
     </svg>
   `;
   }
-  var SIMULATED_FILTERS = ["L4", "L5"];
   var BOOLEAN_FILTERS = ["L2", "L8"];
-  var FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
   function buildScoreBar(f) {
     const color = statusColor(f.status);
     if (f.status === "neutral") {
@@ -3270,33 +3391,8 @@
     const pct = Math.round(f.score * 100);
     return `<div class="copilot-filter-score-bar"><div class="copilot-score-track"><div class="copilot-score-fill" style="width:${pct}%;background:${color}"></div></div><span class="copilot-score-text" style="color:${color}">${pct}%</span></div>`;
   }
-  function buildFilterBody(f, vehicle, allFilters) {
-    const d = f.details || {};
-    switch (f.filter_id) {
-      case "L1":
-        return buildL1Body(f, d);
-      case "L3":
-        return buildL3Body(f, d);
-      case "L4":
-        return buildPriceBarHTML(d, vehicle);
-      case "L2":
-        return buildL2Body(f, d);
-      case "L5":
-        return buildL5Body(f, d);
-      case "L6":
-        return buildL6Body(f, d);
-      case "L7":
-        return buildL7Body(f, d);
-      case "L8":
-        return buildL8Body(f, d);
-      case "L9":
-        return buildL9Body(f, d, allFilters);
-      case "L10":
-        return buildL10Body(f, d);
-      default:
-        return buildGenericBody(f);
-    }
-  }
+
+  // extension/ui/filters/l1.js
   var FIELD_LABELS_FR = {
     price_eur: "Prix",
     make: "Marque",
@@ -3341,6 +3437,26 @@
     }
     return `<div class="copilot-l1-body">${barHTML}${statusMsg}${missingHTML}</div>`;
   }
+
+  // extension/ui/filters/l2.js
+  function buildL2Body(f, d) {
+    if (f.status === "skip") {
+      return `<div class="copilot-l2-body"><span class="copilot-l2-na">${escapeHTML(f.message)}</span></div>`;
+    }
+    if (f.status === "pass") {
+      const brand = d.brand || "";
+      const model = d.model || "";
+      const gen = d.generation ? ` \xB7 ${d.generation}` : "";
+      return `<div class="copilot-l2-body">
+      <span class="copilot-l2-badge copilot-l2-badge-ok">\u2713 ${escapeHTML(brand)} ${escapeHTML(model)}${escapeHTML(gen)}</span>
+    </div>`;
+    }
+    return `<div class="copilot-l2-body">
+    <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
+  </div>`;
+  }
+
+  // extension/ui/filters/l3.js
   function buildL3Body(f, d) {
     const kmYear = d.km_per_year;
     const expectedKm = d.expected_km;
@@ -3404,406 +3520,8 @@
     }
     return `<div class="copilot-l3-body">${statHTML}${barHTML}${verdictHTML}${proHTML}${warningsHTML}</div>`;
   }
-  function buildL10Body(f, d) {
-    const days = d.days_online;
-    const threshold = d.threshold_days || 35;
-    const ratio = d.ratio || 0;
-    const republished = d.republished;
-    const thresholdSource = d.threshold_source === "marche" ? "march\xE9" : "prix";
-    const marketMedian = d.market_median_days;
-    if (days == null) {
-      return '<p class="copilot-filter-message">Anciennet\xE9 non disponible</p>';
-    }
-    let barColor, verdictText;
-    if (ratio <= 0.3) {
-      barColor = "#22c55e";
-      verdictText = "Annonce tr\xE8s r\xE9cente";
-    } else if (ratio <= 1) {
-      barColor = "#22c55e";
-      verdictText = "Dur\xE9e de mise en vente normale";
-    } else if (ratio <= 2) {
-      barColor = "#f59e0b";
-      verdictText = "Au-del\xE0 de la dur\xE9e normale pour ce segment";
-    } else {
-      barColor = "#ef4444";
-      verdictText = "Annonce stagnante \u2014 pourquoi personne n'a achet\xE9 ?";
-    }
-    const maxDisplay = threshold * 2.5;
-    const cursorPct = Math.min(Math.max(days / maxDisplay * 100, 2), 98);
-    const thresholdPct = Math.min(threshold / maxDisplay * 100, 95);
-    const bigNumber = `<div class="copilot-l10-big"><span class="copilot-l10-days" style="color:${barColor}">${days}</span><span class="copilot-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
-    const barHTML = `
-    <div class="copilot-l10-timeline">
-      <div class="copilot-l10-track">
-        <div class="copilot-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
-        <div class="copilot-l10-threshold" style="left:${thresholdPct}%">
-          <div class="copilot-l10-threshold-line"></div>
-          <span class="copilot-l10-threshold-label">Seuil ${threshold}j</span>
-        </div>
-        <div class="copilot-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
-      </div>
-      <div class="copilot-l10-scale">
-        <span>0j</span>
-        <span>${Math.round(maxDisplay)}j</span>
-      </div>
-    </div>
-  `;
-    const verdictHTML = `<div class="copilot-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
-    let metaHTML = `<div class="copilot-l10-meta">Seuil bas\xE9 sur le ${escapeHTML(thresholdSource)}</div>`;
-    if (marketMedian != null) {
-      metaHTML += `<div class="copilot-l10-meta">M\xE9diane march\xE9 : ${marketMedian} jours</div>`;
-    }
-    let republishedHTML = "";
-    if (republished) {
-      republishedHTML = `<div class="copilot-l10-republished">Republication d\xE9tect\xE9e \u2014 l'annonce a \xE9t\xE9 remise en ligne pour para\xEEtre r\xE9cente</div>`;
-    }
-    return `<div class="copilot-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
-  }
-  function buildL9Body(f, d, allFilters) {
-    const forts = d.points_forts || [];
-    const faibles = d.points_faibles || [];
-    const others = (allFilters || []).filter((x) => x.filter_id !== "L9");
-    const total = others.length;
-    const evaluated = others.filter((x) => x.status !== "skip").length;
-    let coverageHTML = "";
-    if (total > 0) {
-      const coverageColor = evaluated === total ? "#22c55e" : evaluated >= total * 0.7 ? "#f59e0b" : "#ef4444";
-      const coverageText = evaluated === total ? "Analyse compl\xE8te" : `Analyse partielle \u2014 ${total - evaluated} filtre${total - evaluated > 1 ? "s" : ""} non \xE9valu\xE9${total - evaluated > 1 ? "s" : ""} (donn\xE9es absentes de l'annonce)`;
-      coverageHTML = `
-      <div class="copilot-l9-coverage">
-        <span class="copilot-l9-coverage-count" style="color:${coverageColor}">${evaluated}/${total} filtres \xE9valu\xE9s</span>
-        <span class="copilot-l9-coverage-text">${escapeHTML(coverageText)}</span>
-      </div>
-    `;
-    }
-    let fortsHTML = "";
-    if (forts.length > 0) {
-      const items = forts.map((p) => `<li class="copilot-l9-fort">${escapeHTML(p)}</li>`).join("");
-      fortsHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-fort-title">Points forts</div><ul>${items}</ul></div>`;
-    }
-    let faiblesHTML = "";
-    if (faibles.length > 0) {
-      const items = faibles.map((p) => `<li class="copilot-l9-faible">${escapeHTML(p)}</li>`).join("");
-      faiblesHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-faible-title">Points faibles</div><ul>${items}</ul></div>`;
-    }
-    let phoneHintHTML = "";
-    if (d.phone_login_hint) {
-      const hintText = typeof d.phone_login_hint === "string" ? d.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
-      phoneHintHTML = `
-      <div class="copilot-phone-login-hint">
-        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
-        <span>${escapeHTML(hintText)}</span>
-        <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
-           class="copilot-phone-login-link">Se connecter</a>
-      </div>
-    `;
-    }
-    return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
-  }
-  function buildL2Body(f, d) {
-    if (f.status === "skip") {
-      return `<div class="copilot-l2-body"><span class="copilot-l2-na">${escapeHTML(f.message)}</span></div>`;
-    }
-    if (f.status === "pass") {
-      const brand = d.brand || "";
-      const model = d.model || "";
-      const gen = d.generation ? ` \xB7 ${d.generation}` : "";
-      return `<div class="copilot-l2-body">
-      <span class="copilot-l2-badge copilot-l2-badge-ok">\u2713 ${escapeHTML(brand)} ${escapeHTML(model)}${escapeHTML(gen)}</span>
-    </div>`;
-    }
-    return `<div class="copilot-l2-body">
-    <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
-  </div>`;
-  }
-  function buildL5Body(f, d) {
-    if (f.status === "skip") {
-      return `<div class="copilot-l5-body"><span class="copilot-l5-na">${escapeHTML(f.message)}</span></div>`;
-    }
-    const zPrice = d.z_scores?.price;
-    const anomalies = d.anomalies || [];
-    const refCount = d.ref_count || 0;
-    const hasOutlier = anomalies.some((a) => a.includes("outlier"));
-    const hasMargin = anomalies.some((a) => a.includes("marge"));
-    const dieselOnly = anomalies.length > 0 && anomalies.every((a) => a.includes("Diesel"));
-    let cursorPct, zoneClass, verdictText;
-    if (hasOutlier) {
-      cursorPct = zPrice > 0 ? 8 : 12;
-      zoneClass = "copilot-l5-zone-red";
-      verdictText = "Anomalie d\xE9tect\xE9e \u2014 prix tr\xE8s \xE9loign\xE9 de la distribution";
-    } else if (hasMargin) {
-      cursorPct = zPrice > 0 ? 22 : 28;
-      zoneClass = "copilot-l5-zone-orange";
-      verdictText = "Signal faible \u2014 prix en marge de la distribution";
-    } else if (anomalies.length === 0 || dieselOnly) {
-      const bonus = Math.min(refCount, 20) / 20 * 20;
-      cursorPct = 60 + bonus;
-      zoneClass = refCount >= 10 ? "copilot-l5-zone-green" : "copilot-l5-zone-neutral";
-      verdictText = refCount >= 10 ? `RAS \u2014 aucune anomalie (${refCount} v\xE9hicules compar\xE9s)` : `RAS \u2014 confiance mod\xE9r\xE9e (${refCount} r\xE9f\xE9rences)`;
-    } else {
-      cursorPct = 35;
-      zoneClass = "copilot-l5-zone-orange";
-      verdictText = anomalies[0];
-    }
-    let html = `<div class="copilot-l5-body">`;
-    html += `<div class="copilot-l5-scale">`;
-    html += `  <div class="copilot-l5-track">`;
-    html += `    <div class="copilot-l5-zone-left"></div>`;
-    html += `    <div class="copilot-l5-zone-center"></div>`;
-    html += `    <div class="copilot-l5-zone-right"></div>`;
-    html += `    <div class="copilot-l5-cursor ${zoneClass}" style="left:${cursorPct}%"></div>`;
-    html += `  </div>`;
-    html += `  <div class="copilot-l5-labels">`;
-    html += `    <span class="copilot-l5-label-left">Louche</span>`;
-    html += `    <span class="copilot-l5-label-center">RAS</span>`;
-    html += `    <span class="copilot-l5-label-right">Fiable</span>`;
-    html += `  </div>`;
-    html += `</div>`;
-    html += `<div class="copilot-l5-verdict">${escapeHTML(verdictText)}</div>`;
-    if (d.diesel_urban) {
-      html += `<div class="copilot-l5-diesel">`;
-      html += `  <span class="copilot-l5-diesel-icon">\u2699\uFE0F</span>`;
-      html += `  <div>`;
-      html += `    <div class="copilot-l5-diesel-title">Diesel en zone urbaine dense</div>`;
-      html += `    <div class="copilot-l5-diesel-text">Risque FAP, injecteurs, vanne EGR \u2014 les r\xE9g\xE9n\xE9rations ne se font pas en ville</div>`;
-      html += `  </div>`;
-      html += `</div>`;
-    }
-    const src = d.source || "";
-    let srcLabel = "";
-    if (src === "marche_leboncoin") srcLabel = "LBC";
-    else if (src === "marche_autoscout24") srcLabel = "AS24";
-    else if (src === "argus_seed") srcLabel = "Argus Seed";
-    if (srcLabel || refCount) {
-      html += `<div class="copilot-l5-footer">`;
-      if (srcLabel) html += `<span class="copilot-l5-src">${escapeHTML(srcLabel)}</span>`;
-      if (refCount) html += `<span class="copilot-l5-refs">Bas\xE9 sur ${refCount} v\xE9hicule${refCount > 1 ? "s" : ""}</span>`;
-      html += `</div>`;
-    }
-    html += `</div>`;
-    return html;
-  }
-  function buildL6Body(f, d) {
-    if (f.status === "neutral") {
-      return `<div class="copilot-l6-body"><span class="copilot-l6-na">T\xE9l\xE9phone non disponible</span></div>`;
-    }
-    if (f.status === "skip" && d.phone_login_hint) {
-      const hintText = typeof d.phone_login_hint === "string" ? d.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
-      return `<div class="copilot-l6-body">
-      <div class="copilot-phone-login-hint">
-        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
-        <span>${escapeHTML(hintText)}</span>
-        <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
-           class="copilot-phone-login-link">Se connecter</a>
-      </div>
-    </div>`;
-    }
-    const phoneType = d.type || "";
-    let badgeText = "";
-    let badgeClass = "copilot-l6-badge-default";
-    if (phoneType.startsWith("mobile")) {
-      badgeText = "Mobile";
-      badgeClass = "copilot-l6-badge-mobile";
-    } else if (phoneType.startsWith("landline")) {
-      badgeText = "Fixe";
-      badgeClass = "copilot-l6-badge-landline";
-    } else if (phoneType === "telemarketing_arcep") {
-      badgeText = "D\xE9marchage";
-      badgeClass = "copilot-l6-badge-danger";
-    } else if (phoneType === "virtual_onoff") {
-      badgeText = "Virtuel";
-      badgeClass = "copilot-l6-badge-danger";
-    } else if (d.is_foreign) {
-      const prefix = d.prefix || "";
-      badgeText = `\xC9tranger${prefix ? " (" + prefix + ")" : ""}`;
-      badgeClass = "copilot-l6-badge-foreign";
-    } else if (phoneType.startsWith("local") || phoneType === "present_unverified") {
-      badgeText = "Pr\xE9sent";
-      badgeClass = "copilot-l6-badge-ok";
-    }
-    if (d.no_phone_pro) {
-      badgeText = "Pro sans t\xE9l\xE9phone";
-      badgeClass = "copilot-l6-badge-danger";
-    }
-    let html = `<div class="copilot-l6-body">`;
-    if (badgeText) {
-      html += `<span class="copilot-l6-badge ${badgeClass}">${escapeHTML(badgeText)}</span>`;
-    }
-    if (f.message && f.status !== "pass") {
-      html += `<span class="copilot-l6-msg">${escapeHTML(f.message)}</span>`;
-    }
-    html += `</div>`;
-    return html;
-  }
-  function buildL7Body(f, d) {
-    const ownerType = (d.owner_type || "").toLowerCase();
-    if (f.status === "neutral" || ownerType === "private" || ownerType === "particulier") {
-      return `<div class="copilot-l7-body"><span class="copilot-l7-badge copilot-l7-badge-neutral">Particulier</span></div>`;
-    }
-    if (f.status === "skip") {
-      return `<div class="copilot-l7-body"><span class="copilot-l7-na">${escapeHTML(f.message)}</span></div>`;
-    }
-    let html = `<div class="copilot-l7-body">`;
-    if (d.platform_verified) {
-      html += `<span class="copilot-l7-badge copilot-l7-badge-verified">Pro v\xE9rifi\xE9</span>`;
-      if (d.dealer_rating != null && d.dealer_review_count != null) {
-        const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
-        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
-      }
-      html += `</div>`;
-      return html;
-    }
-    if (f.status === "pass") {
-      const denom = d.denomination || d.name || "";
-      const siretOrUid = d.formatted || d.siret || d.uid || "";
-      html += `<span class="copilot-l7-badge copilot-l7-badge-pro">Pro</span>`;
-      if (denom) html += `<span class="copilot-l7-denom">${escapeHTML(denom)}</span>`;
-      if (siretOrUid) html += `<span class="copilot-l7-id">${escapeHTML(siretOrUid)}</span>`;
-      if (d.dealer_rating != null && d.dealer_review_count != null) {
-        const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
-        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
-      }
-      html += `</div>`;
-      return html;
-    }
-    if (f.status === "warning") {
-      html += `<span class="copilot-l7-badge copilot-l7-badge-warn">Pro non identifi\xE9</span>`;
-      html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
-      html += `</div>`;
-      return html;
-    }
-    html += `<span class="copilot-l7-badge copilot-l7-badge-fail">Pro suspect</span>`;
-    html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
-    html += `</div>`;
-    return html;
-  }
-  function buildL8Body(f, d) {
-    const signals = d.signals || [];
-    const strongCount = d.strong_count || 0;
-    const weakCount = d.weak_count || 0;
-    if (f.status === "pass" || signals.length === 0) {
-      return `<div class="copilot-l8-body">
-      <div class="copilot-l8-clean">
-        <span class="copilot-l8-clean-icon">\u2705</span>
-        <span>Aucun signal d'import d\xE9tect\xE9</span>
-      </div>
-    </div>`;
-    }
-    let headerText = strongCount >= 2 ? "Import probable" : strongCount === 1 ? "Signal d'import d\xE9tect\xE9" : "Signal faible d'import";
-    const headerClass = f.status === "fail" ? "copilot-l8-alert-fail" : "copilot-l8-alert-warn";
-    let html = `<div class="copilot-l8-body">`;
-    html += `<div class="copilot-l8-alert ${headerClass}">`;
-    html += `<span class="copilot-l8-alert-icon">${f.status === "fail" ? "\u{1F6A8}" : "\u26A0\uFE0F"}</span>`;
-    html += `<span class="copilot-l8-alert-text">${escapeHTML(headerText)} (${signals.length} indice${signals.length > 1 ? "s" : ""})</span>`;
-    html += `</div>`;
-    html += `<ul class="copilot-l8-signals">`;
-    for (const sig of signals) {
-      html += `<li class="copilot-l8-signal">${escapeHTML(sig)}</li>`;
-    }
-    html += `</ul></div>`;
-    return html;
-  }
-  function buildGenericBody(f) {
-    const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
-    const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
-    return msgHTML + detailsHTML;
-  }
-  function buildFiltersList(filters, vehicle) {
-    if (!filters || !filters.length) return "";
-    const sorted = [...filters].sort((a, b) => {
-      const ia = FILTER_DISPLAY_ORDER.indexOf(a.filter_id);
-      const ib = FILTER_DISPLAY_ORDER.indexOf(b.filter_id);
-      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-    });
-    return sorted.map((f) => {
-      const color = statusColor(f.status);
-      const icon = statusIcon(f.status);
-      const label = filterLabel(f.filter_id, f.status);
-      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="copilot-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
-      const scoreBarHTML = buildScoreBar(f);
-      const bodyHTML = buildFilterBody(f, vehicle, sorted);
-      return `
-        <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
-          <div class="copilot-filter-header">
-            <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
-            <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
-            ${scoreBarHTML}
-          </div>
-          ${bodyHTML}
-        </div>
-      `;
-    }).join("");
-  }
-  var DETAIL_LABELS = {
-    fields_present: "Champs renseign\xE9s",
-    fields_total: "Champs totaux",
-    missing_critical: "Champs critiques manquants",
-    missing_secondary: "Champs secondaires manquants",
-    matched_model: "Mod\xE8le reconnu",
-    confidence: "Confiance",
-    km_per_year: "Km / an",
-    expected_range: "Fourchette attendue",
-    actual_km: "Kilom\xE9trage r\xE9el",
-    expected_km: "Kilom\xE9trage attendu",
-    price: "Prix annonce",
-    argus_price: "Prix Argus",
-    price_diff: "\xC9cart de prix",
-    price_diff_pct: "\xC9cart (%)",
-    mean_price: "Prix moyen",
-    std_dev: "\xC9cart-type",
-    z_score: "Z-score",
-    phone_valid: "T\xE9l\xE9phone valide",
-    phone: "T\xE9l\xE9phone",
-    siret: "SIRET",
-    siret_valid: "SIRET valide",
-    company_name: "Raison sociale",
-    is_import: "V\xE9hicule import\xE9",
-    import_indicators: "Indicateurs import",
-    color: "Couleur",
-    phone_login_hint: "T\xE9l\xE9phone",
-    days_online: "Premi\xE8re publication (jours)",
-    republished: "Annonce republi\xE9e",
-    stale_below_market: "Prix bas + annonce ancienne",
-    delta_eur: "\xC9cart (\u20AC)",
-    delta_pct: "\xC9cart (%)",
-    price_annonce: "Prix annonce",
-    price_reference: "Prix r\xE9f\xE9rence",
-    sample_count: "Nb annonces compar\xE9es",
-    source: "Source prix",
-    price_argus_mid: "Argus (m\xE9dian)",
-    price_argus_low: "Argus (bas)",
-    price_argus_high: "Argus (haut)",
-    precision: "Pr\xE9cision",
-    lookup_make: "Lookup marque",
-    lookup_model: "Lookup mod\xE8le",
-    lookup_year: "Lookup ann\xE9e",
-    lookup_region_key: "Lookup r\xE9gion (cl\xE9)",
-    lookup_fuel_input: "Lookup \xE9nergie (brute)",
-    lookup_fuel_key: "Lookup \xE9nergie (cl\xE9)",
-    lookup_min_samples: "Seuil min annonces"
-  };
-  var PRECISION_LABELS = { 5: "Tres precis", 4: "Precis", 3: "Correct", 2: "Approximatif", 1: "Estimatif" };
-  function formatPrecisionStars(n) {
-    const filled = "\u2605".repeat(n);
-    const empty = "\u2606".repeat(5 - n);
-    const label = PRECISION_LABELS[n] || "";
-    return `${filled}${empty} ${n}/5 \u2013 ${label}`;
-  }
-  function formatDetailValue(value) {
-    if (Array.isArray(value)) {
-      if (value.length === 0) return "Aucun";
-      return value.map((v) => escapeHTML(v)).join(", ");
-    }
-    if (typeof value === "boolean") return value ? "Oui" : "Non";
-    if (typeof value === "number") {
-      if (Number.isInteger(value)) return value.toLocaleString("fr-FR");
-      return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-    }
-    if (typeof value === "object" && value !== null) {
-      return Object.entries(value).map(([k, v]) => `${escapeHTML(DETAIL_LABELS[k] || k)}: ${formatDetailValue(v)}`).join(", ");
-    }
-    return escapeHTML(value);
-  }
+
+  // extension/ui/filters/l4.js
   function buildPriceBarHTML(details, vehicle) {
     const priceAnnonce = details.price_annonce;
     const priceRef = details.price_reference;
@@ -3937,10 +3655,232 @@
     </div>
   `;
   }
-  function buildDetailsHTML(details) {
+
+  // extension/ui/filters/l5.js
+  function buildL5Body(f, d) {
+    if (f.status === "skip") {
+      return `<div class="copilot-l5-body"><span class="copilot-l5-na">${escapeHTML(f.message)}</span></div>`;
+    }
+    const zPrice = d.z_scores?.price;
+    const anomalies = d.anomalies || [];
+    const refCount = d.ref_count || 0;
+    const hasOutlier = anomalies.some((a) => a.includes("outlier"));
+    const hasMargin = anomalies.some((a) => a.includes("marge"));
+    const dieselOnly = anomalies.length > 0 && anomalies.every((a) => a.includes("Diesel"));
+    let cursorPct, zoneClass, verdictText;
+    if (hasOutlier) {
+      cursorPct = zPrice > 0 ? 8 : 12;
+      zoneClass = "copilot-l5-zone-red";
+      verdictText = "Anomalie d\xE9tect\xE9e \u2014 prix tr\xE8s \xE9loign\xE9 de la distribution";
+    } else if (hasMargin) {
+      cursorPct = zPrice > 0 ? 22 : 28;
+      zoneClass = "copilot-l5-zone-orange";
+      verdictText = "Signal faible \u2014 prix en marge de la distribution";
+    } else if (anomalies.length === 0 || dieselOnly) {
+      const bonus = Math.min(refCount, 20) / 20 * 20;
+      cursorPct = 60 + bonus;
+      zoneClass = refCount >= 10 ? "copilot-l5-zone-green" : "copilot-l5-zone-neutral";
+      verdictText = refCount >= 10 ? `RAS \u2014 aucune anomalie (${refCount} v\xE9hicules compar\xE9s)` : `RAS \u2014 confiance mod\xE9r\xE9e (${refCount} r\xE9f\xE9rences)`;
+    } else {
+      cursorPct = 35;
+      zoneClass = "copilot-l5-zone-orange";
+      verdictText = anomalies[0];
+    }
+    let html = `<div class="copilot-l5-body">`;
+    html += `<div class="copilot-l5-scale">`;
+    html += `  <div class="copilot-l5-track">`;
+    html += `    <div class="copilot-l5-zone-left"></div>`;
+    html += `    <div class="copilot-l5-zone-center"></div>`;
+    html += `    <div class="copilot-l5-zone-right"></div>`;
+    html += `    <div class="copilot-l5-cursor ${zoneClass}" style="left:${cursorPct}%"></div>`;
+    html += `  </div>`;
+    html += `  <div class="copilot-l5-labels">`;
+    html += `    <span class="copilot-l5-label-left">Louche</span>`;
+    html += `    <span class="copilot-l5-label-center">RAS</span>`;
+    html += `    <span class="copilot-l5-label-right">Fiable</span>`;
+    html += `  </div>`;
+    html += `</div>`;
+    html += `<div class="copilot-l5-verdict">${escapeHTML(verdictText)}</div>`;
+    if (d.diesel_urban) {
+      html += `<div class="copilot-l5-diesel">`;
+      html += `  <span class="copilot-l5-diesel-icon">\u2699\uFE0F</span>`;
+      html += `  <div>`;
+      html += `    <div class="copilot-l5-diesel-title">Diesel en zone urbaine dense</div>`;
+      html += `    <div class="copilot-l5-diesel-text">Risque FAP, injecteurs, vanne EGR \u2014 les r\xE9g\xE9n\xE9rations ne se font pas en ville</div>`;
+      html += `  </div>`;
+      html += `</div>`;
+    }
+    const src = d.source || "";
+    let srcLabel = "";
+    if (src === "marche_leboncoin") srcLabel = "LBC";
+    else if (src === "marche_autoscout24") srcLabel = "AS24";
+    else if (src === "argus_seed") srcLabel = "Argus Seed";
+    if (srcLabel || refCount) {
+      html += `<div class="copilot-l5-footer">`;
+      if (srcLabel) html += `<span class="copilot-l5-src">${escapeHTML(srcLabel)}</span>`;
+      if (refCount) html += `<span class="copilot-l5-refs">Bas\xE9 sur ${refCount} v\xE9hicule${refCount > 1 ? "s" : ""}</span>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  // extension/ui/filters/l6.js
+  function buildL6Body(f, d) {
+    if (f.status === "neutral") {
+      return `<div class="copilot-l6-body"><span class="copilot-l6-na">T\xE9l\xE9phone non disponible</span></div>`;
+    }
+    if (f.status === "skip" && d.phone_login_hint) {
+      const hintText = typeof d.phone_login_hint === "string" ? d.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
+      return `<div class="copilot-l6-body">
+      <div class="copilot-phone-login-hint">
+        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+        <span>${escapeHTML(hintText)}</span>
+        <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
+           class="copilot-phone-login-link">Se connecter</a>
+      </div>
+    </div>`;
+    }
+    const phoneType = d.type || "";
+    let badgeText = "";
+    let badgeClass = "copilot-l6-badge-default";
+    if (phoneType.startsWith("mobile")) {
+      badgeText = "Mobile";
+      badgeClass = "copilot-l6-badge-mobile";
+    } else if (phoneType.startsWith("landline")) {
+      badgeText = "Fixe";
+      badgeClass = "copilot-l6-badge-landline";
+    } else if (phoneType === "telemarketing_arcep") {
+      badgeText = "D\xE9marchage";
+      badgeClass = "copilot-l6-badge-danger";
+    } else if (phoneType === "virtual_onoff") {
+      badgeText = "Virtuel";
+      badgeClass = "copilot-l6-badge-danger";
+    } else if (d.is_foreign) {
+      const prefix = d.prefix || "";
+      badgeText = `\xC9tranger${prefix ? " (" + prefix + ")" : ""}`;
+      badgeClass = "copilot-l6-badge-foreign";
+    } else if (phoneType.startsWith("local") || phoneType === "present_unverified") {
+      badgeText = "Pr\xE9sent";
+      badgeClass = "copilot-l6-badge-ok";
+    }
+    if (d.no_phone_pro) {
+      badgeText = "Pro sans t\xE9l\xE9phone";
+      badgeClass = "copilot-l6-badge-danger";
+    }
+    let html = `<div class="copilot-l6-body">`;
+    if (badgeText) {
+      html += `<span class="copilot-l6-badge ${badgeClass}">${escapeHTML(badgeText)}</span>`;
+    }
+    if (f.message && f.status !== "pass") {
+      html += `<span class="copilot-l6-msg">${escapeHTML(f.message)}</span>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  // extension/ui/filters/l7.js
+  function buildL7Body(f, d) {
+    const ownerType = (d.owner_type || "").toLowerCase();
+    if (f.status === "neutral" || ownerType === "private" || ownerType === "particulier") {
+      return `<div class="copilot-l7-body"><span class="copilot-l7-badge copilot-l7-badge-neutral">Particulier</span></div>`;
+    }
+    if (f.status === "skip") {
+      return `<div class="copilot-l7-body"><span class="copilot-l7-na">${escapeHTML(f.message)}</span></div>`;
+    }
+    let html = `<div class="copilot-l7-body">`;
+    if (d.platform_verified) {
+      html += `<span class="copilot-l7-badge copilot-l7-badge-verified">Pro v\xE9rifi\xE9</span>`;
+      if (d.dealer_rating != null && d.dealer_review_count != null) {
+        const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
+        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+    if (f.status === "pass") {
+      const denom = d.denomination || d.name || "";
+      const siretOrUid = d.formatted || d.siret || d.uid || "";
+      html += `<span class="copilot-l7-badge copilot-l7-badge-pro">Pro</span>`;
+      if (denom) html += `<span class="copilot-l7-denom">${escapeHTML(denom)}</span>`;
+      if (siretOrUid) html += `<span class="copilot-l7-id">${escapeHTML(siretOrUid)}</span>`;
+      if (d.dealer_rating != null && d.dealer_review_count != null) {
+        const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
+        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+    if (f.status === "warning") {
+      html += `<span class="copilot-l7-badge copilot-l7-badge-warn">Pro non identifi\xE9</span>`;
+      html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
+      html += `</div>`;
+      return html;
+    }
+    html += `<span class="copilot-l7-badge copilot-l7-badge-fail">Pro suspect</span>`;
+    html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
+    html += `</div>`;
+    return html;
+  }
+
+  // extension/ui/filters/l8.js
+  function buildL8Body(f, d) {
+    const signals = d.signals || [];
+    const strongCount = d.strong_count || 0;
+    if (f.status === "pass" || signals.length === 0) {
+      return `<div class="copilot-l8-body">
+      <div class="copilot-l8-clean">
+        <span class="copilot-l8-clean-icon">\u2705</span>
+        <span>Aucun signal d'import d\xE9tect\xE9</span>
+      </div>
+    </div>`;
+    }
+    let headerText = strongCount >= 2 ? "Import probable" : strongCount === 1 ? "Signal d'import d\xE9tect\xE9" : "Signal faible d'import";
+    const headerClass = f.status === "fail" ? "copilot-l8-alert-fail" : "copilot-l8-alert-warn";
+    let html = `<div class="copilot-l8-body">`;
+    html += `<div class="copilot-l8-alert ${headerClass}">`;
+    html += `<span class="copilot-l8-alert-icon">${f.status === "fail" ? "\u{1F6A8}" : "\u26A0\uFE0F"}</span>`;
+    html += `<span class="copilot-l8-alert-text">${escapeHTML(headerText)} (${signals.length} indice${signals.length > 1 ? "s" : ""})</span>`;
+    html += `</div>`;
+    html += `<ul class="copilot-l8-signals">`;
+    for (const sig of signals) {
+      html += `<li class="copilot-l8-signal">${escapeHTML(sig)}</li>`;
+    }
+    html += `</ul></div>`;
+    return html;
+  }
+
+  // extension/ui/filters/l9.js
+  function buildL9Body(f, d, allFilters) {
+    const forts = d.points_forts || [];
+    const faibles = d.points_faibles || [];
+    const others = (allFilters || []).filter((x) => x.filter_id !== "L9");
+    const total = others.length;
+    const evaluated = others.filter((x) => x.status !== "skip").length;
+    let coverageHTML = "";
+    if (total > 0) {
+      const coverageColor = evaluated === total ? "#22c55e" : evaluated >= total * 0.7 ? "#f59e0b" : "#ef4444";
+      const coverageText = evaluated === total ? "Analyse compl\xE8te" : `Analyse partielle \u2014 ${total - evaluated} filtre${total - evaluated > 1 ? "s" : ""} non \xE9valu\xE9${total - evaluated > 1 ? "s" : ""} (donn\xE9es absentes de l'annonce)`;
+      coverageHTML = `
+      <div class="copilot-l9-coverage">
+        <span class="copilot-l9-coverage-count" style="color:${coverageColor}">${evaluated}/${total} filtres \xE9valu\xE9s</span>
+        <span class="copilot-l9-coverage-text">${escapeHTML(coverageText)}</span>
+      </div>
+    `;
+    }
+    let fortsHTML = "";
+    if (forts.length > 0) {
+      const items = forts.map((p) => `<li class="copilot-l9-fort">${escapeHTML(p)}</li>`).join("");
+      fortsHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-fort-title">Points forts</div><ul>${items}</ul></div>`;
+    }
+    let faiblesHTML = "";
+    if (faibles.length > 0) {
+      const items = faibles.map((p) => `<li class="copilot-l9-faible">${escapeHTML(p)}</li>`).join("");
+      faiblesHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-faible-title">Points faibles</div><ul>${items}</ul></div>`;
+    }
     let phoneHintHTML = "";
-    if (details.phone_login_hint) {
-      const hintText = typeof details.phone_login_hint === "string" ? details.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
+    if (d.phone_login_hint) {
+      const hintText = typeof d.phone_login_hint === "string" ? d.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
       phoneHintHTML = `
       <div class="copilot-phone-login-hint">
         <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
@@ -3950,15 +3890,131 @@
       </div>
     `;
     }
-    const entries = Object.entries(details).filter(([k, v]) => v !== null && v !== void 0 && k !== "phone_login_hint").map(([k, v]) => {
-      const label = DETAIL_LABELS[k] || k;
-      const val = k === "precision" && typeof v === "number" ? formatPrecisionStars(v) : formatDetailValue(v);
-      return `<div class="copilot-detail-row"><span class="copilot-detail-key">${escapeHTML(label)}</span><span class="copilot-detail-value">${val}</span></div>`;
-    }).join("");
-    if (!entries && !phoneHintHTML) return "";
-    const detailsBlock = entries ? `<details class="copilot-filter-details"><summary>Voir les d\xE9tails</summary><div class="copilot-details-content">${entries}</div></details>` : "";
-    return phoneHintHTML + detailsBlock;
+    return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
   }
+
+  // extension/ui/filters/l10.js
+  function buildL10Body(f, d) {
+    const days = d.days_online;
+    const threshold = d.threshold_days || 35;
+    const ratio = d.ratio || 0;
+    const republished = d.republished;
+    const thresholdSource = d.threshold_source === "marche" ? "march\xE9" : "prix";
+    const marketMedian = d.market_median_days;
+    if (days == null) {
+      return '<p class="copilot-filter-message">Anciennet\xE9 non disponible</p>';
+    }
+    let barColor, verdictText;
+    if (ratio <= 0.3) {
+      barColor = "#22c55e";
+      verdictText = "Annonce tr\xE8s r\xE9cente";
+    } else if (ratio <= 1) {
+      barColor = "#22c55e";
+      verdictText = "Dur\xE9e de mise en vente normale";
+    } else if (ratio <= 2) {
+      barColor = "#f59e0b";
+      verdictText = "Au-del\xE0 de la dur\xE9e normale pour ce segment";
+    } else {
+      barColor = "#ef4444";
+      verdictText = "Annonce stagnante \u2014 pourquoi personne n'a achet\xE9 ?";
+    }
+    const maxDisplay = threshold * 2.5;
+    const cursorPct = Math.min(Math.max(days / maxDisplay * 100, 2), 98);
+    const thresholdPct = Math.min(threshold / maxDisplay * 100, 95);
+    const bigNumber = `<div class="copilot-l10-big"><span class="copilot-l10-days" style="color:${barColor}">${days}</span><span class="copilot-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
+    const barHTML = `
+    <div class="copilot-l10-timeline">
+      <div class="copilot-l10-track">
+        <div class="copilot-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
+        <div class="copilot-l10-threshold" style="left:${thresholdPct}%">
+          <div class="copilot-l10-threshold-line"></div>
+          <span class="copilot-l10-threshold-label">Seuil ${threshold}j</span>
+        </div>
+        <div class="copilot-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
+      </div>
+      <div class="copilot-l10-scale">
+        <span>0j</span>
+        <span>${Math.round(maxDisplay)}j</span>
+      </div>
+    </div>
+  `;
+    const verdictHTML = `<div class="copilot-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
+    let metaHTML = `<div class="copilot-l10-meta">Seuil bas\xE9 sur le ${escapeHTML(thresholdSource)}</div>`;
+    if (marketMedian != null) {
+      metaHTML += `<div class="copilot-l10-meta">M\xE9diane march\xE9 : ${marketMedian} jours</div>`;
+    }
+    let republishedHTML = "";
+    if (republished) {
+      republishedHTML = `<div class="copilot-l10-republished">Republication d\xE9tect\xE9e \u2014 l'annonce a \xE9t\xE9 remise en ligne pour para\xEEtre r\xE9cente</div>`;
+    }
+    return `<div class="copilot-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
+  }
+
+  // extension/ui/filters/generic.js
+  function buildGenericBody(f) {
+    const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
+    const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
+    return msgHTML + detailsHTML;
+  }
+
+  // extension/ui/filters/index.js
+  var SIMULATED_FILTERS = ["L4", "L5"];
+  var FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
+  function buildFilterBody(f, vehicle, allFilters) {
+    const d = f.details || {};
+    switch (f.filter_id) {
+      case "L1":
+        return buildL1Body(f, d);
+      case "L3":
+        return buildL3Body(f, d);
+      case "L4":
+        return buildPriceBarHTML(d, vehicle);
+      case "L2":
+        return buildL2Body(f, d);
+      case "L5":
+        return buildL5Body(f, d);
+      case "L6":
+        return buildL6Body(f, d);
+      case "L7":
+        return buildL7Body(f, d);
+      case "L8":
+        return buildL8Body(f, d);
+      case "L9":
+        return buildL9Body(f, d, allFilters);
+      case "L10":
+        return buildL10Body(f, d);
+      default:
+        return buildGenericBody(f);
+    }
+  }
+  function buildFiltersList(filters, vehicle) {
+    if (!filters || !filters.length) return "";
+    const sorted = [...filters].sort((a, b) => {
+      const ia = FILTER_DISPLAY_ORDER.indexOf(a.filter_id);
+      const ib = FILTER_DISPLAY_ORDER.indexOf(b.filter_id);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    return sorted.map((f) => {
+      const color = statusColor(f.status);
+      const icon = statusIcon(f.status);
+      const label = filterLabel(f.filter_id, f.status);
+      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="copilot-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
+      const scoreBarHTML = buildScoreBar(f);
+      const bodyHTML = buildFilterBody(f, vehicle, sorted);
+      return `
+        <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
+          <div class="copilot-filter-header">
+            <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
+            <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
+            ${scoreBarHTML}
+          </div>
+          ${bodyHTML}
+        </div>
+      `;
+    }).join("");
+  }
+
+  // extension/ui/banners.js
   function buildPremiumSection() {
     return `<div class="copilot-premium-section"><div class="copilot-premium-blur"><div class="copilot-premium-fake"><p><strong>Rapport d\xE9taill\xE9 du v\xE9hicule</strong></p><p>Fiche fiabilit\xE9 compl\xE8te avec probl\xE8mes connus, co\xFBts d'entretien pr\xE9vus, historique des rappels constructeur et comparaison avec les alternatives du segment.</p><p>Estimation de la valeur r\xE9elle bas\xE9e sur 12 crit\xE8res r\xE9gionaux.</p><p>Recommandation d'achat personnalis\xE9e avec score de confiance.</p></div></div><div class="copilot-premium-overlay"><div class="copilot-premium-glass"><p class="copilot-premium-title">Analyse compl\xE8te</p><p class="copilot-premium-subtitle">D\xE9bloquez le rapport d\xE9taill\xE9 avec fiabilit\xE9, co\xFBts et recommandations.</p><button class="copilot-premium-cta" id="copilot-premium-btn">D\xE9bloquer \u2013 9,90 \u20AC</div></div></div>`;
   }
@@ -3975,6 +4031,8 @@
   function buildEmailBanner() {
     return `<div class="copilot-email-banner" id="copilot-email-section"><button class="copilot-email-btn" id="copilot-email-btn">&#x2709; R\xE9diger un email au vendeur</button><div class="copilot-email-result" id="copilot-email-result" style="display:none;"><textarea class="copilot-email-textarea" id="copilot-email-text" rows="8" readonly></textarea><div class="copilot-email-actions"><button class="copilot-email-copy" id="copilot-email-copy">&#x1F4CB; Copier</button><span class="copilot-email-copied" id="copilot-email-copied" style="display:none;">Copi\xE9 !</span></div></div><div class="copilot-email-loading" id="copilot-email-loading" style="display:none;"><span class="copilot-mini-spinner"></span> G\xE9n\xE9ration en cours...</div><div class="copilot-email-error" id="copilot-email-error" style="display:none;"></div></div>`;
   }
+
+  // extension/ui/popups.js
   function buildResultsPopup(data, options = {}) {
     const { score, is_partial, filters, vehicle, featured_video } = data;
     const { autovizaUrl, bonusSignals } = options;
@@ -4077,82 +4135,8 @@
   function buildNotSupportedPopup(message, category) {
     return `<div class="copilot-popup" id="copilot-popup"><div class="copilot-popup-header"><div class="copilot-popup-title-row"><span class="copilot-popup-title">Co-Pilot</span><button class="copilot-popup-close" id="copilot-close">&times;</button></div></div><div class="copilot-not-vehicle-body"><div class="copilot-not-vehicle-icon">&#x1F3CD;</div><h3 class="copilot-not-vehicle-title">${escapeHTML(message)}</h3><p class="copilot-not-vehicle-category">Cat&eacute;gorie : <strong>${escapeHTML(category || "inconnue")}</strong></p><p class="copilot-not-vehicle-hint">On bosse dessus, promis. Restez branch&eacute; !</p></div></div>`;
   }
-  function removePopup() {
-    const existing = document.getElementById("copilot-popup");
-    if (existing) existing.remove();
-    const overlay = document.getElementById("copilot-overlay");
-    if (overlay) overlay.remove();
-  }
-  function showPopup(html) {
-    removePopup();
-    const overlay = document.createElement("div");
-    overlay.id = "copilot-overlay";
-    overlay.className = "copilot-overlay";
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) removePopup();
-    });
-    const container = document.createElement("div");
-    container.innerHTML = html;
-    overlay.appendChild(container.firstElementChild);
-    document.body.appendChild(overlay);
-    const closeBtn = document.getElementById("copilot-close");
-    if (closeBtn) closeBtn.addEventListener("click", removePopup);
-    const retryBtn = document.getElementById("copilot-retry");
-    if (retryBtn) retryBtn.addEventListener("click", () => {
-      removePopup();
-      runAnalysis();
-    });
-    const premiumBtn = document.getElementById("copilot-premium-btn");
-    if (premiumBtn) {
-      premiumBtn.addEventListener("click", () => {
-        premiumBtn.textContent = "Bient\xF4t disponible !";
-        premiumBtn.disabled = true;
-      });
-    }
-    const emailBtn = document.getElementById("copilot-email-btn");
-    if (emailBtn) {
-      emailBtn.addEventListener("click", async () => {
-        const loading = document.getElementById("copilot-email-loading");
-        const result = document.getElementById("copilot-email-result");
-        const errorDiv = document.getElementById("copilot-email-error");
-        const textArea = document.getElementById("copilot-email-text");
-        emailBtn.style.display = "none";
-        loading.style.display = "flex";
-        errorDiv.style.display = "none";
-        try {
-          const emailUrl = API_URL.replace("/analyze", "/email-draft");
-          const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: lastScanId }) });
-          const data = await resp.json();
-          if (data.success) {
-            textArea.value = data.data.generated_text;
-            result.style.display = "block";
-          } else {
-            errorDiv.textContent = data.error || "Erreur de g\xE9n\xE9ration";
-            errorDiv.style.display = "block";
-            emailBtn.style.display = "block";
-          }
-        } catch (err) {
-          errorDiv.textContent = "Service indisponible";
-          errorDiv.style.display = "block";
-          emailBtn.style.display = "block";
-        }
-        loading.style.display = "none";
-      });
-    }
-    const copyBtn = document.getElementById("copilot-email-copy");
-    if (copyBtn) {
-      copyBtn.addEventListener("click", () => {
-        const textArea = document.getElementById("copilot-email-text");
-        navigator.clipboard.writeText(textArea.value).then(() => {
-          const copied = document.getElementById("copilot-email-copied");
-          copied.style.display = "inline";
-          setTimeout(() => {
-            copied.style.display = "none";
-          }, 2e3);
-        });
-      });
-    }
-  }
+
+  // extension/ui/progress.js
   function createProgressTracker() {
     function stepIconHTML(status) {
       switch (status) {
@@ -4344,6 +4328,20 @@
     showPopup(html);
     return createProgressTracker();
   }
+
+  // extension/content.js
+  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
+  var lastScanId = null;
+  var ERROR_MESSAGES = [
+    "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
+    "Le moteur a cal\xE9... Notre serveur fait une pause, retentez !",
+    "Panne s\xE8che ! Impossible de joindre le serveur.",
+    "Embrayage patin\xE9... L'analyse n'a pas pu d\xE9marrer.",
+    "Vidange en cours ! Le serveur revient dans un instant."
+  ];
+  function getRandomErrorMessage() {
+    return ERROR_MESSAGES[Math.floor(Math.random() * ERROR_MESSAGES.length)];
+  }
   async function runAnalysis(injectedExtractor) {
     const extractor = injectedExtractor || getExtractor(window.location.href);
     if (!extractor) {
@@ -4470,6 +4468,7 @@
     if (window.__copilotRunning) return;
     window.__copilotRunning = true;
     initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
+    initDom({ runAnalysis, apiUrl: API_URL, getLastScanId: () => lastScanId });
     extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
     runAnalysis(extractor).finally(() => {
       window.__copilotRunning = false;

@@ -5,8 +5,8 @@
  * Ajouter un nouveau site = ajouter un import + une entree dans EXTRACTORS.
  */
 
-import { LeBonCoinExtractor } from './leboncoin.js';
-import { AutoScout24Extractor } from './autoscout24.js';
+import { LeBonCoinExtractor } from './leboncoin/index.js';
+import { AutoScout24Extractor } from './autoscout24/index.js';
 
 const EXTRACTORS = [LeBonCoinExtractor, AutoScout24Extractor];
 
