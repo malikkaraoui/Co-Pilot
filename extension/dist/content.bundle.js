@@ -3043,6 +3043,12 @@
           const jobMakeKey = job.slug_make || toAs24Slug(job.make);
           const jobModelKey = job.slug_model || toAs24Slug(job.model);
           const jobYear = parseInt(job.year, 10);
+          if (!Number.isFinite(jobYear) || jobYear < 1990 || jobYear > 2030) {
+            console.warn("[CoPilot] AS24 bonus skip invalid year for %s %s: %o", job.make, job.model, job.year);
+            await this._reportJobDone(jobDoneUrl, job.job_id, false);
+            if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, "skip", "Ann\xE9e invalide");
+            continue;
+          }
           const cantonZip = getCantonCenterZip(job.region);
           const searchOpts = { yearSpread: 1 };
           if (job.fuel) {
@@ -3073,14 +3079,26 @@
           const prices = parseSearchPrices(html, job.make);
           console.log("[CoPilot] AS24 bonus %s %s %d %s: %d prix", job.make, job.model, jobYear, job.region, prices.length);
           if (prices.length >= MIN_BONUS_PRICES) {
-            const priceInts = prices.map((p) => p.price);
-            const priceDetails = prices;
+            const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price >= 500);
+            const priceInts = priceDetails.map((p) => p.price);
+            if (priceInts.length < MIN_BONUS_PRICES) {
+              await this._reportJobDone(jobDoneUrl, job.job_id, false);
+              if (progress) {
+                progress.addSubStep?.(
+                  "bonus",
+                  `${job.make} ${job.model} \xB7 ${job.region}`,
+                  "skip",
+                  `${priceInts.length} prix valides (<${MIN_BONUS_PRICES})`
+                );
+              }
+              continue;
+            }
             const bonusPrecision = prices.length >= 20 ? 4 : 2;
             const bonusPayload = {
-              make: job.make,
-              model: job.model,
+              make: String(job.make || "").trim(),
+              model: String(job.model || "").trim(),
               year: jobYear,
-              region: job.region,
+              region: String(job.region || "").trim(),
               prices: priceInts,
               price_details: priceDetails,
               fuel: job.fuel || null,
@@ -3110,12 +3128,25 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(bonusPayload)
             });
+            let errMsg = null;
             if (!postResp.ok) {
               const errBody = await postResp.text().catch(() => "");
               console.error("[CoPilot] AS24 bonus POST %d for %s %s: %s", postResp.status, job.make, job.model, errBody);
+              try {
+                errMsg = JSON.parse(errBody)?.message || null;
+              } catch {
+                errMsg = null;
+              }
             }
             await this._reportJobDone(jobDoneUrl, job.job_id, postResp.ok);
-            if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, postResp.ok ? "done" : "error", postResp.ok ? `${priceInts.length} prix` : `HTTP ${postResp.status}`);
+            if (progress) {
+              progress.addSubStep?.(
+                "bonus",
+                `${job.make} ${job.model} \xB7 ${job.region}`,
+                postResp.ok ? "done" : "error",
+                postResp.ok ? `${priceInts.length} prix` : `${errMsg || `HTTP ${postResp.status}`}`
+              );
+            }
           } else {
             await this._reportJobDone(jobDoneUrl, job.job_id, false);
             if (progress) {

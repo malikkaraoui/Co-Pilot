@@ -504,11 +504,11 @@ export class AutoScout24Extractor extends SiteExtractor {
   }
 
   async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
-    const MIN_BONUS_PRICES = 5;
     const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
     const jobDoneUrl = this._apiUrl.replace('/analyze', '/market-prices/job-done');
     const currency = TLD_TO_CURRENCY[tld] || 'EUR';
     const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
+    const MIN_BONUS_PRICES = countryCode === 'FR' ? 20 : MIN_PRICES;
 
     if (progress) progress.update('bonus', 'running', `${bonusJobs.length} jobs`);
 
@@ -526,6 +526,12 @@ export class AutoScout24Extractor extends SiteExtractor {
         const jobMakeKey = job.slug_make || toAs24Slug(job.make);
         const jobModelKey = job.slug_model || toAs24Slug(job.model);
         const jobYear = parseInt(job.year, 10);
+        if (!Number.isFinite(jobYear) || jobYear < 1990 || jobYear > 2030) {
+          console.warn('[CoPilot] AS24 bonus skip invalid year for %s %s: %o', job.make, job.model, job.year);
+          await this._reportJobDone(jobDoneUrl, job.job_id, false);
+          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', 'Année invalide');
+          continue;
+        }
         const cantonZip = getCantonCenterZip(job.region);
 
         const searchOpts = { yearSpread: 1 };
@@ -562,13 +568,30 @@ export class AutoScout24Extractor extends SiteExtractor {
         console.log('[CoPilot] AS24 bonus %s %s %d %s: %d prix', job.make, job.model, jobYear, job.region, prices.length);
 
         if (prices.length >= MIN_BONUS_PRICES) {
-          const priceInts = prices.map((p) => p.price);
-          const priceDetails = prices;
+          const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price >= 500);
+          const priceInts = priceDetails.map((p) => p.price);
+
+          if (priceInts.length < MIN_BONUS_PRICES) {
+            await this._reportJobDone(jobDoneUrl, job.job_id, false);
+            if (progress) {
+              progress.addSubStep?.(
+                'bonus',
+                `${job.make} ${job.model} · ${job.region}`,
+                'skip',
+                `${priceInts.length} prix valides (<${MIN_BONUS_PRICES})`
+              );
+            }
+            continue;
+          }
 
           const bonusPrecision = prices.length >= 20 ? 4 : 2;
           const bonusPayload = {
-            make: job.make, model: job.model, year: jobYear,
-            region: job.region, prices: priceInts, price_details: priceDetails,
+            make: String(job.make || '').trim(),
+            model: String(job.model || '').trim(),
+            year: jobYear,
+            region: String(job.region || '').trim(),
+            prices: priceInts,
+            price_details: priceDetails,
             fuel: job.fuel || null, hp_range: job.hp_range || null,
             precision: bonusPrecision, country: countryCode,
             as24_slug_make: learned.makeSlug || jobMakeKey,
@@ -592,15 +615,35 @@ export class AutoScout24Extractor extends SiteExtractor {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(bonusPayload),
           });
+          let errMsg = null;
           if (!postResp.ok) {
             const errBody = await postResp.text().catch(() => '');
             console.error('[CoPilot] AS24 bonus POST %d for %s %s: %s', postResp.status, job.make, job.model, errBody);
+            try {
+              errMsg = JSON.parse(errBody)?.message || null;
+            } catch {
+              errMsg = null;
+            }
           }
           await this._reportJobDone(jobDoneUrl, job.job_id, postResp.ok);
-          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, postResp.ok ? 'done' : 'error', postResp.ok ? `${priceInts.length} prix` : `HTTP ${postResp.status}`);
+          if (progress) {
+            progress.addSubStep?.(
+              'bonus',
+              `${job.make} ${job.model} · ${job.region}`,
+              postResp.ok ? 'done' : 'error',
+              postResp.ok ? `${priceInts.length} prix` : `${errMsg || `HTTP ${postResp.status}`}`
+            );
+          }
         } else {
           await this._reportJobDone(jobDoneUrl, job.job_id, false);
-          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `${prices.length} annonces`);
+          if (progress) {
+            progress.addSubStep?.(
+              'bonus',
+              `${job.make} ${job.model} · ${job.region}`,
+              'skip',
+              `${prices.length} annonces (<${MIN_BONUS_PRICES})`
+            );
+          }
         }
       } catch (err) {
         console.warn('[CoPilot] AS24 bonus job error:', err);
