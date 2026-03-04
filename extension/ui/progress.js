@@ -7,6 +7,15 @@
 import { scoreColor, statusColor, statusIcon, filterLabel } from '../utils/styles.js';
 import { showPopup, removePopup } from './dom.js';
 
+function detectCurrentSite() {
+  try {
+    const host = String(window.location.hostname || '').toLowerCase();
+    if (host.includes('autoscout24.')) return 'autoscout24';
+    if (host.includes('leboncoin.')) return 'leboncoin';
+  } catch { /* ignore */ }
+  return null;
+}
+
 export function createProgressTracker() {
   function stepIconHTML(status) {
     switch (status) {
@@ -81,7 +90,16 @@ export function createProgressTracker() {
     var lines = [];
     if (details.source === "marche_leboncoin" || details.source === "marche_autoscout24") {
       var srcLabel = details.source === "marche_autoscout24" ? "AS24" : "LBC";
-      lines.push("Source : march\u00e9 " + srcLabel + " (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\u00e9cision " + details.precision : "") + ")");
+      var currentSite = detectCurrentSite();
+      var marketSite = details.source === "marche_autoscout24" ? "autoscout24" : "leboncoin";
+      var cross = currentSite && currentSite !== marketSite;
+      lines.push(
+        "Source : marché " + srcLabel
+        + (cross ? " (externe au site courant)" : "")
+        + " (" + (details.sample_count || "?") + " annonces"
+        + (details.precision ? ", précision " + details.precision : "")
+        + ")"
+      );
     }
     else if (details.source === "argus_seed") { lines.push("Source : Argus (donn\u00e9es seed)"); }
     if (details.cascade_tried) {

@@ -3974,6 +3974,15 @@
   }
 
   // extension/ui/filters/l4.js
+  function _detectCurrentSite() {
+    try {
+      const host = String(window.location.hostname || "").toLowerCase();
+      if (host.includes("autoscout24.")) return "autoscout24";
+      if (host.includes("leboncoin.")) return "leboncoin";
+    } catch {
+    }
+    return null;
+  }
   function buildPriceBarHTML(details, vehicle) {
     const priceAnnonce = details.price_annonce;
     const priceRef = details.price_reference;
@@ -4051,6 +4060,12 @@
       srcLabel = "Estimation LBC";
       srcClass = "copilot-l4-src-est";
     }
+    const currentSite = _detectCurrentSite();
+    const marketSite = src === "marche_leboncoin" ? "leboncoin" : src === "marche_autoscout24" ? "autoscout24" : null;
+    const isCrossSource = Boolean(currentSite && marketSite && currentSite !== marketSite);
+    if (srcLabel && isCrossSource) {
+      srcLabel += " \xB7 march\xE9 externe";
+    }
     const sampleCount = details.sample_count;
     const precision = details.precision;
     let precisionStars = "";
@@ -4064,7 +4079,9 @@
     if (srcLabel) {
       footerHTML = `<div class="copilot-l4-footer">`;
       footerHTML += `<span class="copilot-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
-      if (sampleCount != null) footerHTML += `<span class="copilot-l4-samples">Bas\xE9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}</span>`;
+      if (sampleCount != null) {
+        footerHTML += `<span class="copilot-l4-samples">Bas\xE9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
+      }
       if (precisionStars) footerHTML += `<span class="copilot-l4-precision" title="Pr\xE9cision de l'\xE9chantillon">${precisionStars}</span>`;
       footerHTML += `</div>`;
     }
@@ -4109,6 +4126,15 @@
   }
 
   // extension/ui/filters/l5.js
+  function _detectCurrentSite2() {
+    try {
+      const host = String(window.location.hostname || "").toLowerCase();
+      if (host.includes("autoscout24.")) return "autoscout24";
+      if (host.includes("leboncoin.")) return "leboncoin";
+    } catch {
+    }
+    return null;
+  }
   function buildL5Body(f, d) {
     if (f.status === "skip") {
       return `<div class="copilot-l5-body"><span class="copilot-l5-na">${escapeHTML(f.message)}</span></div>`;
@@ -4167,6 +4193,11 @@
     if (src === "marche_leboncoin") srcLabel = "LBC";
     else if (src === "marche_autoscout24") srcLabel = "AS24";
     else if (src === "argus_seed") srcLabel = "Argus Seed";
+    const currentSite = _detectCurrentSite2();
+    const marketSite = src === "marche_leboncoin" ? "leboncoin" : src === "marche_autoscout24" ? "autoscout24" : null;
+    if (srcLabel && currentSite && marketSite && currentSite !== marketSite) {
+      srcLabel += " \xB7 march\xE9 externe";
+    }
     if (srcLabel || refCount) {
       html += `<div class="copilot-l5-footer">`;
       if (srcLabel) html += `<span class="copilot-l5-src">${escapeHTML(srcLabel)}</span>`;
@@ -4592,6 +4623,15 @@
   }
 
   // extension/ui/progress.js
+  function detectCurrentSite() {
+    try {
+      const host = String(window.location.hostname || "").toLowerCase();
+      if (host.includes("autoscout24.")) return "autoscout24";
+      if (host.includes("leboncoin.")) return "leboncoin";
+    } catch {
+    }
+    return null;
+  }
   function createProgressTracker() {
     function stepIconHTML(status) {
       switch (status) {
@@ -4699,7 +4739,12 @@
       var lines = [];
       if (details.source === "marche_leboncoin" || details.source === "marche_autoscout24") {
         var srcLabel = details.source === "marche_autoscout24" ? "AS24" : "LBC";
-        lines.push("Source : march\xE9 " + srcLabel + " (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\xE9cision " + details.precision : "") + ")");
+        var currentSite = detectCurrentSite();
+        var marketSite = details.source === "marche_autoscout24" ? "autoscout24" : "leboncoin";
+        var cross = currentSite && currentSite !== marketSite;
+        lines.push(
+          "Source : march\xE9 " + srcLabel + (cross ? " (externe au site courant)" : "") + " (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\xE9cision " + details.precision : "") + ")"
+        );
       } else if (details.source === "argus_seed") {
         lines.push("Source : Argus (donn\xE9es seed)");
       }

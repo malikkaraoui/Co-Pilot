@@ -2,6 +2,15 @@
 
 import { escapeHTML } from '../../utils/format.js';
 
+function _detectCurrentSite() {
+  try {
+    const host = String(window.location.hostname || '').toLowerCase();
+    if (host.includes('autoscout24.')) return 'autoscout24';
+    if (host.includes('leboncoin.')) return 'leboncoin';
+  } catch { /* ignore */ }
+  return null;
+}
+
 export function buildPriceBarHTML(details, vehicle) {
   const priceAnnonce = details.price_annonce;
   const priceRef = details.price_reference;
@@ -82,6 +91,17 @@ export function buildPriceBarHTML(details, vehicle) {
   else if (src === "argus_seed") { srcLabel = "Argus Seed"; srcClass = "copilot-l4-src-seed"; }
   else if (src === "estimation_lbc") { srcLabel = "Estimation LBC"; srcClass = "copilot-l4-src-est"; }
 
+  const currentSite = _detectCurrentSite();
+  const marketSite = src === 'marche_leboncoin'
+    ? 'leboncoin'
+    : src === 'marche_autoscout24'
+      ? 'autoscout24'
+      : null;
+  const isCrossSource = Boolean(currentSite && marketSite && currentSite !== marketSite);
+  if (srcLabel && isCrossSource) {
+    srcLabel += ' · marché externe';
+  }
+
   const sampleCount = details.sample_count;
   const precision = details.precision;
   let precisionStars = "";
@@ -96,7 +116,9 @@ export function buildPriceBarHTML(details, vehicle) {
   if (srcLabel) {
     footerHTML = `<div class="copilot-l4-footer">`;
     footerHTML += `<span class="copilot-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
-    if (sampleCount != null) footerHTML += `<span class="copilot-l4-samples">Bas\u00E9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}</span>`;
+    if (sampleCount != null) {
+      footerHTML += `<span class="copilot-l4-samples">Bas\u00E9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
+    }
     if (precisionStars) footerHTML += `<span class="copilot-l4-precision" title="Pr\u00E9cision de l'\u00E9chantillon">${precisionStars}</span>`;
     footerHTML += `</div>`;
   }

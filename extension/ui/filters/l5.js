@@ -2,6 +2,15 @@
 
 import { escapeHTML } from '../../utils/format.js';
 
+function _detectCurrentSite() {
+  try {
+    const host = String(window.location.hostname || '').toLowerCase();
+    if (host.includes('autoscout24.')) return 'autoscout24';
+    if (host.includes('leboncoin.')) return 'leboncoin';
+  } catch { /* ignore */ }
+  return null;
+}
+
 export function buildL5Body(f, d) {
   if (f.status === "skip") {
     return `<div class="copilot-l5-body"><span class="copilot-l5-na">${escapeHTML(f.message)}</span></div>`;
@@ -68,6 +77,15 @@ export function buildL5Body(f, d) {
   if (src === "marche_leboncoin") srcLabel = "LBC";
   else if (src === "marche_autoscout24") srcLabel = "AS24";
   else if (src === "argus_seed") srcLabel = "Argus Seed";
+  const currentSite = _detectCurrentSite();
+  const marketSite = src === 'marche_leboncoin'
+    ? 'leboncoin'
+    : src === 'marche_autoscout24'
+      ? 'autoscout24'
+      : null;
+  if (srcLabel && currentSite && marketSite && currentSite !== marketSite) {
+    srcLabel += ' · marché externe';
+  }
   if (srcLabel || refCount) {
     html += `<div class="copilot-l5-footer">`;
     if (srcLabel) html += `<span class="copilot-l5-src">${escapeHTML(srcLabel)}</span>`;
