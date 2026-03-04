@@ -8,12 +8,12 @@ import {
 } from './constants.js';
 import {
   getCantonFromZip, getCantonCenterZip, getAs24GearCode, getAs24FuelCode,
-  getAs24PowerParams, getAs24KmParams, getHpRangeString, parseHpRange,
+  getAs24PowerParams, getAs24KmParams, getHpRangeString, parseHpRange, mapFuelType,
 } from './helpers.js';
 import {
   parseRSCPayload, parseJsonLd, fallbackAdDataFromDom,
   extractMakeModelFromUrl, _extractDatesFromDom, _extractImageCountFromNextData,
-  _extractDescriptionFromDom, _findJsonLdByMake,
+  _extractDescriptionFromDom, _extractFuelFromDom, _findJsonLdByMake,
 } from './parser.js';
 import {
   normalizeToAdData, buildBonusSignals,
@@ -58,7 +58,9 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     // SPA guard: cross-validate make AND model against URL slug
     const urlHint = extractMakeModelFromUrl(window.location.href);
-    const urlSlugMatch = window.location.pathname.match(/\/d\/([^/]+)-\d+/);
+    const urlSlugMatch = window.location.pathname.match(
+      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+    );
     const urlSlug = urlSlugMatch ? urlSlugMatch[1].toLowerCase() : '';
     if (urlSlug && this._adData.make) {
       const makeSlug = toAs24Slug(this._adData.make);
@@ -117,6 +119,14 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
+    // Final fallback: fuel from visible DOM labels (Carburant/Kraftstoff/...)
+    if (!this._adData.fuel) {
+      const domFuel = _extractFuelFromDom(document);
+      if (domFuel) {
+        this._adData.fuel = mapFuelType(domFuel);
+      }
+    }
+
     return {
       type: 'normalized',
       source: 'autoscout24',
@@ -164,7 +174,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
     const currency = TLD_TO_CURRENCY[tld] || 'EUR';
     const year = parseInt(this._adData.year_model, 10);
-    const fuelKey = this._rsc?.fuelType || null;
+    const fuelKey = this._rsc?.fuelType || this._adData?.fuel || null;
 
     const hp = parseInt(this._adData.power_din_hp, 10) || 0;
     const km = parseInt(this._adData.mileage_km, 10) || 0;

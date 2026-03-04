@@ -1343,13 +1343,9 @@
 
   // extension/extractors/autoscout24/constants.js
   var AS24_URL_PATTERNS = [
-    /autoscout24\.\w+\/(?:fr|de|it|en|nl|es)?\/?d\//,
-    /autoscout24\.\w+\/angebote\//,
-    /autoscout24\.\w+\/offerte\//,
-    /autoscout24\.\w+\/ofertas\//,
-    /autoscout24\.\w+\/aanbod\//
+    /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\//i
   ];
-  var AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es)\/)?(?:d|angebote|offerte|ofertas|aanbod)\/\S+-[a-f0-9-]+/;
+  var AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
   var TLD_TO_COUNTRY = {
     ch: "Suisse",
     de: "Allemagne",
@@ -1476,8 +1472,18 @@
   var MIN_PRICES = 10;
   var FUEL_MAP = {
     gasoline: "Essence",
+    benzin: "Essence",
+    benzine: "Essence",
+    benzyna: "Essence",
+    petrol: "Essence",
+    gasolina: "Essence",
     diesel: "Diesel",
+    gazole: "Diesel",
+    "olej napedowy": "Diesel",
     electric: "Electrique",
+    elektryczny: "Electrique",
+    elektryczna: "Electrique",
+    electricity: "Electrique",
     "mhev-diesel": "Diesel",
     "mhev-gasoline": "Essence",
     "phev-diesel": "Hybride Rechargeable",
@@ -1486,6 +1492,8 @@
     lpg: "GPL",
     hydrogen: "Hydrogene",
     hybrid: "Hybride",
+    hybride: "Hybride",
+    hybryda: "Hybride",
     "hybrid-diesel": "Hybride",
     "hybrid-gasoline": "Hybride",
     "mild-hybrid": "Hybride",
@@ -1514,6 +1522,13 @@
     gasoline: "B",
     diesel: "D",
     electric: "E",
+    benzin: "B",
+    benzine: "B",
+    benzyna: "B",
+    petrol: "B",
+    gasolina: "B",
+    gazole: "D",
+    "olej napedowy": "D",
     cng: "C",
     lpg: "L",
     hydrogen: "H",
@@ -1566,13 +1581,21 @@
     return SWISS_ZIP_TO_CANTON[prefix] || null;
   }
   function mapFuelType(fuelType) {
-    const key = (fuelType || "").toLowerCase().trim();
+    const raw = typeof fuelType === "string" ? fuelType : String(fuelType || "");
+    if (!raw.trim()) return null;
+    const key = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     if (FUEL_MAP[key]) return FUEL_MAP[key];
+    if (key.includes("plug") && key.includes("hybrid")) return "Hybride Rechargeable";
+    if (key.includes("phev")) return "Hybride Rechargeable";
     if (key.includes("diesel")) return "Diesel";
-    if (key.includes("gasoline") || key.includes("benzin") || key.includes("essence")) return "Essence";
-    if (key.includes("hybrid") || key.includes("hybride")) return "Hybride";
-    if (key.includes("electri")) return "Electrique";
-    return fuelType.length > 50 ? fuelType.slice(0, 50) : fuelType;
+    if (key.includes("gazole")) return "Diesel";
+    if (key.includes("olej") && key.includes("naped")) return "Diesel";
+    if (key.includes("gasoline") || key.includes("benzin") || key.includes("benzine") || key.includes("benzyn") || key.includes("essence") || key.includes("petrol") || key.includes("gasolina")) return "Essence";
+    if (key.includes("hybrid") || key.includes("hybride") || key.includes("hybryd")) return "Hybride";
+    if (key.includes("electri") || key.includes("elektrycz")) return "Electrique";
+    if (key.includes("cng") || key.includes("gnv")) return "GNV";
+    if (key.includes("lpg") || key.includes("gpl")) return "GPL";
+    return raw.length > 50 ? raw.slice(0, 50) : raw;
   }
   function mapTransmission(transmission) {
     const key = (transmission || "").toLowerCase();
@@ -1865,6 +1888,45 @@
   }
 
   // extension/extractors/autoscout24/normalize.js
+  function _extractFuelToken(value, depth = 0) {
+    if (depth > 5 || value == null) return null;
+    if (typeof value === "string") {
+      const v = value.trim();
+      return v || null;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = _extractFuelToken(item, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof value === "object") {
+      const priorityKeys = [
+        "label",
+        "name",
+        "value",
+        "type",
+        "text",
+        "displayValue",
+        "fuelType",
+        "fuel",
+        "raw",
+        "slug"
+      ];
+      for (const key of priorityKeys) {
+        if (key in value) {
+          const found = _extractFuelToken(value[key], depth + 1);
+          if (found) return found;
+        }
+      }
+      for (const v of Object.values(value)) {
+        const found = _extractFuelToken(v, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
   function _yearFromDate(dateStr) {
     if (!dateStr) return null;
     const m = String(dateStr).match(/^(\d{4})/);
@@ -1926,6 +1988,25 @@
       if (ldDesc) return ldDesc;
       return null;
     }
+    function resolveFuel() {
+      const rscCandidates = [
+        rsc?.fuelType,
+        rsc?.fuel,
+        rsc?.fuel?.type,
+        rsc?.fuel?.name,
+        rsc?.fuelCategory,
+        rsc?.energySource,
+        rsc?.vehicleFuelType
+      ];
+      for (const candidate of rscCandidates) {
+        const token = _extractFuelToken(candidate);
+        if (token) {
+          return mapFuelType(token);
+        }
+      }
+      const ldFuel = _extractFuelToken(engine.fuelType) || _extractFuelToken(ld.fuelType) || null;
+      return ldFuel ? mapFuelType(ldFuel) : null;
+    }
     const rating = seller.aggregateRating || {};
     const dealerRating = rating.ratingValue ?? null;
     const dealerReviewCount = rating.reviewCount ?? null;
@@ -1943,7 +2024,7 @@
         model: resolveModel(),
         year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
         mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
-        fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : engine.fuelType || null,
+        fuel: resolveFuel(),
         gearbox: rsc.transmissionType ? mapTransmission(rsc.transmissionType) : ld.vehicleTransmission || null,
         doors: rsc.doors ?? ld.numberOfDoors ?? null,
         seats: rsc.seats ?? ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
@@ -1989,7 +2070,7 @@
       model: ld.model || null,
       year_model: ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
       mileage_km: ld.mileageFromOdometer?.value ?? null,
-      fuel: engine.fuelType || null,
+      fuel: _extractFuelToken(engine.fuelType) || _extractFuelToken(ld.fuelType) ? mapFuelType(_extractFuelToken(engine.fuelType) || _extractFuelToken(ld.fuelType)) : null,
       gearbox: ld.vehicleTransmission || null,
       doors: ld.numberOfDoors ?? null,
       seats: ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
@@ -2225,7 +2306,7 @@
     try {
       const u = new URL(url);
       const match = u.pathname.match(
-        /\/(?:d|angebote|offerte|ofertas|aanbod)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[/?#]|$)/i
+        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
       );
       if (!match) return { make: null, model: null };
       const slug = decodeURIComponent(match[1] || "");
@@ -2278,6 +2359,23 @@
   }
   function _normalizeText(text) {
     return String(text || "").replace(/\s+/g, " ").trim();
+  }
+  function _extractFuelFromDom(doc) {
+    const scripts = doc.querySelectorAll("script");
+    for (const script of scripts) {
+      const text = script.textContent || "";
+      if (!text.includes("fuelType") && !text.includes("Kraftstoff") && !text.includes("Carburant")) continue;
+      const fuelTypeMatch = text.match(/"fuelType"\s*:\s*"([^"]{2,40})"/i);
+      if (fuelTypeMatch && fuelTypeMatch[1]) return _normalizeText(fuelTypeMatch[1]);
+    }
+    const fullText = _normalizeText(doc.body?.textContent || "");
+    if (!fullText) return null;
+    const re = /(?:carburant|kraftstoff|paliwo|combustible|carburante|brandstof|fuel)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9\- ]{2,48})/i;
+    const m = fullText.match(re);
+    if (!m || !m[1]) return null;
+    const cleaned = _normalizeText(m[1]).replace(/[;,|].*$/, "").split(/\s{2,}/)[0].trim();
+    if (!cleaned) return null;
+    return cleaned.split(" ").slice(0, 3).join(" ").trim();
   }
   function _extractDescriptionFromDom(doc) {
     const directSelectors = [
@@ -2394,7 +2492,7 @@
     const sourceUrl = currentUrl || (typeof window !== "undefined" ? window.location?.href : null);
     if (sourceUrl) {
       const slugMatch = String(sourceUrl).match(
-        /\/(?:d|angebote|offerte|ofertas|aanbod)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[/?#]|$)/i
+        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
       );
       urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : "";
       expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;
@@ -2524,7 +2622,9 @@
       }
       this._adData = normalizeToAdData(this._rsc, this._jsonLd);
       const urlHint = extractMakeModelFromUrl(window.location.href);
-      const urlSlugMatch = window.location.pathname.match(/\/d\/([^/]+)-\d+/);
+      const urlSlugMatch = window.location.pathname.match(
+        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+      );
       const urlSlug = urlSlugMatch ? urlSlugMatch[1].toLowerCase() : "";
       if (urlSlug && this._adData.make) {
         const makeSlug = toAs24Slug(this._adData.make);
@@ -2574,6 +2674,12 @@
           this._adData.description = domDesc;
         }
       }
+      if (!this._adData.fuel) {
+        const domFuel = _extractFuelFromDom(document);
+        if (domFuel) {
+          this._adData.fuel = mapFuelType(domFuel);
+        }
+      }
       return {
         type: "normalized",
         source: "autoscout24",
@@ -2614,7 +2720,7 @@
       const countryCode = TLD_TO_COUNTRY_CODE[tld] || "FR";
       const currency = TLD_TO_CURRENCY[tld] || "EUR";
       const year = parseInt(this._adData.year_model, 10);
-      const fuelKey = this._rsc?.fuelType || null;
+      const fuelKey = this._rsc?.fuelType || this._adData?.fuel || null;
       const hp = parseInt(this._adData.power_din_hp, 10) || 0;
       const km = parseInt(this._adData.mileage_km, 10) || 0;
       const gearRaw = this._rsc?.transmissionType || "";

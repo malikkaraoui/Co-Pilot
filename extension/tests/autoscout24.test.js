@@ -96,12 +96,48 @@ describe('AS24_URL_PATTERNS', () => {
     expect(matchesAny('https://www.autoscout24.de/angebote/bmw-320-12345')).toBe(true);
   });
 
+  it('matches autoscout24.fr ad page (/offres)', () => {
+    expect(matchesAny('https://www.autoscout24.fr/offres/peugeot-3008-2-0-bluehdi-180-12345678')).toBe(true);
+  });
+
+  it('matches autoscout24.it ad page (/annunci)', () => {
+    expect(matchesAny('https://www.autoscout24.it/annunci/fiat-500x-1-6-mjt-abcdef12')).toBe(true);
+  });
+
+  it('matches autoscout24.es ad page (/anuncios)', () => {
+    expect(matchesAny('https://www.autoscout24.es/anuncios/seat-leon-1-5-tsi-78901234')).toBe(true);
+  });
+
+  it('matches autoscout24.pl ad page (/oferta)', () => {
+    expect(matchesAny('https://www.autoscout24.pl/oferta/seat-arona-1-0-tsi-110pk-dsg-7-abcdef12')).toBe(true);
+  });
+
   it('does NOT match leboncoin.fr', () => {
     expect(matchesAny('https://www.leboncoin.fr/ad/voitures/12345')).toBe(false);
   });
 
   it('does NOT match autoscout24 search page', () => {
     expect(matchesAny('https://www.autoscout24.ch/fr?makeModelVersions=123')).toBe(false);
+  });
+});
+
+describe('AutoScout24Extractor.isAdPage', () => {
+  const ext = new AutoScout24Extractor();
+
+  it('accepts FR /offres ad URLs', () => {
+    expect(ext.isAdPage('https://www.autoscout24.fr/offres/renault-clio-v-1-0-tce-100-12345678')).toBe(true);
+  });
+
+  it('accepts IT /annunci ad URLs', () => {
+    expect(ext.isAdPage('https://www.autoscout24.it/annunci/jeep-renegade-1-6-mjt-abcdef12')).toBe(true);
+  });
+
+  it('accepts ES /anuncios ad URLs', () => {
+    expect(ext.isAdPage('https://www.autoscout24.es/anuncios/cupra-leon-2-0-tsi-98765432')).toBe(true);
+  });
+
+  it('accepts PL /oferta ad URLs', () => {
+    expect(ext.isAdPage('https://www.autoscout24.pl/oferta/seat-arona-1-0-tsi-110pk-dsg-7-abcdef12')).toBe(true);
   });
 });
 
@@ -127,6 +163,14 @@ describe('mapFuelType', () => {
 
   it('returns unknown values as-is', () => {
     expect(mapFuelType('banana')).toBe('banana');
+  });
+
+  it('maps Polish benzyna to Essence', () => {
+    expect(mapFuelType('Benzyna')).toBe('Essence');
+  });
+
+  it('maps German benzin to Essence', () => {
+    expect(mapFuelType('Benzin')).toBe('Essence');
   });
 });
 
@@ -183,6 +227,33 @@ describe('normalizeToAdData', () => {
     expect(ad.power_din_hp).toBe(204);
     expect(ad.owner_type).toBe('pro');
     expect(ad.phone).toBe('+41628929454');
+  });
+
+  it('falls back to JSON-LD fuel mapping when RSC fuel is missing', () => {
+    const rscNoFuel = {
+      ...RSC_VEHICLE,
+      fuelType: null,
+    };
+    const ldWithPolishFuel = {
+      ...JSON_LD,
+      vehicleEngine: {
+        ...JSON_LD.vehicleEngine,
+        fuelType: 'Benzyna',
+      },
+    };
+
+    const ad = normalizeToAdData(rscNoFuel, ldWithPolishFuel);
+    expect(ad.fuel).toBe('Essence');
+  });
+
+  it('extracts fuel when RSC fuelType is object-shaped', () => {
+    const rscFuelObject = {
+      ...RSC_VEHICLE,
+      fuelType: { label: 'Essence' },
+    };
+
+    const ad = normalizeToAdData(rscFuelObject, JSON_LD);
+    expect(ad.fuel).toBe('Essence');
   });
 
   it('counts images from JSON-LD when RSC is null', () => {
@@ -1758,5 +1829,59 @@ describe('extract() date fallback from DOM scripts', () => {
     expect(result).not.toBeNull();
     expect(result.ad_data.description).toContain('Caméra de recul');
     expect(result.ad_data.description.length).toBeGreaterThanOrEqual(50);
+  });
+
+  it('fills fuel from DOM labels when structured sources miss it (BE/AT style)', async () => {
+    const rscNoFuel = {
+      vehicleCategory: 'car',
+      make: { name: 'BMW' },
+      model: { name: 'X7' },
+      price: 132990,
+      mileage: 15000,
+      firstRegistrationDate: '2025-10-01',
+      fuelType: null,
+      fuel: null,
+      fuelCategory: null,
+    };
+
+    const ldNoFuel = {
+      '@type': 'Car',
+      name: 'BMW X7',
+      brand: { name: 'BMW' },
+      model: 'X7',
+      offers: {
+        price: 132990,
+        priceCurrency: 'EUR',
+        seller: { '@type': 'AutoDealer', name: 'Dealer', address: { postalCode: '8530' } },
+      },
+    };
+
+    const dom = new JSDOM(`<html><head>
+      <script>${JSON.stringify(rscNoFuel)}</script>
+      <script type="application/ld+json">${JSON.stringify(ldNoFuel)}</script>
+    </head><body>
+      <section>
+        <h2>Energieverbrauch</h2>
+        <ul>
+          <li>Kraftstoff Diesel</li>
+        </ul>
+      </section>
+    </body></html>`, {
+      url: 'https://www.autoscout24.at/angebote/bmw-x7-xdrive40d-abcdef12',
+    });
+
+    const ext = new AutoScout24Extractor();
+    const origDoc = globalThis.document;
+    const origWin = globalThis.window;
+    globalThis.document = dom.window.document;
+    globalThis.window = dom.window;
+
+    const result = await ext.extract();
+
+    globalThis.document = origDoc;
+    globalThis.window = origWin;
+
+    expect(result).not.toBeNull();
+    expect(result.ad_data.fuel).toBe('Diesel');
   });
 });

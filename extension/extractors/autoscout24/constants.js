@@ -3,14 +3,10 @@
 // ── URL patterns ────────────────────────────────────────────────────
 
 export const AS24_URL_PATTERNS = [
-  /autoscout24\.\w+\/(?:fr|de|it|en|nl|es)?\/?d\//,
-  /autoscout24\.\w+\/angebote\//,
-  /autoscout24\.\w+\/offerte\//,
-  /autoscout24\.\w+\/ofertas\//,
-  /autoscout24\.\w+\/aanbod\//,
+  /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\//i,
 ];
 
-export const AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es)\/)?(?:d|angebote|offerte|ofertas|aanbod)\/\S+-[a-f0-9-]+/;
+export const AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
 
 // TLD → country mapping for region field
 export const TLD_TO_COUNTRY = {
@@ -78,8 +74,18 @@ export const MIN_PRICES = 10;
 
 export const FUEL_MAP = {
   gasoline: 'Essence',
+  benzin: 'Essence',
+  benzine: 'Essence',
+  benzyna: 'Essence',
+  petrol: 'Essence',
+  gasolina: 'Essence',
   diesel: 'Diesel',
+  gazole: 'Diesel',
+  'olej napedowy': 'Diesel',
   electric: 'Electrique',
+  elektryczny: 'Electrique',
+  elektryczna: 'Electrique',
+  electricity: 'Electrique',
   'mhev-diesel': 'Diesel',
   'mhev-gasoline': 'Essence',
   'phev-diesel': 'Hybride Rechargeable',
@@ -88,6 +94,8 @@ export const FUEL_MAP = {
   lpg: 'GPL',
   hydrogen: 'Hydrogene',
   hybrid: 'Hybride',
+  hybride: 'Hybride',
+  hybryda: 'Hybride',
   'hybrid-diesel': 'Hybride',
   'hybrid-gasoline': 'Hybride',
   'mild-hybrid': 'Hybride',
@@ -117,6 +125,8 @@ export const AS24_GEAR_MAP = {
 
 export const AS24_FUEL_CODE_MAP = {
   gasoline: 'B', diesel: 'D', electric: 'E',
+  benzin: 'B', benzine: 'B', benzyna: 'B', petrol: 'B', gasolina: 'B',
+  gazole: 'D', 'olej napedowy': 'D',
   cng: 'C', lpg: 'L', hydrogen: 'H',
   'mhev-diesel': 'D', 'mhev-gasoline': 'B',
   'phev-diesel': '2', 'phev-gasoline': '2',

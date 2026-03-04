@@ -14,13 +14,40 @@ export function getCantonFromZip(zipcode) {
 }
 
 export function mapFuelType(fuelType) {
-  const key = (fuelType || '').toLowerCase().trim();
+  const raw = typeof fuelType === 'string' ? fuelType : String(fuelType || '');
+  if (!raw.trim()) return null;
+  const key = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
   if (FUEL_MAP[key]) return FUEL_MAP[key];
+
+  // Hybrid must be checked before gasoline/diesel keyword matching.
+  if (key.includes('plug') && key.includes('hybrid')) return 'Hybride Rechargeable';
+  if (key.includes('phev')) return 'Hybride Rechargeable';
+
   if (key.includes('diesel')) return 'Diesel';
-  if (key.includes('gasoline') || key.includes('benzin') || key.includes('essence')) return 'Essence';
-  if (key.includes('hybrid') || key.includes('hybride')) return 'Hybride';
-  if (key.includes('electri')) return 'Electrique';
-  return fuelType.length > 50 ? fuelType.slice(0, 50) : fuelType;
+  if (key.includes('gazole')) return 'Diesel';
+  if (key.includes('olej') && key.includes('naped')) return 'Diesel';
+
+  if (
+    key.includes('gasoline')
+    || key.includes('benzin')
+    || key.includes('benzine')
+    || key.includes('benzyn')
+    || key.includes('essence')
+    || key.includes('petrol')
+    || key.includes('gasolina')
+  ) return 'Essence';
+
+  if (key.includes('hybrid') || key.includes('hybride') || key.includes('hybryd')) return 'Hybride';
+  if (key.includes('electri') || key.includes('elektrycz')) return 'Electrique';
+  if (key.includes('cng') || key.includes('gnv')) return 'GNV';
+  if (key.includes('lpg') || key.includes('gpl')) return 'GPL';
+
+  return raw.length > 50 ? raw.slice(0, 50) : raw;
 }
 
 export function mapTransmission(transmission) {

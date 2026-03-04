@@ -17,11 +17,7 @@
     // LeBonCoin
     if (url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/")) return true;
     // AutoScout24 (tous TLDs, toutes langues de path)
-    if (/autoscout24\.\w+\/(?:fr|de|it|en|nl|es)?\/?d\//.test(url)) return true;
-    if (/autoscout24\.\w+\/angebote\//.test(url)) return true;
-    if (/autoscout24\.\w+\/offerte\//.test(url)) return true;
-    if (/autoscout24\.\w+\/ofertas\//.test(url)) return true;
-    if (/autoscout24\.\w+\/aanbod\//.test(url)) return true;
+    if (/autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i.test(url)) return true;
     return false;
   }
 

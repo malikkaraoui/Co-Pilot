@@ -165,7 +165,7 @@ export function extractMakeModelFromUrl(url) {
   try {
     const u = new URL(url);
     const match = u.pathname.match(
-      /\/(?:d|angebote|offerte|ofertas|aanbod)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[/?#]|$)/i
+      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
     );
     if (!match) return { make: null, model: null };
 
@@ -228,6 +228,34 @@ export function _extractDatesFromDom(doc) {
 
 function _normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+export function _extractFuelFromDom(doc) {
+  // 1) Prefer structured script hints when available.
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    const text = script.textContent || '';
+    if (!text.includes('fuelType') && !text.includes('Kraftstoff') && !text.includes('Carburant')) continue;
+
+    const fuelTypeMatch = text.match(/"fuelType"\s*:\s*"([^"]{2,40})"/i);
+    if (fuelTypeMatch && fuelTypeMatch[1]) return _normalizeText(fuelTypeMatch[1]);
+  }
+
+  // 2) Fallback to page visible text (multi-locale labels).
+  const fullText = _normalizeText(doc.body?.textContent || '');
+  if (!fullText) return null;
+
+  const re = /(?:carburant|kraftstoff|paliwo|combustible|carburante|brandstof|fuel)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9\- ]{2,48})/i;
+  const m = fullText.match(re);
+  if (!m || !m[1]) return null;
+
+  const cleaned = _normalizeText(m[1])
+    .replace(/[;,|].*$/, '')
+    .split(/\s{2,}/)[0]
+    .trim();
+
+  if (!cleaned) return null;
+  return cleaned.split(' ').slice(0, 3).join(' ').trim();
 }
 
 export function _extractDescriptionFromDom(doc) {
@@ -372,7 +400,7 @@ export function parseRSCPayload(doc, currentUrl = null) {
   const sourceUrl = currentUrl || (typeof window !== 'undefined' ? window.location?.href : null);
   if (sourceUrl) {
     const slugMatch = String(sourceUrl).match(
-      /\/(?:d|angebote|offerte|ofertas|aanbod)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:[/?#]|$)/i
+      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
     );
     urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : '';
     expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;

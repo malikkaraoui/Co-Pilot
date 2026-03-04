@@ -6,6 +6,43 @@ import {
 import { getCantonFromZip, mapFuelType, mapTransmission } from './helpers.js';
 import { extractTld } from './search.js';
 
+function _extractFuelToken(value, depth = 0) {
+  if (depth > 5 || value == null) return null;
+
+  if (typeof value === 'string') {
+    const v = value.trim();
+    return v || null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = _extractFuelToken(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const priorityKeys = [
+      'label', 'name', 'value', 'type', 'text', 'displayValue',
+      'fuelType', 'fuel', 'raw', 'slug',
+    ];
+    for (const key of priorityKeys) {
+      if (key in value) {
+        const found = _extractFuelToken(value[key], depth + 1);
+        if (found) return found;
+      }
+    }
+
+    for (const v of Object.values(value)) {
+      const found = _extractFuelToken(v, depth + 1);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
 /** Extract 4-digit year from a date string like "2021-11-01" or "2021". */
 export function _yearFromDate(dateStr) {
   if (!dateStr) return null;
@@ -79,6 +116,28 @@ export function normalizeToAdData(rsc, jsonLd) {
     return null;
   }
 
+  function resolveFuel() {
+    const rscCandidates = [
+      rsc?.fuelType,
+      rsc?.fuel,
+      rsc?.fuel?.type,
+      rsc?.fuel?.name,
+      rsc?.fuelCategory,
+      rsc?.energySource,
+      rsc?.vehicleFuelType,
+    ];
+
+    for (const candidate of rscCandidates) {
+      const token = _extractFuelToken(candidate);
+      if (token) {
+        return mapFuelType(token);
+      }
+    }
+
+    const ldFuel = _extractFuelToken(engine.fuelType) || _extractFuelToken(ld.fuelType) || null;
+    return ldFuel ? mapFuelType(ldFuel) : null;
+  }
+
   const rating = seller.aggregateRating || {};
   const dealerRating = rating.ratingValue ?? null;
   const dealerReviewCount = rating.reviewCount ?? null;
@@ -103,7 +162,7 @@ export function normalizeToAdData(rsc, jsonLd) {
       model: resolveModel(),
       year_model: rsc.firstRegistrationYear || ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
       mileage_km: rsc.mileage ?? ld.mileageFromOdometer?.value ?? null,
-      fuel: rsc.fuelType ? mapFuelType(rsc.fuelType) : (engine.fuelType || null),
+      fuel: resolveFuel(),
       gearbox: rsc.transmissionType
         ? mapTransmission(rsc.transmissionType)
         : (ld.vehicleTransmission || null),
@@ -155,7 +214,9 @@ export function normalizeToAdData(rsc, jsonLd) {
     model: ld.model || null,
     year_model: ld.vehicleModelDate || _yearFromDate(ld.productionDate) || null,
     mileage_km: ld.mileageFromOdometer?.value ?? null,
-    fuel: engine.fuelType || null,
+    fuel: (_extractFuelToken(engine.fuelType) || _extractFuelToken(ld.fuelType))
+      ? mapFuelType(_extractFuelToken(engine.fuelType) || _extractFuelToken(ld.fuelType))
+      : null,
     gearbox: ld.vehicleTransmission || null,
     doors: ld.numberOfDoors ?? null,
     seats: ld.vehicleSeatingCapacity ?? ld.seatingCapacity ?? null,
