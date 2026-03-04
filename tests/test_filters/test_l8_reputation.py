@@ -193,6 +193,16 @@ class TestL8ImportDetectionFilter:
         result = self.filt.run(data)
         assert result.status == "pass"
 
+    def test_plus_437_still_foreign_on_se_but_not_misparsed(self):
+        """Regression: +437... doit être interprété comme +43 (AT), donc étranger sur .se."""
+        data = {
+            "phone": "+43720123456",
+            "description": "Auto en bon etat.",
+            "country": "SE",
+        }
+        result = self.filt.run(data)
+        assert any("étranger" in s for s in result.details.get("signals", []))
+
     def test_allemagne_not_flagged_on_de(self):
         """'allemagne' dans la description sur .de ne doit PAS etre flagge."""
         data = {

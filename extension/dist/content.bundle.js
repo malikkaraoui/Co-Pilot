@@ -3025,11 +3025,11 @@
       return { submitted, isCurrentVehicle };
     }
     async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
-      const MIN_BONUS_PRICES = 5;
       const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
       const jobDoneUrl = this._apiUrl.replace("/analyze", "/market-prices/job-done");
       const currency = TLD_TO_CURRENCY[tld] || "EUR";
       const countryCode = TLD_TO_COUNTRY_CODE[tld] || "FR";
+      const MIN_BONUS_PRICES = countryCode === "FR" ? 20 : MIN_PRICES;
       if (progress) progress.update("bonus", "running", `${bonusJobs.length} jobs`);
       for (const job of bonusJobs) {
         if ((job.country || "FR") !== countryCode) {
@@ -3118,7 +3118,14 @@
             if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, postResp.ok ? "done" : "error", postResp.ok ? `${priceInts.length} prix` : `HTTP ${postResp.status}`);
           } else {
             await this._reportJobDone(jobDoneUrl, job.job_id, false);
-            if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, "skip", `${prices.length} annonces`);
+            if (progress) {
+              progress.addSubStep?.(
+                "bonus",
+                `${job.make} ${job.model} \xB7 ${job.region}`,
+                "skip",
+                `${prices.length} annonces (<${MIN_BONUS_PRICES})`
+              );
+            }
           }
         } catch (err) {
           console.warn("[CoPilot] AS24 bonus job error:", err);
@@ -3864,7 +3871,10 @@
       badgeClass = "copilot-l6-badge-danger";
     } else if (d.is_foreign) {
       const prefix = d.prefix || "";
-      badgeText = `\xC9tranger${prefix ? " (" + prefix + ")" : ""}`;
+      const flag = d.prefix_country_flag || "";
+      const countryName = d.prefix_country_name || "";
+      const suffix = [prefix, flag, countryName].filter(Boolean).join(" ");
+      badgeText = `\xC9tranger${suffix ? " (" + suffix + ")" : ""}`;
       badgeClass = "copilot-l6-badge-foreign";
     } else if (phoneType.startsWith("local") || phoneType === "present_unverified") {
       badgeText = "Pr\xE9sent";

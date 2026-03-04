@@ -9,6 +9,14 @@ import re
 from typing import Any
 
 from app.filters.base import BaseFilter, FilterResult
+from app.filters.phone_prefixes import (
+    PHONE_DIAL_TABLE,
+    detect_phone_prefix_country,
+    get_country_flag,
+    get_country_name,
+    get_country_prefixes,
+    is_local_prefix,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +33,9 @@ CH_LANDLINE_PATTERN = re.compile(r"^(?:\+41|0041|0)[2-6]\d{8}$")
 DE_MOBILE_PATTERN = re.compile(r"^(?:\+49|0049|0)1[5-7]\d{8,9}$")
 DE_LANDLINE_PATTERN = re.compile(r"^(?:\+49|0049|0)[2-9]\d{6,10}$")
 
-# Indicatifs locaux par pays
+# Tableau d'indicatifs partagé (source unique L6/L8)
 COUNTRY_PREFIXES: dict[str, tuple[str, ...]] = {
-    "FR": ("+33", "0033"),
-    "CH": ("+41", "0041"),
-    "DE": ("+49", "0049"),
-    "AT": ("+43", "0043"),
-    "IT": ("+39", "0039"),
-    "NL": ("+31", "0031"),
-    "BE": ("+32", "0032"),
-    "LU": ("+352", "00352"),
-    "ES": ("+34", "0034"),
+    c: get_country_prefixes(c) for c in PHONE_DIAL_TABLE
 }
 
 # Prefixes ARCEP reserves au demarchage telephonique (France, depuis 1er janvier 2023)
@@ -73,8 +73,7 @@ VIRTUAL_PREFIXES = (
 
 def _is_local_prefix(cleaned: str, country: str) -> bool:
     """Verifie si le numero commence par un indicatif local du pays."""
-    prefixes = COUNTRY_PREFIXES.get(country, ())
-    return any(cleaned.startswith(p) for p in prefixes)
+    return is_local_prefix(cleaned, country)
 
 
 class L6PhoneFilter(BaseFilter):
@@ -117,27 +116,35 @@ class L6PhoneFilter(BaseFilter):
         cleaned = cleaned.replace("(0)", "")  # "+49(0)271" → "+49271"
         cleaned = re.sub(r"[()]", "", cleaned)  # parentheses restantes
 
-        # Verification d'indicatif : un +XX non-local est etranger
-        foreign_match = re.match(r"^\+(\d{1,3})", cleaned)
-        if foreign_match:
-            # Si le prefix correspond au pays de l'annonce, c'est local
-            if _is_local_prefix(cleaned, country):
-                pass  # continue vers la validation locale
-            else:
-                prefix = "+" + foreign_match.group(1)
-                logger.info("L6: foreign prefix detected: %s (country=%s)", prefix, country)
-                return FilterResult(
-                    filter_id=self.filter_id,
-                    status="warning",
-                    score=0.3,
-                    message=f"Numéro avec indicatif étranger ({prefix})",
-                    details={
-                        "phone": phone,
-                        "prefix": prefix,
-                        "is_foreign": True,
-                        "country": country,
-                    },
-                )
+        # Verification d'indicatif basée sur la table connue (pas de regex gloutonne +437)
+        prefix_country, canonical_prefix = detect_phone_prefix_country(cleaned)
+        if prefix_country and canonical_prefix and prefix_country != country:
+            prefix_country_name = get_country_name(prefix_country)
+            prefix_country_flag = get_country_flag(prefix_country)
+            logger.info(
+                "L6: foreign prefix detected: %s -> %s (ad_country=%s)",
+                canonical_prefix,
+                prefix_country,
+                country,
+            )
+            return FilterResult(
+                filter_id=self.filter_id,
+                status="warning",
+                score=0.3,
+                message=(
+                    f"Numéro avec indicatif étranger "
+                    f"({canonical_prefix} {prefix_country_flag} {prefix_country_name})"
+                ).strip(),
+                details={
+                    "phone": phone,
+                    "prefix": canonical_prefix,
+                    "prefix_country": prefix_country,
+                    "prefix_country_name": prefix_country_name,
+                    "prefix_country_flag": prefix_country_flag,
+                    "is_foreign": True,
+                    "country": country,
+                },
+            )
 
         # ── France : checks specifiques ──────────────────────────────
         if country == "FR":

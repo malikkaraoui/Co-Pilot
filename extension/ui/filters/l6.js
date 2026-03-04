@@ -39,7 +39,10 @@ export function buildL6Body(f, d) {
     badgeClass = "copilot-l6-badge-danger";
   } else if (d.is_foreign) {
     const prefix = d.prefix || "";
-    badgeText = `\u00C9tranger${prefix ? " (" + prefix + ")" : ""}`;
+    const flag = d.prefix_country_flag || "";
+    const countryName = d.prefix_country_name || "";
+    const suffix = [prefix, flag, countryName].filter(Boolean).join(" ");
+    badgeText = `\u00C9tranger${suffix ? " (" + suffix + ")" : ""}`;
     badgeClass = "copilot-l6-badge-foreign";
   } else if (phoneType.startsWith("local") || phoneType === "present_unverified") {
     badgeText = "Pr\u00E9sent";

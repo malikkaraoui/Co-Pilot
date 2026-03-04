@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.filters.base import VERIFIED_PRO_PLATFORMS, BaseFilter, FilterResult
+from app.filters.phone_prefixes import detect_phone_prefix_country
 
 logger = logging.getLogger(__name__)
 
@@ -190,35 +191,18 @@ class L8ImportDetectionFilter(BaseFilter):
 
     filter_id = "L8"
 
-    # Indicatifs locaux par pays (meme mapping que L6)
-    _LOCAL_PREFIXES: dict[str, str] = {
-        "FR": "33",
-        "CH": "41",
-        "DE": "49",
-        "AT": "43",
-        "IT": "39",
-        "NL": "31",
-        "BE": "32",
-        "LU": "352",
-        "ES": "34",
-    }
-
     def run(self, data: dict[str, Any]) -> FilterResult:
         strong_signals: list[str] = []
         weak_signals: list[str] = []
         country = (data.get("country") or "FR").upper()
 
         # Signal 1 : Telephone etranger (recoupement avec les donnees L6)
-        # Adapte au pays : +41 n'est pas etranger en Suisse, +49 en Allemagne, etc.
+        # Parse via table partagée pour éviter les erreurs de slicing (+437 -> +43).
         phone = data.get("phone") or ""
         cleaned_phone = re.sub(r"[\s\-.]", "", phone)
-        # Normaliser le format 00XX en +XX (ex: 0049 → +49)
-        if cleaned_phone.startswith("00") and len(cleaned_phone) > 4:
-            cleaned_phone = "+" + cleaned_phone[2:]
-        local_prefix = self._LOCAL_PREFIXES.get(country, "33")
-        if cleaned_phone and cleaned_phone.startswith("+"):
-            if not cleaned_phone.startswith("+" + local_prefix):
-                strong_signals.append("Numéro de téléphone avec indicatif étranger")
+        prefix_country, _ = detect_phone_prefix_country(cleaned_phone)
+        if prefix_country and prefix_country != country:
+            strong_signals.append("Numéro de téléphone avec indicatif étranger")
 
         # Signal 2 : Mots-cles d'import dans la description
         description = (data.get("description") or "").lower()

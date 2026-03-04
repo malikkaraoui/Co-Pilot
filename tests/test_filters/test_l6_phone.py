@@ -38,6 +38,14 @@ class TestL6PhoneFilter:
         assert result.status == "warning"
         assert "+49" in result.details["prefix"]
 
+    def test_plus_437_is_detected_as_plus_43(self):
+        """Regression: +437... must resolve to +43 (AT), not +437."""
+        result = self.filt.run({"phone": "+43720123456", "country": "SE"})
+        assert result.status == "warning"
+        assert result.details["prefix"] == "+43"
+        assert result.details["prefix_country"] == "AT"
+        assert result.details["prefix_country_flag"] == "🇦🇹"
+
     def test_non_standard_format_still_passes(self):
         """Telephone present mais format non-standard : pass (le tel est la)."""
         result = self.filt.run({"phone": "123"})
@@ -147,6 +155,12 @@ class TestL6PhoneFilter:
         result = self.filt.run({"phone": "+352621123456", "country": "FR"})
         assert result.status == "warning"
         assert result.details["is_foreign"] is True
+
+    def test_swedish_prefix_passes_on_se(self):
+        """Un +46 sur .se doit être local."""
+        result = self.filt.run({"phone": "+46701234567", "country": "SE"})
+        assert result.status == "pass"
+        assert result.details.get("is_foreign") is not True
 
     def test_no_prefix_passes_generic(self):
         """Numero local sans indicatif : pass generique."""
