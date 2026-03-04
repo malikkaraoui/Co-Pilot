@@ -36,6 +36,15 @@ class TestNormalization:
     def test_model_alias_golf_vii(self):
         assert _normalize_model("Golf VII") == "golf"
 
+    def test_model_alias_golf_variant(self):
+        assert _normalize_model("Golf Variant") == "golf"
+
+    def test_model_alias_grand_c4_spacetourer(self):
+        assert _normalize_model("Grand C4 SpaceTourer") == "c4 spacetourer"
+
+    def test_model_roman_suffix_trim(self):
+        assert _normalize_model("Leon IV") == "leon"
+
     def test_model_alias_chr(self):
         assert _normalize_model("CHR") == "c-hr"
 
@@ -154,6 +163,9 @@ class TestDisplayModel:
 
     def test_simple_model_title(self):
         assert display_model("sandero") == "Sandero"
+
+    def test_c4_spacetourer_display(self):
+        assert display_model("grand c4 spacetourer") == "C4 SpaceTourer"
 
 
 class TestNormalizePublicAPI:

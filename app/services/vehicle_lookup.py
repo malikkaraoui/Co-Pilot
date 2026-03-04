@@ -5,6 +5,7 @@ Gere les variantes courantes de noms de marques et modeles
 """
 
 import logging
+import re
 import unicodedata
 
 from app.models.vehicle import Vehicle
@@ -223,6 +224,9 @@ MODEL_ALIASES: dict[str, str] = {
     "e c3": "e-c3",
     "c4 iii": "c4",
     "e-c4": "c4",
+    "grand c4 spacetourer": "c4 spacetourer",
+    "c4 grand spacetourer": "c4 spacetourer",
+    "c4 grand space tourer": "c4 spacetourer",
     # Dacia
     "sandero 3": "sandero",
     "sandero iii": "sandero",
@@ -234,6 +238,12 @@ MODEL_ALIASES: dict[str, str] = {
     "golf 8": "golf",
     "golf vii": "golf",
     "golf viii": "golf",
+    "golf variant": "golf",
+    "golf vairant": "golf",
+    "golf alltrack": "golf",
+    "golf variant alltrack": "golf",
+    "golf vii variant": "golf",
+    "golf viii variant": "golf",
     "polo 6": "polo",
     "polo vi": "polo",
     "t-roc": "t-roc",
@@ -456,7 +466,19 @@ def normalize_model(model: str) -> str:
     Pour l'affichage, utiliser ``display_model()``.
     """
     cleaned = _strip_accents(model.strip().lower())
-    return MODEL_ALIASES.get(cleaned, cleaned)
+    aliased = MODEL_ALIASES.get(cleaned)
+    if aliased:
+        return aliased
+
+    # Heuristique légère: retirer un suffixe de génération en chiffres romains
+    # (ex: "leon iv" -> "leon"), sans impacter les alias explicites ci-dessus.
+    parts = cleaned.split()
+    if len(parts) >= 2 and re.fullmatch(r"[ivx]{1,5}", parts[-1]):
+        candidate = " ".join(parts[:-1]).strip()
+        if candidate:
+            return MODEL_ALIASES.get(candidate, candidate)
+
+    return cleaned
 
 
 # Compat : ancien nom prive
@@ -487,6 +509,7 @@ MODEL_DISPLAY: dict[str, str] = {
     "ds4": "DS4",
     "ds3": "DS3",
     "e-c3": "e-C3",
+    "c4 spacetourer": "C4 SpaceTourer",
     "ds 3": "DS 3",
     "500x": "500x",
     "zs": "ZS",
