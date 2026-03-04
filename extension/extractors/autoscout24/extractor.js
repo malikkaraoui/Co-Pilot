@@ -510,6 +510,14 @@ export class AutoScout24Extractor extends SiteExtractor {
     const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
     const MIN_BONUS_PRICES = countryCode === 'FR' ? 20 : MIN_PRICES;
 
+    function _bonusFiltersApplied(opts) {
+      const f = [];
+      if (opts.fuel) f.push('fuel');
+      if (opts.gear) f.push('gearbox');
+      if (opts.powerfrom || opts.powerto) f.push('hp');
+      return f;
+    }
+
     if (progress) progress.update('bonus', 'running', `${bonusJobs.length} jobs`);
 
     for (const job of bonusJobs) {
@@ -534,41 +542,103 @@ export class AutoScout24Extractor extends SiteExtractor {
         }
         const cantonZip = getCantonCenterZip(job.region);
 
-        const searchOpts = { yearSpread: 1 };
+        const strictSearchOpts = { yearSpread: 1 };
         if (job.fuel) {
           const fc = getAs24FuelCode(job.fuel);
-          if (fc) searchOpts.fuel = fc;
+          if (fc) strictSearchOpts.fuel = fc;
         }
         if (job.gearbox) {
           const gc = getAs24GearCode(job.gearbox);
-          if (gc) searchOpts.gear = gc;
+          if (gc) strictSearchOpts.gear = gc;
         }
         if (job.hp_range) {
           const pp = parseHpRange(job.hp_range);
-          Object.assign(searchOpts, pp);
+          Object.assign(strictSearchOpts, pp);
         }
         if (cantonZip) {
-          searchOpts.zip = cantonZip;
-          searchOpts.radius = 50;
+          strictSearchOpts.zip = cantonZip;
+          strictSearchOpts.radius = 50;
         }
 
-        const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...searchOpts, lang });
-        const resp = await fetch(searchUrl, { credentials: 'same-origin' });
-        const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
+        const bonusStrategies = [];
+        const seenBonusKeys = new Set();
 
-        if (!resp.ok) {
-          await this._reportJobDone(jobDoneUrl, job.job_id, false);
-          if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', `HTTP ${resp.status}`);
-          continue;
+        const pushBonusStrategy = (label, opts, precision = 3) => {
+          const strategyOpts = { ...opts };
+          const key = JSON.stringify(strategyOpts);
+          if (seenBonusKeys.has(key)) return;
+          seenBonusKeys.add(key);
+          bonusStrategies.push({ label, precision, opts: strategyOpts });
+        };
+
+        pushBonusStrategy('Strict local ±1an', strictSearchOpts, 4);
+
+        if (strictSearchOpts.powerfrom || strictSearchOpts.powerto) {
+          const noHp = { ...strictSearchOpts };
+          delete noHp.powerfrom;
+          delete noHp.powerto;
+          pushBonusStrategy('Sans HP ±1an', noHp, 3);
         }
 
-        const html = await resp.text();
-        const prices = parseSearchPrices(html, job.make);
+        if (strictSearchOpts.gear) {
+          const noGear = { ...strictSearchOpts };
+          delete noGear.gear;
+          pushBonusStrategy('Sans boite ±1an', noGear, 3);
+        }
 
-        console.log('[CoPilot] AS24 bonus %s %s %d %s: %d prix', job.make, job.model, jobYear, job.region, prices.length);
+        if (strictSearchOpts.zip) {
+          const national = { ...strictSearchOpts };
+          delete national.zip;
+          delete national.radius;
+          pushBonusStrategy('National ±1an', national, 2);
 
-        if (prices.length >= MIN_BONUS_PRICES) {
-          const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price >= 500);
+          const nationalWide = { ...national, yearSpread: 2 };
+          pushBonusStrategy('National ±2ans', nationalWide, 2);
+        } else {
+          pushBonusStrategy('National ±2ans', { ...strictSearchOpts, yearSpread: 2 }, 2);
+        }
+
+        const fuelOnlyWide = { yearSpread: 2 };
+        if (strictSearchOpts.fuel) fuelOnlyWide.fuel = strictSearchOpts.fuel;
+        pushBonusStrategy('National fuel ±2ans', fuelOnlyWide, 2);
+
+        let selected = null;
+        let selectedPrices = [];
+        let selectedSearchUrl = null;
+        let selectedLearned = { makeSlug: null, modelSlug: null };
+        let bestAdsCount = 0;
+        let httpFailure = null;
+
+        for (let step = 0; step < bonusStrategies.length; step++) {
+          if (step > 0) await new Promise((r) => setTimeout(r, 400 + Math.random() * 300));
+          const strategy = bonusStrategies[step];
+          const searchUrl = buildSearchUrl(jobMakeKey, jobModelKey, jobYear, tld, { ...strategy.opts, lang });
+          const resp = await fetch(searchUrl, { credentials: 'same-origin' });
+          const learned = extractAs24SlugsFromSearchUrl(resp.url || searchUrl, tld);
+
+          if (!resp.ok) {
+            httpFailure = httpFailure || resp.status;
+            continue;
+          }
+
+          const html = await resp.text();
+          const prices = parseSearchPrices(html, job.make);
+          bestAdsCount = Math.max(bestAdsCount, prices.length);
+
+          console.log('[CoPilot] AS24 bonus %s %s %d %s [%s]: %d prix',
+            job.make, job.model, jobYear, job.region, strategy.label, prices.length);
+
+          if (prices.length >= MIN_BONUS_PRICES) {
+            selected = strategy;
+            selectedPrices = prices;
+            selectedSearchUrl = searchUrl;
+            selectedLearned = learned;
+            break;
+          }
+        }
+
+        if (selected && selectedPrices.length >= MIN_BONUS_PRICES) {
+          const priceDetails = selectedPrices.filter((p) => Number.isInteger(p?.price) && p.price >= 500);
           const priceInts = priceDetails.map((p) => p.price);
 
           if (priceInts.length < MIN_BONUS_PRICES) {
@@ -584,7 +654,7 @@ export class AutoScout24Extractor extends SiteExtractor {
             continue;
           }
 
-          const bonusPrecision = prices.length >= 20 ? 4 : 2;
+          const bonusPrecision = selected.precision;
           const bonusPayload = {
             make: String(job.make || '').trim(),
             model: String(job.model || '').trim(),
@@ -594,19 +664,15 @@ export class AutoScout24Extractor extends SiteExtractor {
             price_details: priceDetails,
             fuel: job.fuel || null, hp_range: job.hp_range || null,
             precision: bonusPrecision, country: countryCode,
-            as24_slug_make: learned.makeSlug || jobMakeKey,
-            as24_slug_model: learned.modelSlug || (searchOpts.brandOnly ? null : jobModelKey),
+            as24_slug_make: selectedLearned.makeSlug || jobMakeKey,
+            as24_slug_model: selectedLearned.modelSlug || (selected.opts.brandOnly ? null : jobModelKey),
             search_log: [{
               step: 1, precision: bonusPrecision,
-              location_type: cantonZip ? 'canton' : 'national',
-              year_spread: 1,
-              filters_applied: [
-                ...(searchOpts.fuel ? ['fuel'] : []),
-                ...(searchOpts.gear ? ['gearbox'] : []),
-                ...(searchOpts.powerfrom || searchOpts.powerto ? ['hp'] : []),
-              ],
-              ads_found: prices.length, url: searchUrl,
-              was_selected: true, reason: `bonus job: ${prices.length} annonces`,
+              location_type: selected.opts.zip ? 'canton' : 'national',
+              year_spread: selected.opts.yearSpread || 1,
+              filters_applied: _bonusFiltersApplied(selected.opts),
+              ads_found: selectedPrices.length, url: selectedSearchUrl,
+              was_selected: true, reason: `bonus job (${selected.label}): ${selectedPrices.length} annonces`,
             }],
           };
 
@@ -631,7 +697,7 @@ export class AutoScout24Extractor extends SiteExtractor {
               'bonus',
               `${job.make} ${job.model} · ${job.region}`,
               postResp.ok ? 'done' : 'error',
-              postResp.ok ? `${priceInts.length} prix` : `${errMsg || `HTTP ${postResp.status}`}`
+              postResp.ok ? `${priceInts.length} prix (${selected.label})` : `${errMsg || `HTTP ${postResp.status}`}`
             );
           }
         } else {
@@ -641,7 +707,9 @@ export class AutoScout24Extractor extends SiteExtractor {
               'bonus',
               `${job.make} ${job.model} · ${job.region}`,
               'skip',
-              `${prices.length} annonces (<${MIN_BONUS_PRICES})`
+              bestAdsCount > 0
+                ? `${bestAdsCount} annonces max (<${MIN_BONUS_PRICES})`
+                : `${httpFailure ? `HTTP ${httpFailure}` : `0 annonce`} (<${MIN_BONUS_PRICES})`
             );
           }
         }
