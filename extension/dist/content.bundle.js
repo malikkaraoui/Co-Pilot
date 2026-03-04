@@ -1343,9 +1343,9 @@
 
   // extension/extractors/autoscout24/constants.js
   var AS24_URL_PATTERNS = [
-    /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\//i
+    /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\//i
   ];
-  var AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
+  var AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
   var TLD_TO_COUNTRY = {
     ch: "Suisse",
     de: "Allemagne",
@@ -1645,7 +1645,7 @@
     return match ? match[1] : "de";
   }
   function extractLang(url) {
-    const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
+    const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es|pl|sv)\//);
     return match ? match[1] : null;
   }
   function toAs24Slug(name) {
@@ -1664,7 +1664,7 @@
         const makeSlug2 = smg[2] ? toAs24Slug(smg[2]) : null;
         return { makeSlug: makeSlug2, modelSlug: modelSlug2 };
       }
-      const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, "");
+      const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es|pl|sv)(?=\/|$)/i, "");
       const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
       if (!gmbh) return { makeSlug: null, modelSlug: null };
       const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;
@@ -2306,7 +2306,7 @@
     try {
       const u = new URL(url);
       const match = u.pathname.match(
-        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
       );
       if (!match) return { make: null, model: null };
       const slug = decodeURIComponent(match[1] || "");
@@ -2492,7 +2492,7 @@
     const sourceUrl = currentUrl || (typeof window !== "undefined" ? window.location?.href : null);
     if (sourceUrl) {
       const slugMatch = String(sourceUrl).match(
-        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
       );
       urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : "";
       expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;
@@ -2623,7 +2623,7 @@
       this._adData = normalizeToAdData(this._rsc, this._jsonLd);
       const urlHint = extractMakeModelFromUrl(window.location.href);
       const urlSlugMatch = window.location.pathname.match(
-        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+        /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
       );
       const urlSlug = urlSlugMatch ? urlSlugMatch[1].toLowerCase() : "";
       if (urlSlug && this._adData.make) {

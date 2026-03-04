@@ -3,10 +3,10 @@
 // ── URL patterns ────────────────────────────────────────────────────
 
 export const AS24_URL_PATTERNS = [
-  /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\//i,
+  /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\//i,
 ];
 
-export const AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
+export const AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
 
 // TLD → country mapping for region field
 export const TLD_TO_COUNTRY = {

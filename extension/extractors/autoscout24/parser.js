@@ -165,7 +165,7 @@ export function extractMakeModelFromUrl(url) {
   try {
     const u = new URL(url);
     const match = u.pathname.match(
-      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
     );
     if (!match) return { make: null, model: null };
 
@@ -400,7 +400,7 @@ export function parseRSCPayload(doc, currentUrl = null) {
   const sourceUrl = currentUrl || (typeof window !== 'undefined' ? window.location?.href : null);
   if (sourceUrl) {
     const slugMatch = String(sourceUrl).match(
-      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
     );
     urlSlug = slugMatch ? decodeURIComponent(slugMatch[1]).toLowerCase() : '';
     expectedMake = extractMakeModelFromUrl(String(sourceUrl)).make;

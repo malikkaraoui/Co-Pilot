@@ -112,6 +112,10 @@ describe('AS24_URL_PATTERNS', () => {
     expect(matchesAny('https://www.autoscout24.pl/oferta/seat-arona-1-0-tsi-110pk-dsg-7-abcdef12')).toBe(true);
   });
 
+  it('matches autoscout24.se ad page (/erbjudanden)', () => {
+    expect(matchesAny('https://www.autoscout24.se/erbjudanden/audi-a6-40tdi-qu-nav-matrixlederpdc-camaccahk-diesel-svart-7448b1ba-f086-4e3a-83f8-6f0380d60e57')).toBe(true);
+  });
+
   it('does NOT match leboncoin.fr', () => {
     expect(matchesAny('https://www.leboncoin.fr/ad/voitures/12345')).toBe(false);
   });
@@ -138,6 +142,10 @@ describe('AutoScout24Extractor.isAdPage', () => {
 
   it('accepts PL /oferta ad URLs', () => {
     expect(ext.isAdPage('https://www.autoscout24.pl/oferta/seat-arona-1-0-tsi-110pk-dsg-7-abcdef12')).toBe(true);
+  });
+
+  it('accepts SE /erbjudanden ad URLs', () => {
+    expect(ext.isAdPage('https://www.autoscout24.se/erbjudanden/audi-a6-40tdi-qu-nav-matrixlederpdc-camaccahk-diesel-svart-7448b1ba-f086-4e3a-83f8-6f0380d60e57')).toBe(true);
   });
 });
 
@@ -880,6 +888,10 @@ describe('extractLang', () => {
 
   it('extracts nl from Belgian Dutch URL', () => {
     expect(extractLang('https://www.autoscout24.be/nl/d/vw-polo-123')).toBe('nl');
+  });
+
+  it('extracts sv from Swedish URL', () => {
+    expect(extractLang('https://www.autoscout24.se/sv/erbjudanden/audi-a6-123')).toBe('sv');
   });
 });
 

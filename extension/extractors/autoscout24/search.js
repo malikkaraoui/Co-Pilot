@@ -11,7 +11,7 @@ export function extractTld(url) {
 }
 
 export function extractLang(url) {
-  const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es)\//);
+  const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es|pl|sv)\//);
   return match ? match[1] : null;
 }
 
@@ -38,7 +38,7 @@ export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
       return { makeSlug, modelSlug };
     }
 
-    const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es)(?=\/|$)/i, '');
+    const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es|pl|sv)(?=\/|$)/i, '');
     const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
     if (!gmbh) return { makeSlug: null, modelSlug: null };
     const makeSlug = gmbh[1] ? toAs24Slug(gmbh[1]) : null;

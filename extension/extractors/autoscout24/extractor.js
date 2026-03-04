@@ -59,7 +59,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     // SPA guard: cross-validate make AND model against URL slug
     const urlHint = extractMakeModelFromUrl(window.location.href);
     const urlSlugMatch = window.location.pathname.match(
-      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
+      /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
     );
     const urlSlug = urlSlugMatch ? urlSlugMatch[1].toLowerCase() : '';
     if (urlSlug && this._adData.make) {
