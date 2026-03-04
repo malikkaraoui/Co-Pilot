@@ -109,6 +109,27 @@ class TestL8ImportDetectionFilter:
         result = self.filt.run(data)
         assert any("étranger" in s for s in result.details["signals"])
 
+    def test_luxembourg_phone_not_foreign_on_lu(self):
+        """Un +352 sur .lu ne doit PAS déclencher le signal d'import."""
+        data = {
+            "phone": "+352621123456",
+            "description": "Vehicule en bon etat.",
+            "country": "LU",
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert not any("étranger" in s for s in result.details.get("signals", []))
+
+    def test_french_phone_foreign_on_lu(self):
+        """Un +33 sur .lu reste un signal d'import."""
+        data = {
+            "phone": "+33612345678",
+            "description": "Belle auto.",
+            "country": "LU",
+        }
+        result = self.filt.run(data)
+        assert any("étranger" in s for s in result.details["signals"])
+
     def test_pro_without_uid_on_ch(self):
         """Pro sans UID sur .ch (source non-verifiee) : signal d'import."""
         data = {

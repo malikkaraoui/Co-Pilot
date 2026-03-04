@@ -63,6 +63,7 @@ _COUNTRY_LOCAL_NAMES: dict[str, set[str]] = {
     "IT": {"italie"},
     "NL": {"pays-bas", "hollande"},
     "BE": {"belgique"},
+    "LU": {"luxembourg"},
     "ES": {"espagne"},
 }
 
@@ -198,6 +199,7 @@ class L8ImportDetectionFilter(BaseFilter):
         "IT": "39",
         "NL": "31",
         "BE": "32",
+        "LU": "352",
         "ES": "34",
     }
 
