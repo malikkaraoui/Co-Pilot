@@ -122,6 +122,18 @@ def _do_analyze():
                 }
             ), 422
 
+    # Canonicaliser make/model pour toutes les sources (AS24, LBC, ...)
+    # afin d'aligner l'affichage, L2 référentiel et les recherches associées.
+    try:
+        from app.services.vehicle_lookup import display_brand, display_model
+
+        if ad_data.get("make"):
+            ad_data["make"] = display_brand(str(ad_data["make"]))
+        if ad_data.get("model"):
+            ad_data["model"] = display_model(str(ad_data["model"]))
+    except Exception:
+        logger.debug("Make/model canonicalization skipped", exc_info=True)
+
     # Detection du pays depuis le TLD de l'URL pour les filtres (L6, L7)
     ad_data["country"] = _detect_country(req.url or "", req.source)
 
@@ -360,6 +372,9 @@ _TLD_COUNTRY_MAP = {
     ".nl": "NL",
     ".be": "BE",
     ".es": "ES",
+    ".lu": "LU",
+    ".pl": "PL",
+    ".se": "SE",
     ".fr": "FR",
 }
 

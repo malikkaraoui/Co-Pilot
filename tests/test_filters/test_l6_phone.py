@@ -131,6 +131,23 @@ class TestL6PhoneFilter:
         result = self.filt.run({"phone": "+393401234567", "country": "IT"})
         assert result.status == "pass"
 
+    def test_luxembourg_prefix_passes_on_lu(self):
+        """Un +352 sur .lu : indicatif local (ne doit pas être étranger)."""
+        result = self.filt.run({"phone": "+352 621 123 456", "country": "LU"})
+        assert result.status == "pass"
+        assert result.details.get("is_foreign") is not True
+
+    def test_luxembourg_00_prefix_passes_on_lu(self):
+        """Un 00352 sur .lu : indicatif local."""
+        result = self.filt.run({"phone": "00352 621 123 456", "country": "LU"})
+        assert result.status == "pass"
+
+    def test_luxembourg_prefix_warns_on_fr(self):
+        """Un +352 sur .fr doit rester détecté comme étranger."""
+        result = self.filt.run({"phone": "+352621123456", "country": "FR"})
+        assert result.status == "warning"
+        assert result.details["is_foreign"] is True
+
     def test_no_prefix_passes_generic(self):
         """Numero local sans indicatif : pass generique."""
         result = self.filt.run({"phone": "0612345678", "country": "IT"})

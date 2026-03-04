@@ -228,3 +228,24 @@ class TestAnalyzeAdData:
         vehicle = data["data"]["vehicle"]
         assert vehicle["price"] == 15000
         assert "price_original" not in vehicle
+
+    def test_as24_lu_phone_prefix_352_not_foreign(self, client):
+        """autoscout24.lu +352 must be treated as local (not foreign warning)."""
+        ad_data = _autoscout_ad_data()
+        ad_data["phone"] = "+352 621 123 456"
+
+        resp = client.post(
+            "/api/analyze",
+            json={
+                "url": "https://www.autoscout24.lu/offres/citroen-grand-c4-spacetourer-abc123",
+                "ad_data": ad_data,
+                "source": "autoscout24",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
+        l6 = next((f for f in data["data"]["filters"] if f["filter_id"] == "L6"), None)
+        assert l6 is not None
+        assert "étranger" not in l6["message"].lower()
