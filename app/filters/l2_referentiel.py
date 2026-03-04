@@ -67,8 +67,9 @@ class L2ReferentielFilter(BaseFilter):
             status="warning",
             score=0.3,
             message=(
-                f"On ne connaît pas encore le {make} {model} "
-                "— on prépare le garage pour l'expertiser très prochainement !"
+                f"Vous êtes parmi les premiers à scanner un {make} {model} sur Vehicore ! "
+                "Merci — grâce à vous, on enrichit notre base et on affine nos analyses. "
+                "Ce modèle sera bientôt couvert."
             ),
             details={"brand": make, "model": model, "recognized": False},
         )

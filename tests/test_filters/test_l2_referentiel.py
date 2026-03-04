@@ -23,7 +23,7 @@ class TestL2ReferentielFilter:
         with patch("app.services.vehicle_lookup.find_vehicle", return_value=None):
             result = self.filt.run({"make": "MG", "model": "ZS EV"})
         assert result.status == "warning"
-        assert "ne connaît pas" in result.message
+        assert "parmi les premiers" in result.message
 
     def test_missing_make_skips(self):
         result = self.filt.run({"model": "3008"})
