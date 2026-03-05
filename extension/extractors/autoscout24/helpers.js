@@ -22,25 +22,28 @@ export function mapFuelType(fuelType) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
-  if (FUEL_MAP[key]) return FUEL_MAP[key];
-
-  // Hybrid must be checked before gasoline/diesel keyword matching.
-  if (key.includes('plug') && key.includes('hybrid')) return 'Hybride Rechargeable';
-  if (key.includes('phev')) return 'Hybride Rechargeable';
-
-  if (key.includes('diesel')) return 'Diesel';
-  if (key.includes('gazole')) return 'Diesel';
-  if (key.includes('olej') && key.includes('naped')) return 'Diesel';
-
-  if (
-    key.includes('gasoline')
+  const hasElectric = key.includes('electri') || key.includes('elektrycz');
+  const hasGasoline = key.includes('gasoline')
     || key.includes('benzin')
     || key.includes('benzine')
     || key.includes('benzyn')
     || key.includes('essence')
     || key.includes('petrol')
-    || key.includes('gasolina')
-  ) return 'Essence';
+    || key.includes('gasolina');
+  const hasDiesel = key.includes('diesel') || key.includes('gazole') || (key.includes('olej') && key.includes('naped'));
+
+  if (FUEL_MAP[key]) return FUEL_MAP[key];
+
+  // Mixed electric + thermal labels should stay in hybrid family.
+  if (hasElectric && (hasGasoline || hasDiesel)) return 'Hybride Rechargeable';
+
+  // Hybrid must be checked before gasoline/diesel keyword matching.
+  if (key.includes('plug') && key.includes('hybrid')) return 'Hybride Rechargeable';
+  if (key.includes('phev')) return 'Hybride Rechargeable';
+
+  if (hasDiesel) return 'Diesel';
+
+  if (hasGasoline) return 'Essence';
 
   if (key.includes('hybrid') || key.includes('hybride') || key.includes('hybryd')) return 'Hybride';
   if (key.includes('electri') || key.includes('elektrycz')) return 'Electrique';
@@ -79,7 +82,18 @@ export function getAs24FuelCode(fuel) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
+  const compact = key.replace(/\s+/g, '');
+  const hasElectric = /electri|elektrycz/.test(key);
+  const hasGasoline = /gasoline|benzin|benzine|benzyn|essence|petrol|gasolina/.test(key);
+  const hasDiesel = /diesel|gazole/.test(key) || (key.includes('olej') && key.includes('naped'));
+
   if (AS24_FUEL_CODE_MAP[key]) return AS24_FUEL_CODE_MAP[key];
+  if (AS24_FUEL_CODE_MAP[compact]) return AS24_FUEL_CODE_MAP[compact];
+
+  // Common mixed labels used by AS24 UI, e.g. "Electrique/Essence" or "Electrique/Diesel".
+  if (hasElectric && hasGasoline) return '2';
+  if (hasElectric && hasDiesel) return '3';
+
   if (key.includes('diesel') || key.includes('gazole')) return 'D';
   if (key.includes('essence') || key.includes('gasoline') || key.includes('petrol') || key.includes('benzin')) return 'B';
   if (key.includes('electri')) return 'E';

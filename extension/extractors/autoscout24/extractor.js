@@ -285,7 +285,10 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     // ── 4. Build cascade strategies ───────────────────────────────
-    const fuelCode = fuelKey ? getAs24FuelCode(fuelKey) : null;
+    const fuelCode = getAs24FuelCode(this._rsc?.fuelType)
+      || getAs24FuelCode(this._adData?.fuel)
+      || (fuelKey ? getAs24FuelCode(fuelKey) : null)
+      || null;
     const targetCantonZip = getCantonCenterZip(targetRegion);
     const strategies = [];
 

@@ -129,9 +129,11 @@ export const AS24_FUEL_CODE_MAP = {
   gazole: 'D', 'olej napedowy': 'D',
   cng: 'C', lpg: 'L', hydrogen: 'H',
   'mhev-diesel': 'D', 'mhev-gasoline': 'B',
-  'phev-diesel': '2', 'phev-gasoline': '2',
+  'phev-diesel': '3', 'phev-gasoline': '2',
   essence: 'B', electrique: 'E',
   gnv: 'C', gpl: 'L', hydrogene: 'H',
+  'electrique/essence': '2',
+  'electrique/diesel': '3',
   'hybride rechargeable': '2',
 };
 

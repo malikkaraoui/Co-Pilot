@@ -180,6 +180,10 @@ describe('mapFuelType', () => {
   it('maps German benzin to Essence', () => {
     expect(mapFuelType('Benzin')).toBe('Essence');
   });
+
+  it('maps Electrique/Essence to Hybride Rechargeable', () => {
+    expect(mapFuelType('Electrique/Essence')).toBe('Hybride Rechargeable');
+  });
 });
 
 
@@ -1415,6 +1419,16 @@ describe('getAs24FuelCode', () => {
 
   it('maps mhev-diesel to D', () => {
     expect(getAs24FuelCode('mhev-diesel')).toBe('D');
+  });
+
+  it('maps mixed electric/gasoline labels to code 2', () => {
+    expect(getAs24FuelCode('Electrique/Essence')).toBe('2');
+    expect(getAs24FuelCode('electric/gasoline')).toBe('2');
+  });
+
+  it('maps mixed electric/diesel labels to code 3', () => {
+    expect(getAs24FuelCode('Electrique/Diesel')).toBe('3');
+    expect(getAs24FuelCode('electric/diesel')).toBe('3');
   });
 
   it('is case insensitive', () => {
