@@ -186,7 +186,7 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     const hp = parseInt(this._adData.power_din_hp, 10) || 0;
     const km = parseInt(this._adData.mileage_km, 10) || 0;
-    const gearRaw = this._rsc?.transmissionType || '';
+    const gearRaw = this._rsc?.transmissionType || this._adData?.gearbox || '';
     const gearCode = getAs24GearCode(gearRaw);
     const hpRangeStr = getHpRangeString(hp);
 

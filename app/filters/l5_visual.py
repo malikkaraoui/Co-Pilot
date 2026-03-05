@@ -150,7 +150,9 @@ class L5VisualFilter(BaseFilter):
 
             vehicle = find_vehicle(make, model)
             if not vehicle:
-                return self.skip("Modèle non reconnu — analyse statistique impossible")
+                return self.skip(
+                    "Modèle non calibré pour l'analyse statistique (références insuffisantes)"
+                )
             ref_prices = self._collect_argus_prices(vehicle.id)
             source = "argus_seed"
 

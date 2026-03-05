@@ -56,11 +56,40 @@ export function mapTransmission(transmission) {
 }
 
 export function getAs24GearCode(gearbox) {
-  return AS24_GEAR_MAP[(gearbox || '').toLowerCase()] || null;
+  const raw = typeof gearbox === 'string' ? gearbox : String(gearbox || '');
+  if (!raw.trim()) return null;
+  const key = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  if (AS24_GEAR_MAP[key]) return AS24_GEAR_MAP[key];
+  if (key.includes('manual') || key.includes('manuelle') || key.includes('manuelle')) return 'M';
+  if (key.includes('auto')) return 'A';
+  return null;
 }
 
 export function getAs24FuelCode(fuel) {
-  return AS24_FUEL_CODE_MAP[(fuel || '').toLowerCase()] || null;
+  const raw = typeof fuel === 'string' ? fuel : String(fuel || '');
+  if (!raw.trim()) return null;
+  const key = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  if (AS24_FUEL_CODE_MAP[key]) return AS24_FUEL_CODE_MAP[key];
+  if (key.includes('diesel') || key.includes('gazole')) return 'D';
+  if (key.includes('essence') || key.includes('gasoline') || key.includes('petrol') || key.includes('benzin')) return 'B';
+  if (key.includes('electri')) return 'E';
+  if (key.includes('plug') && key.includes('hybrid')) return '2';
+  if (key.includes('phev')) return '2';
+  if (key.includes('hybrid') || key.includes('hybride')) return '3';
+  if (key.includes('gnv') || key.includes('cng')) return 'C';
+  if (key.includes('gpl') || key.includes('lpg')) return 'L';
+  if (key.includes('hydrogen') || key.includes('hydrogene')) return 'H';
+  return null;
 }
 
 export function getAs24PowerParams(hp) {

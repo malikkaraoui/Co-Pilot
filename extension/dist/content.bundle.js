@@ -1712,10 +1712,29 @@
     return TRANSMISSION_MAP[key] || transmission;
   }
   function getAs24GearCode(gearbox) {
-    return AS24_GEAR_MAP[(gearbox || "").toLowerCase()] || null;
+    const raw = typeof gearbox === "string" ? gearbox : String(gearbox || "");
+    if (!raw.trim()) return null;
+    const key = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (AS24_GEAR_MAP[key]) return AS24_GEAR_MAP[key];
+    if (key.includes("manual") || key.includes("manuelle") || key.includes("manuelle")) return "M";
+    if (key.includes("auto")) return "A";
+    return null;
   }
   function getAs24FuelCode(fuel) {
-    return AS24_FUEL_CODE_MAP[(fuel || "").toLowerCase()] || null;
+    const raw = typeof fuel === "string" ? fuel : String(fuel || "");
+    if (!raw.trim()) return null;
+    const key = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (AS24_FUEL_CODE_MAP[key]) return AS24_FUEL_CODE_MAP[key];
+    if (key.includes("diesel") || key.includes("gazole")) return "D";
+    if (key.includes("essence") || key.includes("gasoline") || key.includes("petrol") || key.includes("benzin")) return "B";
+    if (key.includes("electri")) return "E";
+    if (key.includes("plug") && key.includes("hybrid")) return "2";
+    if (key.includes("phev")) return "2";
+    if (key.includes("hybrid") || key.includes("hybride")) return "3";
+    if (key.includes("gnv") || key.includes("cng")) return "C";
+    if (key.includes("gpl") || key.includes("lpg")) return "L";
+    if (key.includes("hydrogen") || key.includes("hydrogene")) return "H";
+    return null;
   }
   function getAs24PowerParams(hp) {
     if (!hp || hp <= 0) return {};
@@ -2868,7 +2887,7 @@
       const fuelKey = this._rsc?.fuelType || this._adData?.fuel || null;
       const hp = parseInt(this._adData.power_din_hp, 10) || 0;
       const km = parseInt(this._adData.mileage_km, 10) || 0;
-      const gearRaw = this._rsc?.transmissionType || "";
+      const gearRaw = this._rsc?.transmissionType || this._adData?.gearbox || "";
       const gearCode = getAs24GearCode(gearRaw);
       const hpRangeStr = getHpRangeString(hp);
       const zipcode = this._adData?.location?.zipcode;
@@ -4480,12 +4499,16 @@
       const ib = FILTER_DISPLAY_ORDER.indexOf(b.filter_id);
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
     });
+    const nonL9Filters = sorted.filter((x) => x.filter_id !== "L9");
+    const totalNonL9 = nonL9Filters.length;
+    const evaluatedNonL9 = nonL9Filters.filter((x) => x.status !== "skip").length;
+    const l9CoverageRatio = totalNonL9 > 0 ? evaluatedNonL9 / totalNonL9 : 1;
     return sorted.map((f) => {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
       const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="copilot-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
-      const scoreBarHTML = buildScoreBar(f);
+      const scoreBarHTML = f.filter_id === "L9" && f.status !== "skip" && f.status !== "neutral" ? buildScoreBar({ ...f, score: Math.min(f.score, l9CoverageRatio) }) : buildScoreBar(f);
       const bodyHTML = buildFilterBody(f, vehicle, sorted);
       return `
         <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">

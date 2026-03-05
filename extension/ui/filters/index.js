@@ -44,6 +44,11 @@ export function buildFiltersList(filters, vehicle) {
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
   });
 
+  const nonL9Filters = sorted.filter((x) => x.filter_id !== "L9");
+  const totalNonL9 = nonL9Filters.length;
+  const evaluatedNonL9 = nonL9Filters.filter((x) => x.status !== "skip").length;
+  const l9CoverageRatio = totalNonL9 > 0 ? evaluatedNonL9 / totalNonL9 : 1;
+
   return sorted
     .map((f) => {
       const color = statusColor(f.status);
@@ -52,7 +57,9 @@ export function buildFiltersList(filters, vehicle) {
       const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4"
         ? '<span class="copilot-badge-simulated">Données simulées</span>'
         : "";
-      const scoreBarHTML = buildScoreBar(f);
+      const scoreBarHTML = f.filter_id === "L9" && f.status !== "skip" && f.status !== "neutral"
+        ? buildScoreBar({ ...f, score: Math.min(f.score, l9CoverageRatio) })
+        : buildScoreBar(f);
       const bodyHTML = buildFilterBody(f, vehicle, sorted);
       return `
         <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
