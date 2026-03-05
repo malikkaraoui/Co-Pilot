@@ -285,8 +285,14 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     // ── 4. Build cascade strategies ───────────────────────────────
+    const normalizedAdFuel = this._adData?.fuel ? mapFuelType(this._adData.fuel) : null;
+    const normalizedTargetFuel = target?.fuel ? mapFuelType(target.fuel) : null;
     const fuelCode = getAs24FuelCode(this._rsc?.fuelType)
+      || getAs24FuelCode(this._rsc?.fuel)
       || getAs24FuelCode(this._adData?.fuel)
+      || getAs24FuelCode(normalizedAdFuel)
+      || getAs24FuelCode(target?.fuel)
+      || getAs24FuelCode(normalizedTargetFuel)
       || (fuelKey ? getAs24FuelCode(fuelKey) : null)
       || null;
     const targetCantonZip = getCantonCenterZip(targetRegion);

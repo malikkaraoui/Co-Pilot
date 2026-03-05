@@ -1431,6 +1431,22 @@ describe('getAs24FuelCode', () => {
     expect(getAs24FuelCode('electric/diesel')).toBe('3');
   });
 
+  it('keeps direct AS24 fuel letter-codes', () => {
+    expect(getAs24FuelCode('B')).toBe('B');
+    expect(getAs24FuelCode('d')).toBe('D');
+    expect(getAs24FuelCode('E')).toBe('E');
+  });
+
+  it('keeps direct AS24 mixed fuel numeric-codes', () => {
+    expect(getAs24FuelCode('2')).toBe('2');
+    expect(getAs24FuelCode('3')).toBe('3');
+  });
+
+  it('maps object-shaped payload values', () => {
+    expect(getAs24FuelCode({ value: 'Diesel' })).toBe('D');
+    expect(getAs24FuelCode({ raw: 'B' })).toBe('B');
+  });
+
   it('is case insensitive', () => {
     expect(getAs24FuelCode('Diesel')).toBe('D');
     expect(getAs24FuelCode('ESSENCE')).toBe('B');

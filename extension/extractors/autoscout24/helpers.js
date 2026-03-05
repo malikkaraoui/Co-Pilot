@@ -74,7 +74,11 @@ export function getAs24GearCode(gearbox) {
 }
 
 export function getAs24FuelCode(fuel) {
-  const raw = typeof fuel === 'string' ? fuel : String(fuel || '');
+  const raw = typeof fuel === 'string'
+    ? fuel
+    : (fuel && typeof fuel === 'object'
+      ? (fuel.label || fuel.name || fuel.value || fuel.type || fuel.fuelType || fuel.fuel || fuel.raw || '')
+      : String(fuel || ''));
   if (!raw.trim()) return null;
   const key = raw
     .toLowerCase()
@@ -86,6 +90,10 @@ export function getAs24FuelCode(fuel) {
   const hasElectric = /electri|elektrycz/.test(key);
   const hasGasoline = /gasoline|benzin|benzine|benzyn|essence|petrol|gasolina/.test(key);
   const hasDiesel = /diesel|gazole/.test(key) || (key.includes('olej') && key.includes('naped'));
+
+  // Already an AS24 fuel code (can happen in some payload variants).
+  if (/^[bdeclh]$/.test(key)) return key.toUpperCase();
+  if (key === '2' || key === '3') return key;
 
   if (AS24_FUEL_CODE_MAP[key]) return AS24_FUEL_CODE_MAP[key];
   if (AS24_FUEL_CODE_MAP[compact]) return AS24_FUEL_CODE_MAP[compact];

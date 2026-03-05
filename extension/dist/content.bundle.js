@@ -1725,13 +1725,15 @@
     return null;
   }
   function getAs24FuelCode(fuel) {
-    const raw = typeof fuel === "string" ? fuel : String(fuel || "");
+    const raw = typeof fuel === "string" ? fuel : fuel && typeof fuel === "object" ? fuel.label || fuel.name || fuel.value || fuel.type || fuel.fuelType || fuel.fuel || fuel.raw || "" : String(fuel || "");
     if (!raw.trim()) return null;
     const key = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     const compact = key.replace(/\s+/g, "");
     const hasElectric = /electri|elektrycz/.test(key);
     const hasGasoline = /gasoline|benzin|benzine|benzyn|essence|petrol|gasolina/.test(key);
     const hasDiesel = /diesel|gazole/.test(key) || key.includes("olej") && key.includes("naped");
+    if (/^[bdeclh]$/.test(key)) return key.toUpperCase();
+    if (key === "2" || key === "3") return key;
     if (AS24_FUEL_CODE_MAP[key]) return AS24_FUEL_CODE_MAP[key];
     if (AS24_FUEL_CODE_MAP[compact]) return AS24_FUEL_CODE_MAP[compact];
     if (hasElectric && hasGasoline) return "2";
@@ -2971,7 +2973,9 @@
       if (progress) {
         progress.update("job", "done", targetLabel + (isCurrentVehicle ? ` (${targetRegion})` : " (autre v\xE9hicule)"));
       }
-      const fuelCode = getAs24FuelCode(this._rsc?.fuelType) || getAs24FuelCode(this._adData?.fuel) || (fuelKey ? getAs24FuelCode(fuelKey) : null) || null;
+      const normalizedAdFuel = this._adData?.fuel ? mapFuelType(this._adData.fuel) : null;
+      const normalizedTargetFuel = target?.fuel ? mapFuelType(target.fuel) : null;
+      const fuelCode = getAs24FuelCode(this._rsc?.fuelType) || getAs24FuelCode(this._rsc?.fuel) || getAs24FuelCode(this._adData?.fuel) || getAs24FuelCode(normalizedAdFuel) || getAs24FuelCode(target?.fuel) || getAs24FuelCode(normalizedTargetFuel) || (fuelKey ? getAs24FuelCode(fuelKey) : null) || null;
       const targetCantonZip = getCantonCenterZip(targetRegion);
       const strategies = [];
       function _filtersApplied(opts) {
