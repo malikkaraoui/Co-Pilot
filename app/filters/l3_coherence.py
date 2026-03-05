@@ -1,6 +1,7 @@
 """Filtre L3 Coherence -- verifie la coherence croisee des donnees de l'annonce."""
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -28,12 +29,33 @@ class L3CoherenceFilter(BaseFilter):
 
     filter_id = "L3"
 
+    @staticmethod
+    def _parse_fiscal_power_cv(raw: Any) -> int | None:
+        """Extrait la puissance fiscale en CV depuis int/str (ex: "1", "1 Cv")."""
+        if raw is None:
+            return None
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, float):
+            return int(raw)
+        text = str(raw).strip()
+        m = re.search(r"\d+", text)
+        if not m:
+            return None
+        try:
+            return int(m.group(0))
+        except ValueError:
+            return None
+
     def run(self, data: dict[str, Any]) -> FilterResult:
         year_str = data.get("year_model")
         mileage = data.get("mileage_km")
         price = data.get("price_eur")
         make = data.get("make") or ""
         model = data.get("model") or ""
+        fiscal_power_cv = self._parse_fiscal_power_cv(
+            data.get("power_fiscal_cv", data.get("fiscal_hp"))
+        )
 
         if year_str is None or mileage is None:
             return self.skip("Année ou kilométrage non disponible")
@@ -56,8 +78,8 @@ class L3CoherenceFilter(BaseFilter):
             )
 
         # km/an attendu adapte a la categorie du vehicule
-        avg_km_per_year = get_expected_km_per_year(make, model)
-        category = get_vehicle_category(make, model)
+        avg_km_per_year = get_expected_km_per_year(make, model, fiscal_hp=fiscal_power_cv)
+        category = get_vehicle_category(make, model, fiscal_hp=fiscal_power_cv)
 
         # Donnee reelle LBC : vendeur pro = probable ex-flotte/LOA
         owner_type = data.get("owner_type")
@@ -153,6 +175,8 @@ class L3CoherenceFilter(BaseFilter):
                 "expected_km": expected_km,
                 "km_ratio": round(km_ratio, 2),
                 "category": category,
+                "fiscal_power_cv": fiscal_power_cv,
+                "is_voiture_sans_permis": category == "voiture_sans_permis",
                 "is_pro": is_pro,
                 "is_recent_low_km": is_recent_low_km,
                 "avg_km_per_year": avg_km_per_year,

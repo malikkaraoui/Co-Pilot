@@ -51,6 +51,7 @@ class TestL6PhoneFilter:
         result = self.filt.run({"phone": "123"})
         assert result.status == "pass"
         assert result.details["type"] == "present_unverified"
+        assert "non vérifié strictement" in result.message
 
     # ── No phone: private vs pro ─────────────────────────────────────
 

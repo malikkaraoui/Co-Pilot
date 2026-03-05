@@ -298,12 +298,13 @@ def car():
     )
 
     # Exclure les vehicules deja ajoutes au referentiel + les generiques ("Autres")
-    from app.services.vehicle_lookup import find_vehicle, is_generic_model
+    from app.services.vehicle_lookup import find_vehicle, is_generic_brand, is_generic_model
 
     unrecognized_rows = [
         row
         for row in unrecognized_rows_raw
-        if not find_vehicle(row.vehicle_make, row.vehicle_model)
+        if not is_generic_brand(row.vehicle_make)
+        and not find_vehicle(row.vehicle_make, row.vehicle_model)
         and not is_generic_model(row.vehicle_model, row.vehicle_make)
     ]
 
@@ -427,11 +428,14 @@ def car():
     # Marques dans le marche (MarketPrice)
     market_brands = {m.make.lower() for m in db.session.query(MarketPrice.make).distinct().all()}
 
-    from app.services.vehicle_lookup import BRAND_ALIASES, normalize_brand
+    from app.services.vehicle_lookup import BRAND_ALIASES, is_generic_brand, normalize_brand
 
     brand_coverage = []
     for row in scanned_brands_raw:
         brand_raw = row.vehicle_make
+        if is_generic_brand(brand_raw):
+            continue
+
         brand_norm = normalize_brand(brand_raw)
         in_referentiel = brand_norm in ref_brands
         in_market = brand_norm in market_brands or brand_raw.lower() in market_brands

@@ -25,6 +25,21 @@ GENERIC_MODELS: frozenset[str] = frozenset(
     }
 )
 
+# Marques generiques/placeholder vues dans certains scans (ex. formulaire incomplet).
+# Ces valeurs ne correspondent pas a de vraies marques et doivent etre ignorees.
+GENERIC_BRANDS: frozenset[str] = frozenset(
+    {
+        "marque",
+        "autres",
+        "autre",
+        "other",
+        "divers",
+        "unknown",
+        "n/a",
+        "na",
+    }
+)
+
 # Faux modeles par marque : gammes, carrosseries, ou noms de marque repetes.
 # Cle = marque canonique (minuscules), valeur = set de faux modeles (minuscules, sans accents).
 # Sources verifiees : structure BMW (Serie = gamme), VW (Multivan/Caravelle/Combi = gamme T),
@@ -92,6 +107,12 @@ def is_generic_model(model: str, make: str = "") -> bool:
             return True
 
     return False
+
+
+def is_generic_brand(brand: str) -> bool:
+    """True si la marque est un placeholder generique (Marque/Autres/etc.)."""
+    normalized = _strip_accents(brand.strip().lower())
+    return normalized in GENERIC_BRANDS
 
 
 # Alias de marques courantes -> nom canonique en base.

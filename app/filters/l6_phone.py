@@ -216,7 +216,7 @@ class L6PhoneFilter(BaseFilter):
             filter_id=self.filter_id,
             status="pass",
             score=0.8,
-            message="Numéro de téléphone présent",
+            message="Numéro présent (format non vérifié strictement)",
             details={"phone": phone, "type": "present_unverified"},
         )
 
@@ -245,7 +245,7 @@ class L6PhoneFilter(BaseFilter):
             filter_id=self.filter_id,
             status="pass",
             score=0.8,
-            message="Numéro de téléphone présent",
+            message="Numéro présent (format non vérifié strictement)",
             details={"phone": phone, "type": "present_unverified"},
         )
 
@@ -274,7 +274,7 @@ class L6PhoneFilter(BaseFilter):
             filter_id=self.filter_id,
             status="pass",
             score=0.8,
-            message="Numéro de téléphone présent",
+            message="Numéro présent (format non vérifié strictement)",
             details={"phone": phone, "type": "present_unverified"},
         )
 
@@ -286,7 +286,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=0.8,
-                message=f"Numéro avec indicatif local ({country})",
+                message=f"Numéro local ({country}) — format non vérifié strictement",
                 details={"phone": phone, "type": f"local_{country.lower()}"},
             )
 
@@ -296,7 +296,7 @@ class L6PhoneFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=0.7,
-                message="Numéro local",
+                message="Numéro local (format non vérifié strictement)",
                 details={"phone": phone, "type": "local_generic"},
             )
 
@@ -305,6 +305,6 @@ class L6PhoneFilter(BaseFilter):
             filter_id=self.filter_id,
             status="pass",
             score=0.8,
-            message="Numéro de téléphone présent",
+            message="Numéro présent (format non vérifié strictement)",
             details={"phone": phone, "type": "present_unverified"},
         )

@@ -14,7 +14,20 @@ KM_PER_YEAR = {
     "berline": 18000,
     "electrique": 12000,
     "utilitaire": 20000,
+    "voiture_sans_permis": 6000,
 }
+
+# Marques typiques de voitures sans permis (quadricycles légers).
+VSP_BRANDS: frozenset[str] = frozenset(
+    {
+        "aixam",
+        "ligier",
+        "microcar",
+        "chatenet",
+        "bellier",
+        "casalini",
+    }
+)
 
 # Mapping (marque, modele) -> categorie
 # Normalise en minuscules pour le matching
@@ -104,15 +117,33 @@ VEHICLE_CATEGORY: dict[tuple[str, str], str] = {
 }
 
 
-def get_vehicle_category(make: str, model: str) -> str | None:
+def is_voiture_sans_permis(make: str, fiscal_hp: int | None = None) -> bool:
+    """Detecte les voitures sans permis via marque connue ou puissance fiscale typique.
+
+    Heuristique metier:
+    - marques VSP connues (Aixam, Ligier, ...)
+    - puissance fiscale <= 1 CV (signal fort vu sur les annonces VSP)
+    """
+    brand = (make or "").lower().strip()
+    if brand in VSP_BRANDS:
+        return True
+    if fiscal_hp is not None and fiscal_hp <= 1:
+        return True
+    return False
+
+
+def get_vehicle_category(make: str, model: str, fiscal_hp: int | None = None) -> str | None:
     """Retourne la categorie du vehicule ou None si inconnu."""
+    if is_voiture_sans_permis(make, fiscal_hp):
+        return "voiture_sans_permis"
+
     key = (make.lower().strip(), model.lower().strip())
     return VEHICLE_CATEGORY.get(key)
 
 
-def get_expected_km_per_year(make: str, model: str) -> int:
+def get_expected_km_per_year(make: str, model: str, fiscal_hp: int | None = None) -> int:
     """Retourne le km/an attendu pour ce vehicule selon sa categorie."""
-    category = get_vehicle_category(make, model)
+    category = get_vehicle_category(make, model, fiscal_hp=fiscal_hp)
     if category:
         return KM_PER_YEAR[category]
     return 15000  # fallback moyen national

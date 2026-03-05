@@ -110,3 +110,19 @@ class TestL3CoherenceFilter:
         }
         result = self.filt.run(data)
         assert result.status in ("warning", "fail")
+
+    def test_voiture_sans_permis_aixam_low_annual_km_is_normal(self):
+        """AIXAM (VSP) ne suit pas la moyenne 15 000 km/an d'une voiture classique."""
+        data = {
+            "make": "AIXAM",
+            "model": "City",
+            "year_model": "2022",
+            "mileage_km": 24000,
+            "power_fiscal_cv": 1,
+            "price_eur": 9790,
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert result.details["category"] == "voiture_sans_permis"
+        assert result.details["is_voiture_sans_permis"] is True
+        assert result.details["avg_km_per_year"] == 6000
