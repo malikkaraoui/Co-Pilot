@@ -83,8 +83,8 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
   });
   if (fuel) params.set('fuel', fuel);
   if (gear) params.set('gear', gear);
-  if (powerfrom) { params.set('powerfrom', String(powerfrom)); params.set('powertype', 'ps'); }
-  if (powerto) { params.set('powerto', String(powerto)); params.set('powertype', 'ps'); }
+  if (powerfrom) params.set('powerfrom', String(powerfrom));
+  if (powerto) params.set('powerto', String(powerto));
   if (kmfrom) params.set('kmfrom', String(kmfrom));
   if (kmto) params.set('kmto', String(kmto));
   if (zip) { params.set('zip', String(zip)); params.set('zipr', String(radius || 50)); }

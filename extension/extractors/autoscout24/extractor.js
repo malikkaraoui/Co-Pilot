@@ -313,9 +313,9 @@ export class AutoScout24Extractor extends SiteExtractor {
       const hasFuel = Boolean(fuelCode);
       const hasHp = Boolean(powerParams.powerfrom || powerParams.powerto);
 
-      const withRelevantFilters = (baseOpts, { includeGear = true, includeKm = false } = {}) => {
+      const withRelevantFilters = (baseOpts, { includeGear = true, includeKm = false, includeFuel = true } = {}) => {
         const opts = { ...baseOpts };
-        if (hasFuel) opts.fuel = fuelCode;
+        if (includeFuel && hasFuel) opts.fuel = fuelCode;
         if (hasHp) Object.assign(opts, powerParams);
         if (includeGear && gearCode) opts.gear = gearCode;
         if (includeKm) Object.assign(opts, kmParams);
@@ -339,6 +339,14 @@ export class AutoScout24Extractor extends SiteExtractor {
       if (gearCode) {
         const opts5 = withRelevantFilters({ yearSpread: 2 }, { includeGear: false, includeKm: false });
         strategies.push({ ...opts5, precision: 2, label: 'National ±2ans (sans boîte)', location_type: 'national', filters_applied: _filtersApplied(opts5) });
+      }
+
+      const isHybridFuelCode = fuelCode === '2' || fuelCode === '3';
+      if (isHybridFuelCode) {
+        const opts6 = withRelevantFilters({ yearSpread: 1 }, { includeGear: true, includeKm: false, includeFuel: false });
+        strategies.push({ ...opts6, precision: 2, label: 'National ±1an (sans carburant)', location_type: 'national', filters_applied: _filtersApplied(opts6) });
+        const opts7 = withRelevantFilters({ yearSpread: 2 }, { includeGear: true, includeKm: false, includeFuel: false });
+        strategies.push({ ...opts7, precision: 2, label: 'National ±2ans (sans carburant)', location_type: 'national', filters_applied: _filtersApplied(opts7) });
       }
     } else {
       if (targetCantonZip) {
@@ -390,7 +398,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     function _criteriaSummary(opts, yearMeta) {
       const fuelVal = opts.fuel || 'any';
       const gearVal = opts.gear || 'any';
-      const hpVal = (opts.powerfrom || opts.powerto)
+      const powerVal = (opts.powerfrom || opts.powerto)
         ? `${opts.powerfrom ?? 'min'}-${opts.powerto ?? 'max'}`
         : 'any';
       const modelVal = `${target.model} [mo-${targetModelKey}]`;
@@ -402,7 +410,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         `model=${modelVal}`,
         `fuel=${fuelVal}`,
         `boite=${gearVal}`,
-        `CV=${hpVal}`,
+        `kW=${powerVal}`,
         `année=${yearVal}`,
       ].join(' · ');
     }
@@ -617,7 +625,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     function _bonusCriteriaSummary(job, opts, yearMeta, jobMakeKey, jobModelKey) {
       const fuelVal = opts.fuel || 'any';
       const gearVal = opts.gear || 'any';
-      const hpVal = (opts.powerfrom || opts.powerto)
+      const powerVal = (opts.powerfrom || opts.powerto)
         ? `${opts.powerfrom ?? 'min'}-${opts.powerto ?? 'max'}`
         : 'any';
       const modelVal = opts.brandOnly
@@ -631,7 +639,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         `model=${modelVal}`,
         `fuel=${fuelVal}`,
         `boite=${gearVal}`,
-        `CV=${hpVal}`,
+        `kW=${powerVal}`,
         `année=${yearVal}`,
       ].join(' · ');
     }
@@ -707,6 +715,14 @@ export class AutoScout24Extractor extends SiteExtractor {
           pushBonusStrategy('National ±2ans', nationalWide, 2);
         } else {
           pushBonusStrategy('National ±2ans', { ...strictSearchOpts, yearSpread: 2 }, 2);
+        }
+
+        const isHybridBonusFuel = strictSearchOpts.fuel === '2' || strictSearchOpts.fuel === '3';
+        if (isHybridBonusFuel) {
+          const noFuel = { ...strictSearchOpts };
+          delete noFuel.fuel;
+          pushBonusStrategy('Sans carburant ±1an', noFuel, 2);
+          pushBonusStrategy('Sans carburant ±2ans', { ...noFuel, yearSpread: 2 }, 2);
         }
 
         let selected = null;

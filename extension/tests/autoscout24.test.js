@@ -765,11 +765,11 @@ describe('buildSearchUrl', () => {
     expect(url).toContain('gear=A');
   });
 
-  it('includes power params with powertype=ps', () => {
+  it('includes power params', () => {
     const url = buildSearchUrl('vw', 'golf', 2021, 'ch', { powerfrom: 170, powerto: 260 });
     expect(url).toContain('powerfrom=170');
     expect(url).toContain('powerto=260');
-    expect(url).toContain('powertype=ps');
+    expect(url).not.toContain('powertype=');
   });
 
   it('includes km range params', () => {
@@ -1272,20 +1272,20 @@ describe('getAs24PowerParams', () => {
   });
 
   it('returns {powerto: 90} for low hp', () => {
-    expect(getAs24PowerParams(75)).toEqual({ powerto: 90 });
+    expect(getAs24PowerParams(75)).toEqual({ powerto: 66 });
   });
 
   it('returns correct range for mid hp', () => {
-    expect(getAs24PowerParams(100)).toEqual({ powerfrom: 70, powerto: 120 });
-    expect(getAs24PowerParams(136)).toEqual({ powerfrom: 100, powerto: 150 });
+    expect(getAs24PowerParams(100)).toEqual({ powerfrom: 51, powerto: 88 });
+    expect(getAs24PowerParams(136)).toEqual({ powerfrom: 74, powerto: 110 });
   });
 
   it('returns correct range for GTI hp (245)', () => {
-    expect(getAs24PowerParams(245)).toEqual({ powerfrom: 170, powerto: 260 });
+    expect(getAs24PowerParams(245)).toEqual({ powerfrom: 125, powerto: 191 });
   });
 
   it('returns {powerfrom: 340} for high hp', () => {
-    expect(getAs24PowerParams(400)).toEqual({ powerfrom: 340 });
+    expect(getAs24PowerParams(400)).toEqual({ powerfrom: 250 });
   });
 });
 
@@ -1464,15 +1464,15 @@ describe('getAs24FuelCode', () => {
 
 describe('parseHpRange', () => {
   it('parses 170-260 into powerfrom/powerto', () => {
-    expect(parseHpRange('170-260')).toEqual({ powerfrom: 170, powerto: 260 });
+    expect(parseHpRange('170-260')).toEqual({ powerfrom: 125, powerto: 191 });
   });
 
   it('parses min-90 into powerto only', () => {
-    expect(parseHpRange('min-90')).toEqual({ powerto: 90 });
+    expect(parseHpRange('min-90')).toEqual({ powerto: 66 });
   });
 
   it('parses 340-max into powerfrom only', () => {
-    expect(parseHpRange('340-max')).toEqual({ powerfrom: 340 });
+    expect(parseHpRange('340-max')).toEqual({ powerfrom: 250 });
   });
 
   it('returns empty for null/empty', () => {

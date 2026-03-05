@@ -1751,13 +1751,14 @@
   }
   function getAs24PowerParams(hp) {
     if (!hp || hp <= 0) return {};
-    if (hp < 80) return { powerto: 90 };
-    if (hp < 110) return { powerfrom: 70, powerto: 120 };
-    if (hp < 140) return { powerfrom: 100, powerto: 150 };
-    if (hp < 180) return { powerfrom: 130, powerto: 190 };
-    if (hp < 250) return { powerfrom: 170, powerto: 260 };
-    if (hp < 350) return { powerfrom: 240, powerto: 360 };
-    return { powerfrom: 340 };
+    const hpToKw = (v) => Math.round(v * 0.7355);
+    if (hp < 80) return { powerto: hpToKw(90) };
+    if (hp < 110) return { powerfrom: hpToKw(70), powerto: hpToKw(120) };
+    if (hp < 140) return { powerfrom: hpToKw(100), powerto: hpToKw(150) };
+    if (hp < 180) return { powerfrom: hpToKw(130), powerto: hpToKw(190) };
+    if (hp < 250) return { powerfrom: hpToKw(170), powerto: hpToKw(260) };
+    if (hp < 350) return { powerfrom: hpToKw(240), powerto: hpToKw(360) };
+    return { powerfrom: hpToKw(340) };
   }
   function getAs24KmParams(km) {
     if (!km || km <= 0) return {};
@@ -1772,9 +1773,16 @@
     if (!hpRange) return {};
     const parts = hpRange.split("-");
     if (parts.length !== 2) return {};
+    const hpToKw = (v) => Math.round(v * 0.7355);
     const result = {};
-    if (parts[0] !== "min") result.powerfrom = parseInt(parts[0], 10);
-    if (parts[1] !== "max") result.powerto = parseInt(parts[1], 10);
+    if (parts[0] !== "min") {
+      const hpMin = parseInt(parts[0], 10);
+      if (Number.isFinite(hpMin)) result.powerfrom = hpToKw(hpMin);
+    }
+    if (parts[1] !== "max") {
+      const hpMax = parseInt(parts[1], 10);
+      if (Number.isFinite(hpMax)) result.powerto = hpToKw(hpMax);
+    }
     return result;
   }
   function getCantonCenterZip(canton) {
@@ -1846,14 +1854,8 @@
     });
     if (fuel) params.set("fuel", fuel);
     if (gear) params.set("gear", gear);
-    if (powerfrom) {
-      params.set("powerfrom", String(powerfrom));
-      params.set("powertype", "ps");
-    }
-    if (powerto) {
-      params.set("powerto", String(powerto));
-      params.set("powertype", "ps");
-    }
+    if (powerfrom) params.set("powerfrom", String(powerfrom));
+    if (powerto) params.set("powerto", String(powerto));
     if (kmfrom) params.set("kmfrom", String(kmfrom));
     if (kmto) params.set("kmto", String(kmto));
     if (zip) {
@@ -2991,9 +2993,9 @@
         const kmParams = getAs24KmParams(km);
         const hasFuel = Boolean(fuelCode);
         const hasHp = Boolean(powerParams.powerfrom || powerParams.powerto);
-        const withRelevantFilters = (baseOpts, { includeGear = true, includeKm = false } = {}) => {
+        const withRelevantFilters = (baseOpts, { includeGear = true, includeKm = false, includeFuel = true } = {}) => {
           const opts = { ...baseOpts };
-          if (hasFuel) opts.fuel = fuelCode;
+          if (includeFuel && hasFuel) opts.fuel = fuelCode;
           if (hasHp) Object.assign(opts, powerParams);
           if (includeGear && gearCode) opts.gear = gearCode;
           if (includeKm) Object.assign(opts, kmParams);
@@ -3016,6 +3018,13 @@
         if (gearCode) {
           const opts5 = withRelevantFilters({ yearSpread: 2 }, { includeGear: false, includeKm: false });
           strategies.push({ ...opts5, precision: 2, label: "National \xB12ans (sans bo\xEEte)", location_type: "national", filters_applied: _filtersApplied(opts5) });
+        }
+        const isHybridFuelCode = fuelCode === "2" || fuelCode === "3";
+        if (isHybridFuelCode) {
+          const opts6 = withRelevantFilters({ yearSpread: 1 }, { includeGear: true, includeKm: false, includeFuel: false });
+          strategies.push({ ...opts6, precision: 2, label: "National \xB11an (sans carburant)", location_type: "national", filters_applied: _filtersApplied(opts6) });
+          const opts7 = withRelevantFilters({ yearSpread: 2 }, { includeGear: true, includeKm: false, includeFuel: false });
+          strategies.push({ ...opts7, precision: 2, label: "National \xB12ans (sans carburant)", location_type: "national", filters_applied: _filtersApplied(opts7) });
         }
       } else {
         if (targetCantonZip) {
@@ -3064,7 +3073,7 @@
       function _criteriaSummary(opts, yearMeta) {
         const fuelVal = opts.fuel || "any";
         const gearVal = opts.gear || "any";
-        const hpVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
+        const powerVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
         const modelVal = `${target.model} [mo-${targetModelKey}]`;
         const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
         return [
@@ -3072,7 +3081,7 @@
           `model=${modelVal}`,
           `fuel=${fuelVal}`,
           `boite=${gearVal}`,
-          `CV=${hpVal}`,
+          `kW=${powerVal}`,
           `ann\xE9e=${yearVal}`
         ].join(" \xB7 ");
       }
@@ -3288,7 +3297,7 @@
       function _bonusCriteriaSummary(job, opts, yearMeta, jobMakeKey, jobModelKey) {
         const fuelVal = opts.fuel || "any";
         const gearVal = opts.gear || "any";
-        const hpVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
+        const powerVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
         const modelVal = opts.brandOnly ? "ALL (brandOnly)" : `${job.model} [mo-${jobModelKey}]`;
         const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
         return [
@@ -3296,7 +3305,7 @@
           `model=${modelVal}`,
           `fuel=${fuelVal}`,
           `boite=${gearVal}`,
-          `CV=${hpVal}`,
+          `kW=${powerVal}`,
           `ann\xE9e=${yearVal}`
         ].join(" \xB7 ");
       }
@@ -3361,6 +3370,13 @@
             pushBonusStrategy("National \xB12ans", nationalWide, 2);
           } else {
             pushBonusStrategy("National \xB12ans", { ...strictSearchOpts, yearSpread: 2 }, 2);
+          }
+          const isHybridBonusFuel = strictSearchOpts.fuel === "2" || strictSearchOpts.fuel === "3";
+          if (isHybridBonusFuel) {
+            const noFuel = { ...strictSearchOpts };
+            delete noFuel.fuel;
+            pushBonusStrategy("Sans carburant \xB11an", noFuel, 2);
+            pushBonusStrategy("Sans carburant \xB12ans", { ...noFuel, yearSpread: 2 }, 2);
           }
           let selected = null;
           let selectedPrices = [];

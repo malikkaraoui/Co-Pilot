@@ -116,13 +116,15 @@ export function getAs24FuelCode(fuel) {
 
 export function getAs24PowerParams(hp) {
   if (!hp || hp <= 0) return {};
-  if (hp < 80)  return { powerto: 90 };
-  if (hp < 110) return { powerfrom: 70, powerto: 120 };
-  if (hp < 140) return { powerfrom: 100, powerto: 150 };
-  if (hp < 180) return { powerfrom: 130, powerto: 190 };
-  if (hp < 250) return { powerfrom: 170, powerto: 260 };
-  if (hp < 350) return { powerfrom: 240, powerto: 360 };
-  return { powerfrom: 340 };
+  const hpToKw = (v) => Math.round(v * 0.7355);
+
+  if (hp < 80)  return { powerto: hpToKw(90) };
+  if (hp < 110) return { powerfrom: hpToKw(70), powerto: hpToKw(120) };
+  if (hp < 140) return { powerfrom: hpToKw(100), powerto: hpToKw(150) };
+  if (hp < 180) return { powerfrom: hpToKw(130), powerto: hpToKw(190) };
+  if (hp < 250) return { powerfrom: hpToKw(170), powerto: hpToKw(260) };
+  if (hp < 350) return { powerfrom: hpToKw(240), powerto: hpToKw(360) };
+  return { powerfrom: hpToKw(340) };
 }
 
 export function getAs24KmParams(km) {
@@ -141,9 +143,16 @@ export function parseHpRange(hpRange) {
   if (!hpRange) return {};
   const parts = hpRange.split('-');
   if (parts.length !== 2) return {};
+  const hpToKw = (v) => Math.round(v * 0.7355);
   const result = {};
-  if (parts[0] !== 'min') result.powerfrom = parseInt(parts[0], 10);
-  if (parts[1] !== 'max') result.powerto = parseInt(parts[1], 10);
+  if (parts[0] !== 'min') {
+    const hpMin = parseInt(parts[0], 10);
+    if (Number.isFinite(hpMin)) result.powerfrom = hpToKw(hpMin);
+  }
+  if (parts[1] !== 'max') {
+    const hpMax = parseInt(parts[1], 10);
+    if (Number.isFinite(hpMax)) result.powerto = hpToKw(hpMax);
+  }
   return result;
 }
 
