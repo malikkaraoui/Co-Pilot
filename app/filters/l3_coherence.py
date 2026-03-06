@@ -9,6 +9,7 @@ from app.filters.base import BaseFilter, FilterResult
 from app.filters.vehicle_categories import (
     get_expected_km_per_year,
     get_vehicle_category,
+    is_sportive,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,22 @@ class L3CoherenceFilter(BaseFilter):
         except ValueError:
             return None
 
+    @staticmethod
+    def _parse_power_din_hp(raw: Any) -> int | None:
+        """Extrait la puissance DIN en CV depuis int/str."""
+        if raw is None:
+            return None
+        if isinstance(raw, (int, float)):
+            return int(raw)
+        text = str(raw).strip()
+        m = re.search(r"\d+", text)
+        if not m:
+            return None
+        try:
+            return int(m.group(0))
+        except ValueError:
+            return None
+
     def run(self, data: dict[str, Any]) -> FilterResult:
         year_str = data.get("year_model")
         mileage = data.get("mileage_km")
@@ -55,6 +72,9 @@ class L3CoherenceFilter(BaseFilter):
         model = data.get("model") or ""
         fiscal_power_cv = self._parse_fiscal_power_cv(
             data.get("power_fiscal_cv", data.get("fiscal_hp"))
+        )
+        power_din_hp = self._parse_power_din_hp(
+            data.get("power_din_hp") or data.get("power_hp") or data.get("horse_power_din")
         )
 
         if year_str is None or mileage is None:
@@ -78,12 +98,19 @@ class L3CoherenceFilter(BaseFilter):
             )
 
         # km/an attendu adapte a la categorie du vehicule
-        avg_km_per_year = get_expected_km_per_year(make, model, fiscal_hp=fiscal_power_cv)
-        category = get_vehicle_category(make, model, fiscal_hp=fiscal_power_cv)
+        avg_km_per_year = get_expected_km_per_year(
+            make, model, fiscal_hp=fiscal_power_cv, power_din_hp=power_din_hp
+        )
+        category = get_vehicle_category(
+            make, model, fiscal_hp=fiscal_power_cv, power_din_hp=power_din_hp
+        )
 
         # Donnee reelle LBC : vendeur pro = probable ex-flotte/LOA
         owner_type = data.get("owner_type")
         is_pro = owner_type == "pro"
+
+        # Sportive/super-sportive : km faible = normal et positif
+        vehicle_is_sportive = is_sportive(power_din_hp=power_din_hp, fiscal_hp=fiscal_power_cv)
 
         warnings = []
         expected_km = age * avg_km_per_year
@@ -95,10 +122,17 @@ class L3CoherenceFilter(BaseFilter):
             km_ratio = 1.0 if mileage < 20000 else 2.0
 
         if km_ratio < (1 - KM_TOLERANCE_PCT):
+            # Sportive avec km bas : c'est un bon signe, pas suspect
+            if vehicle_is_sportive:
+                warnings.append(
+                    f"Kilométrage faible ({mileage:,} km pour {age} ans) "
+                    f"— c'est plutôt bien pour une sportive de ce type, "
+                    f"ces voitures roulent peu"
+                )
             # Vehicule tres recent (<=1 an) avec km quasi-nul :
             # probable immatriculation constructeur pour gonfler les stats de vente,
             # pas un compteur trafique.
-            if age <= 1 and mileage < 1000:
+            elif age <= 1 and mileage < 1000:
                 if is_pro:
                     warnings.append(
                         f"Véhicule quasi-neuf ({mileage:,} km) vendu par un pro "
@@ -144,7 +178,10 @@ class L3CoherenceFilter(BaseFilter):
             status = "pass"
             message = "Cohérence des données OK"
         elif len(warnings) == 1:
-            if is_recent_low_km and is_pro:
+            if vehicle_is_sportive and "sportive" in warnings[0]:
+                # Sportive avec km faible : bon signe, informatif
+                score = 0.85
+            elif is_recent_low_km and is_pro:
                 # Immatriculation constructeur chez un pro : informatif, pas alarmant
                 score = 0.7
             elif is_recent_low_km:
@@ -176,7 +213,9 @@ class L3CoherenceFilter(BaseFilter):
                 "km_ratio": round(km_ratio, 2),
                 "category": category,
                 "fiscal_power_cv": fiscal_power_cv,
+                "power_din_hp": power_din_hp,
                 "is_voiture_sans_permis": category == "voiture_sans_permis",
+                "is_sportive": vehicle_is_sportive,
                 "is_pro": is_pro,
                 "is_recent_low_km": is_recent_low_km,
                 "avg_km_per_year": avg_km_per_year,

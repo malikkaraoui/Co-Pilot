@@ -3766,7 +3766,11 @@
             textArea.value = data.data.generated_text;
             result.style.display = "block";
           } else {
-            errorDiv.textContent = data.error || "Erreur de g\xE9n\xE9ration";
+            let msg = data.error || "Erreur de g\xE9n\xE9ration";
+            if (msg.length > 120 || msg.includes("googleapis") || msg.includes("INVALID_ARGUMENT")) {
+              msg = "Service de r\xE9daction temporairement indisponible.";
+            }
+            errorDiv.textContent = msg;
             errorDiv.style.display = "block";
             emailBtn.style.display = "block";
           }

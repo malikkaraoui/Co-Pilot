@@ -100,8 +100,19 @@ def generate_text(
             contents=prompt,
             config=config_dict,
         )
+    except ValueError:
+        # Re-raise ValueError (missing API key) as-is
+        raise
     except Exception as exc:
-        raise ConnectionError(f"Gemini erreur: {exc}") from exc
+        logger.error("Gemini API error: %s", exc)
+        exc_str = str(exc).lower()
+        if "api_key_invalid" in exc_str or "api key not valid" in exc_str:
+            raise ConnectionError("Cle API Gemini invalide. Contactez l'administrateur.") from exc
+        if "quota" in exc_str or "rate_limit" in exc_str:
+            raise ConnectionError("Quota Gemini depasse. Reessayez plus tard.") from exc
+        raise ConnectionError(
+            "Service Gemini temporairement indisponible. Reessayez plus tard."
+        ) from exc
 
     # Extraire les metriques de tokens
     usage = response.usage_metadata

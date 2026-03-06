@@ -2,6 +2,10 @@
 
 Savoir metier : une citadine fait moins de km/an qu'un SUV familial.
 Sources km/an : moyennes nationales INSEE / SDES (enquete mobilite).
+
+Sportives/super-sportives : ~5 000 km/an.
+Ces vehicules sont utilises en loisir, pas au quotidien.
+Un km faible est normal et meme souhaitable.
 """
 
 # km/an moyens par categorie
@@ -15,7 +19,13 @@ KM_PER_YEAR = {
     "electrique": 12000,
     "utilitaire": 20000,
     "voiture_sans_permis": 6000,
+    "sportive": 5000,
 }
+
+# Seuils de puissance pour considerer un vehicule comme sportive/super-sportive.
+# >400 CV DIN ou >45 CV fiscaux : ces voitures roulent peu (loisir, circuit).
+SPORTIVE_DIN_HP_THRESHOLD = 400
+SPORTIVE_FISCAL_HP_THRESHOLD = 45
 
 # Marques typiques de voitures sans permis (quadricycles légers).
 VSP_BRANDS: frozenset[str] = frozenset(
@@ -132,18 +142,49 @@ def is_voiture_sans_permis(make: str, fiscal_hp: int | None = None) -> bool:
     return False
 
 
-def get_vehicle_category(make: str, model: str, fiscal_hp: int | None = None) -> str | None:
+def is_sportive(
+    power_din_hp: int | None = None,
+    fiscal_hp: int | None = None,
+) -> bool:
+    """Detecte les sportives/super-sportives via puissance.
+
+    Seuils : >400 CV DIN ou >45 CV fiscaux.
+    Ces vehicules roulent peu (loisir, circuit, collection).
+    Un km faible est normal et meme souhaitable.
+    """
+    if power_din_hp is not None and power_din_hp > SPORTIVE_DIN_HP_THRESHOLD:
+        return True
+    if fiscal_hp is not None and fiscal_hp > SPORTIVE_FISCAL_HP_THRESHOLD:
+        return True
+    return False
+
+
+def get_vehicle_category(
+    make: str,
+    model: str,
+    fiscal_hp: int | None = None,
+    power_din_hp: int | None = None,
+) -> str | None:
     """Retourne la categorie du vehicule ou None si inconnu."""
     if is_voiture_sans_permis(make, fiscal_hp):
         return "voiture_sans_permis"
+
+    # Sportive detectee par puissance (priorite sur le mapping statique)
+    if is_sportive(power_din_hp=power_din_hp, fiscal_hp=fiscal_hp):
+        return "sportive"
 
     key = (make.lower().strip(), model.lower().strip())
     return VEHICLE_CATEGORY.get(key)
 
 
-def get_expected_km_per_year(make: str, model: str, fiscal_hp: int | None = None) -> int:
+def get_expected_km_per_year(
+    make: str,
+    model: str,
+    fiscal_hp: int | None = None,
+    power_din_hp: int | None = None,
+) -> int:
     """Retourne le km/an attendu pour ce vehicule selon sa categorie."""
-    category = get_vehicle_category(make, model, fiscal_hp=fiscal_hp)
+    category = get_vehicle_category(make, model, fiscal_hp=fiscal_hp, power_din_hp=power_din_hp)
     if category:
         return KM_PER_YEAR[category]
     return 15000  # fallback moyen national

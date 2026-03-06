@@ -67,7 +67,14 @@ export function showPopup(safeHTML) {
         const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: scanId }) });
         const data = await resp.json();
         if (data.success) { textArea.value = data.data.generated_text; result.style.display = "block"; }
-        else { errorDiv.textContent = data.error || "Erreur de génération"; errorDiv.style.display = "block"; emailBtn.style.display = "block"; }
+        else {
+          let msg = data.error || "Erreur de génération";
+          // Nettoyer les erreurs techniques brutes (API Google, stack traces)
+          if (msg.length > 120 || msg.includes("googleapis") || msg.includes("INVALID_ARGUMENT")) {
+            msg = "Service de rédaction temporairement indisponible.";
+          }
+          errorDiv.textContent = msg; errorDiv.style.display = "block"; emailBtn.style.display = "block";
+        }
       } catch (err) { errorDiv.textContent = "Service indisponible"; errorDiv.style.display = "block"; emailBtn.style.display = "block"; }
       loading.style.display = "none";
     });

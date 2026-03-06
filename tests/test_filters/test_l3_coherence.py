@@ -126,3 +126,68 @@ class TestL3CoherenceFilter:
         assert result.details["category"] == "voiture_sans_permis"
         assert result.details["is_voiture_sans_permis"] is True
         assert result.details["avg_km_per_year"] == 6000
+
+    def test_sportive_low_km_is_positive(self):
+        """Sportive >400cv DIN avec km faible : message positif, pas suspect."""
+        data = {
+            "make": "Ferrari",
+            "model": "488",
+            "year_model": "2018",
+            "mileage_km": 12000,
+            "price_eur": 95000,
+            "power_din_hp": 670,
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert result.score == 0.85
+        assert "sportive" in result.message.lower()
+        assert "plutôt bien" in result.message
+        assert "compteur" not in result.message.lower()
+        assert result.details["is_sportive"] is True
+        assert result.details["category"] == "sportive"
+        assert result.details["avg_km_per_year"] == 5000
+
+    def test_sportive_fiscal_hp_low_km_positive(self):
+        """Sportive >45cv fiscaux avec km faible : message positif."""
+        data = {
+            "make": "Porsche",
+            "model": "911",
+            "year_model": "2016",
+            "mileage_km": 20000,
+            "price_eur": 95000,
+            "power_fiscal_cv": 48,
+        }
+        result = self.filt.run(data)
+        assert result.details["is_sportive"] is True
+        assert result.details["category"] == "sportive"
+        assert "sportive" in result.message.lower()
+        assert result.score == 0.85
+
+    def test_sportive_normal_km_passes(self):
+        """Sportive avec km normal pour son age : pass."""
+        data = {
+            "make": "Lamborghini",
+            "model": "Huracan",
+            "year_model": "2022",
+            "mileage_km": 18000,
+            "price_eur": 95000,
+            "power_din_hp": 610,
+        }
+        result = self.filt.run(data)
+        assert result.status == "pass"
+        assert result.details["is_sportive"] is True
+
+    def test_non_sportive_low_km_still_suspicious(self):
+        """Voiture normale 150cv avec km faible : toujours suspect."""
+        data = {
+            "make": "Peugeot",
+            "model": "308",
+            "year_model": "2014",
+            "mileage_km": 15000,
+            "price_eur": 8000,
+            "power_din_hp": 150,
+        }
+        result = self.filt.run(data)
+        assert result.status == "warning"
+        assert "bas pour l'année" in result.message
+        assert result.details["is_sportive"] is False
