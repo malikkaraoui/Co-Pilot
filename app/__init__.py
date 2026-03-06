@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask
+from flask import Flask, send_from_directory
 
 from app.extensions import cors, csrf, db, limiter, login_manager
 from app.logging_config import setup_logging
@@ -111,6 +111,11 @@ def create_app(config_name: str | None = None) -> Flask:
 
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/admin")
+
+    # Route publique : privacy policy (requise par Chrome Web Store)
+    @app.route("/privacy")
+    def privacy_policy():
+        return send_from_directory(app.static_folder, "privacy-policy.html")
 
     # Creer l'utilisateur admin s'il n'existe pas
     with app.app_context():
