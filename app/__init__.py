@@ -112,6 +112,18 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
+    # Page d'accueil publique
+    @app.route("/")
+    def home():
+        return (
+            "<html><head><title>OKazCar</title></head>"
+            "<body style='font-family:system-ui;max-width:600px;margin:4rem auto;text-align:center'>"
+            "<h1>OKazCar</h1>"
+            "<p>Analysez vos annonces auto en 1 clic.</p>"
+            "<p><a href='/privacy'>Politique de confidentialite</a></p>"
+            "</body></html>"
+        )
+
     # Route publique : privacy policy (requise par Chrome Web Store)
     @app.route("/privacy")
     def privacy_policy():
