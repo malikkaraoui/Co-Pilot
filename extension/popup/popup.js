@@ -68,6 +68,13 @@
     }
   });
 
+  // Detecter dark/light mode et mettre a jour l'icone
+  const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  chrome.runtime.sendMessage({ action: "update_icon_theme", isDark });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+    chrome.runtime.sendMessage({ action: "update_icon_theme", isDark: e.matches });
+  });
+
   // Au chargement, verifier si on est sur leboncoin
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
     if (!tab || !tab.url || !isSupportedAd(tab.url)) {

@@ -18,12 +18,19 @@ function updateIcon(isDark) {
   });
 }
 
-// Detection initiale + ecoute des changements
-const darkMQ = self.matchMedia("(prefers-color-scheme: dark)");
-updateIcon(darkMQ.matches);
-darkMQ.addEventListener("change", (e) => updateIcon(e.matches));
+// Au demarrage, restaurer la preference stockee
+chrome.storage.local.get("isDarkMode", (result) => {
+  if (result.isDarkMode != null) updateIcon(result.isDarkMode);
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // ── Mise a jour icone dark/light depuis popup ou content ──
+  if (message.action === "update_icon_theme") {
+    updateIcon(message.isDark);
+    chrome.storage.local.set({ isDarkMode: message.isDark });
+    return false;
+  }
+
   // ── Proxy backend API (content script → background → localhost) ─
   // Chrome MV3 : un content script sur une page HTTPS ne peut pas
   // fetch vers HTTP localhost (mixed-content). Le service worker

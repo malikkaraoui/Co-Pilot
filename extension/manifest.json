@@ -5,7 +5,8 @@
   "description": "Analysez vos annonces auto en 1 clic. Score de fiabilite, comparaison de prix marche, detection d'anomalies. IA integree.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "host_permissions": [
     "https://*.leboncoin.fr/*",
