@@ -1,4 +1,4 @@
-"""Classes de configuration pour l'application Co-Pilot."""
+"""Classes de configuration pour l'application OKazCar."""
 
 import os
 import tempfile
@@ -17,7 +17,7 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-insecure-key")
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL",
-        f"sqlite:///{basedir / 'data' / 'copilot.db'}",
+        f"sqlite:///{basedir / 'data' / 'okazcar.db'}",
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 

@@ -40,7 +40,7 @@ htmlcov/
 reports/
 
 # SQLite database (managed via Docker volume in prod)
-data/copilot.db
+data/okazcar.db
 
 # Chrome Web Store packaging
 extension.zip

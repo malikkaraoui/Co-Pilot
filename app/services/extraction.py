@@ -1,7 +1,7 @@
 """Service d'extraction des donnees structurees d'une annonce Leboncoin.
 
 Analyse le payload JSON __NEXT_DATA__ et extrait les champs de l'annonce vehicule.
-Base sur le script original lbc_extract.py, reecrit selon les patterns Co-Pilot.
+Base sur le script original lbc_extract.py, reecrit selon les patterns OKazCar.
 """
 
 import logging
@@ -215,7 +215,7 @@ def _extract_publication_dates(ad: dict) -> dict:
     - ``first_publication_date`` : date de premiere mise en ligne (la vraie anciennete)
     - ``index_date`` : date de derniere republication (ce que LBC affiche a l'utilisateur)
 
-    Un vendeur peut republier son annonce pour apparaitre "frais". Co-Pilot
+    Un vendeur peut republier son annonce pour apparaitre "frais". OKazCar
     utilise first_publication_date pour calculer la vraie duree en vente.
     """
     now = datetime.now(timezone.utc)

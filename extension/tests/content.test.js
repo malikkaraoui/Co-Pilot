@@ -930,7 +930,7 @@ describe('maybeCollectMarketPrices', () => {
   describe('logique de cooldown', () => {
     it('bypass le cooldown pour le vehicule COURANT', async () => {
       // Cooldown actif (5 min ago)
-      localStorage.setItem('copilot_last_collect', String(Date.now() - 5 * 60 * 1000));
+      localStorage.setItem('okazcar_last_collect', String(Date.now() - 5 * 60 * 1000));
 
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(
@@ -951,7 +951,7 @@ describe('maybeCollectMarketPrices', () => {
 
     it('bloque la collecte redirect mais execute les bonus jobs quand cooldown actif', async () => {
       // Cooldown actif (1h ago, bien dans les 24h)
-      localStorage.setItem('copilot_last_collect', String(Date.now() - 1 * 60 * 60 * 1000));
+      localStorage.setItem('okazcar_last_collect', String(Date.now() - 1 * 60 * 60 * 1000));
 
       const bonusJobs = [
         { make: 'Peugeot', model: '208', year: 2020, region: 'Île-de-France', fuel: 'essence', gearbox: null, hp_range: null, job_id: 42 },
@@ -982,7 +982,7 @@ describe('maybeCollectMarketPrices', () => {
 
     it('bloque la collecte redirect sans bonus quand cooldown actif et aucun bonus', async () => {
       // Cooldown actif (1h ago, bien dans les 24h)
-      localStorage.setItem('copilot_last_collect', String(Date.now() - 1 * 60 * 60 * 1000));
+      localStorage.setItem('okazcar_last_collect', String(Date.now() - 1 * 60 * 60 * 1000));
 
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(
@@ -999,7 +999,7 @@ describe('maybeCollectMarketPrices', () => {
 
     it('autorise la collecte pour un AUTRE vehicule quand cooldown expire', async () => {
       // Cooldown expire (25h ago)
-      localStorage.setItem('copilot_last_collect', String(Date.now() - 25 * 60 * 60 * 1000));
+      localStorage.setItem('okazcar_last_collect', String(Date.now() - 25 * 60 * 60 * 1000));
 
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(
@@ -1018,7 +1018,7 @@ describe('maybeCollectMarketPrices', () => {
     });
 
     it('traite absence de localStorage comme cooldown expire', async () => {
-      // Pas de copilot_last_collect du tout
+      // Pas de okazcar_last_collect du tout
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(
           { make: 'Renault', model: 'Clio', year: '2020' },
@@ -1053,7 +1053,7 @@ describe('maybeCollectMarketPrices', () => {
 
     it('modele different = pas vehicule courant', async () => {
       // Cooldown expire pour permettre la collecte d'un autre vehicule
-      localStorage.setItem('copilot_last_collect', String(Date.now() - 25 * 60 * 60 * 1000));
+      localStorage.setItem('okazcar_last_collect', String(Date.now() - 25 * 60 * 60 * 1000));
 
       mockFetchSequence({
         jobResponse: makeJobResponse(
@@ -1072,7 +1072,7 @@ describe('maybeCollectMarketPrices', () => {
   // ── Persistence localStorage ────────────────────────────────────
 
   describe('persistence localStorage', () => {
-    it('sauvegarde copilot_last_collect apres collecte reussie', async () => {
+    it('sauvegarde okazcar_last_collect apres collecte reussie', async () => {
       const before = Date.now();
 
       mockFetchSequence({
@@ -1083,7 +1083,7 @@ describe('maybeCollectMarketPrices', () => {
 
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
-      const stored = parseInt(localStorage.getItem('copilot_last_collect'), 10);
+      const stored = parseInt(localStorage.getItem('okazcar_last_collect'), 10);
       expect(stored).toBeGreaterThanOrEqual(before);
       expect(stored).toBeLessThanOrEqual(Date.now());
     });
@@ -1100,7 +1100,7 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       expect(result.submitted).toBe(false);
-      expect(localStorage.getItem('copilot_last_collect')).not.toBeNull();
+      expect(localStorage.getItem('okazcar_last_collect')).not.toBeNull();
     });
 
     it('sauvegarde le timestamp meme quand le POST echoue', async () => {
@@ -1113,7 +1113,7 @@ describe('maybeCollectMarketPrices', () => {
       const result = await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       expect(result.submitted).toBe(false);
-      expect(localStorage.getItem('copilot_last_collect')).not.toBeNull();
+      expect(localStorage.getItem('okazcar_last_collect')).not.toBeNull();
     });
   });
 
@@ -1333,7 +1333,7 @@ describe('maybeCollectMarketPrices', () => {
       // (cooldown active), maintenant il visite une Peugeot 3008.
       // La collecte NE DOIT PAS etre bloquee.
       const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
-      localStorage.setItem('copilot_last_collect', String(thirtyMinAgo));
+      localStorage.setItem('okazcar_last_collect', String(thirtyMinAgo));
 
       const fetchMock = mockFetchSequence({
         jobResponse: makeJobResponse(currentVehicle),
@@ -1350,7 +1350,7 @@ describe('maybeCollectMarketPrices', () => {
       expect(fetchMock).toHaveBeenCalledTimes(14);
 
       // Le timestamp doit etre rafraichi
-      const newTs = parseInt(localStorage.getItem('copilot_last_collect'), 10);
+      const newTs = parseInt(localStorage.getItem('okazcar_last_collect'), 10);
       expect(newTs).toBeGreaterThan(thirtyMinAgo);
     });
   });

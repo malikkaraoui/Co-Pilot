@@ -1,9 +1,9 @@
 ---
 stepsCompleted: ['step-01-init', 'step-02-context', 'step-03-starter', 'step-04-decisions', 'step-05-patterns', 'step-06-structure', 'step-07-validation', 'step-08-complete']
-inputDocuments: ['_bmad-output/planning-artifacts/prd.md', '_bmad-output/planning-artifacts/product-brief-Co-Pilot-2026-02-09.md', 'docs/Critères_Evaluation_python_formation.pdf']
+inputDocuments: ['_bmad-output/planning-artifacts/prd.md', '_bmad-output/planning-artifacts/product-brief-OKazCar-2026-02-09.md', 'docs/Critères_Evaluation_python_formation.pdf']
 workflowType: 'architecture'
 workflow_completed: true
-project_name: 'Co-Pilot'
+project_name: 'OKazCar'
 user_name: 'Malik'
 date: '2026-02-09'
 completedAt: '2026-02-09'
@@ -267,7 +267,7 @@ Full-stack hybride Python : Backend Flask + Extension Chrome (vanilla JS) + Data
 | Fonctions | camelCase | analyzeAnnounce(), displayScore() |
 | Variables | camelCase | scanResult, filterScore |
 | Constantes | UPPER_SNAKE_CASE | API_BASE_URL, MAX_RETRY |
-| Classes CSS | kebab-case avec prefixe | .copilot-gauge, .copilot-popup |
+| Classes CSS | kebab-case avec prefixe | .okazcar-gauge, .okazcar-popup |
 
 **Base de donnees (SQLAlchemy) :**
 
@@ -350,11 +350,11 @@ class FilterResult:
 **Error handling -- Hierarchie d'exceptions :**
 
 ```python
-class CoPilotError(Exception):         # Base
-class FilterError(CoPilotError):       # Erreur dans un filtre
-class ExtractionError(CoPilotError):   # Erreur extraction Leboncoin
-class ExternalAPIError(CoPilotError):  # API SIRET, etc.
-class ValidationError(CoPilotError):   # Donnees invalides
+class OKazCarError(Exception):         # Base
+class FilterError(OKazCarError):       # Erreur dans un filtre
+class ExtractionError(OKazCarError):   # Erreur extraction Leboncoin
+class ExternalAPIError(OKazCarError):  # API SIRET, etc.
+class ValidationError(OKazCarError):   # Donnees invalides
 ```
 
 Regle : jamais de `except Exception` nu. Toujours catcher un type specifique.
@@ -408,7 +408,7 @@ Jamais de crash silencieux. Toujours un FilterResult meme en echec.
 3. Utiliser l'enveloppe API {success, error, message, data} pour toutes les reponses
 4. Logger via logging.getLogger(__name__) -- jamais de print()
 5. Catcher des exceptions specifiques -- jamais de except Exception nu
-6. Prefixer toutes les classes CSS extension avec copilot-
+6. Prefixer toutes les classes CSS extension avec okazcar-
 7. Ecrire au moins un test par filtre avec donnees valides, invalides, edge case
 
 ## Project Structure & Boundaries
@@ -416,7 +416,7 @@ Jamais de crash silencieux. Toujours un FilterResult meme en echec.
 ### Complete Project Directory Structure
 
 ```
-co-pilot/
+okazcar/
 ├── README.md
 ├── .gitignore
 ├── .env.example
@@ -504,7 +504,7 @@ co-pilot/
 │   │   ├── datasets.py              # Import car-list, CSVs, Teoalida
 │   │   └── argus_collector.py       # Collecte argus Leboncoin
 │   │
-│   ├── errors.py                    # Hierarchie exceptions CoPilot
+│   ├── errors.py                    # Hierarchie exceptions OKazCar
 │   └── logging_config.py            # Config logging + DBHandler
 │
 ├── extension/                       # Extension Chrome (separe)
@@ -512,7 +512,7 @@ co-pilot/
 │   ├── content-script.js            # Injection page Leboncoin
 │   ├── popup.html                   # Popup resultats
 │   ├── popup.js                     # Logique popup
-│   ├── styles.css                   # Styles .copilot-*
+│   ├── styles.css                   # Styles .okazcar-*
 │   ├── icons/
 │   │   ├── icon-16.png
 │   │   ├── icon-48.png

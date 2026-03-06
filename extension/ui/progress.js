@@ -19,7 +19,7 @@ function detectCurrentSite() {
 export function createProgressTracker() {
   function stepIconHTML(status) {
     switch (status) {
-      case "running": return '<div class="copilot-mini-spinner"></div>';
+      case "running": return '<div class="okazcar-mini-spinner"></div>';
       case "done":    return "\u2713";
       case "warning": return "\u26A0";
       case "error":   return "\u2717";
@@ -29,32 +29,32 @@ export function createProgressTracker() {
   }
 
   function update(stepId, status, detail) {
-    const el = document.getElementById("copilot-step-" + stepId);
+    const el = document.getElementById("okazcar-step-" + stepId);
     if (!el) return;
     el.setAttribute("data-status", status);
-    const iconEl = el.querySelector(".copilot-step-icon");
+    const iconEl = el.querySelector(".okazcar-step-icon");
     if (iconEl) {
-      iconEl.className = "copilot-step-icon " + status;
-      if (status === "running") { iconEl.innerHTML = '<div class="copilot-mini-spinner"></div>'; }
+      iconEl.className = "okazcar-step-icon " + status;
+      if (status === "running") { iconEl.innerHTML = '<div class="okazcar-mini-spinner"></div>'; }
       else { iconEl.textContent = stepIconHTML(status); }
     }
     if (detail !== undefined) {
-      let detailEl = el.querySelector(".copilot-step-detail");
-      if (!detailEl) { detailEl = document.createElement("div"); detailEl.className = "copilot-step-detail"; el.querySelector(".copilot-step-text").appendChild(detailEl); }
+      let detailEl = el.querySelector(".okazcar-step-detail");
+      if (!detailEl) { detailEl = document.createElement("div"); detailEl.className = "okazcar-step-detail"; el.querySelector(".okazcar-step-text").appendChild(detailEl); }
       detailEl.textContent = detail;
     }
     el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   function addSubStep(parentId, text, status, detail) {
-    const parentEl = document.getElementById("copilot-step-" + parentId);
+    const parentEl = document.getElementById("okazcar-step-" + parentId);
     if (!parentEl) return;
-    let container = parentEl.querySelector(".copilot-substeps");
-    if (!container) { container = document.createElement("div"); container.className = "copilot-substeps"; parentEl.appendChild(container); }
+    let container = parentEl.querySelector(".okazcar-substeps");
+    if (!container) { container = document.createElement("div"); container.className = "okazcar-substeps"; parentEl.appendChild(container); }
     const subEl = document.createElement("div");
-    subEl.className = "copilot-substep";
+    subEl.className = "okazcar-substep";
     const iconSpan = document.createElement("span");
-    iconSpan.className = "copilot-substep-icon";
+    iconSpan.className = "okazcar-substep-icon";
     iconSpan.textContent = stepIconHTML(status);
     subEl.appendChild(iconSpan);
     const textSpan = document.createElement("span");
@@ -67,20 +67,20 @@ export function createProgressTracker() {
   }
 
   function showFilters(filters) {
-    const container = document.getElementById("copilot-progress-filters");
+    const container = document.getElementById("okazcar-progress-filters");
     if (!container || !filters) return;
     filters.forEach(function (f) {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
       const scoreText = f.status === "skip" ? "skip" : Math.round(f.score * 100) + "%";
-      const filterDiv = document.createElement("div"); filterDiv.className = "copilot-progress-filter";
-      const iconSpan = document.createElement("span"); iconSpan.className = "copilot-progress-filter-icon"; iconSpan.style.color = color; iconSpan.textContent = icon; filterDiv.appendChild(iconSpan);
-      const idSpan = document.createElement("span"); idSpan.className = "copilot-progress-filter-id"; idSpan.textContent = f.filter_id; filterDiv.appendChild(idSpan);
-      const labelSpan = document.createElement("span"); labelSpan.className = "copilot-progress-filter-label"; labelSpan.textContent = label; filterDiv.appendChild(labelSpan);
-      const scoreSpan = document.createElement("span"); scoreSpan.className = "copilot-progress-filter-score"; scoreSpan.style.color = color; scoreSpan.textContent = scoreText; filterDiv.appendChild(scoreSpan);
+      const filterDiv = document.createElement("div"); filterDiv.className = "okazcar-progress-filter";
+      const iconSpan = document.createElement("span"); iconSpan.className = "okazcar-progress-filter-icon"; iconSpan.style.color = color; iconSpan.textContent = icon; filterDiv.appendChild(iconSpan);
+      const idSpan = document.createElement("span"); idSpan.className = "okazcar-progress-filter-id"; idSpan.textContent = f.filter_id; filterDiv.appendChild(idSpan);
+      const labelSpan = document.createElement("span"); labelSpan.className = "okazcar-progress-filter-label"; labelSpan.textContent = label; filterDiv.appendChild(labelSpan);
+      const scoreSpan = document.createElement("span"); scoreSpan.className = "okazcar-progress-filter-score"; scoreSpan.style.color = color; scoreSpan.textContent = scoreText; filterDiv.appendChild(scoreSpan);
       container.appendChild(filterDiv);
-      const msgDiv = document.createElement("div"); msgDiv.className = "copilot-progress-filter-msg"; msgDiv.textContent = f.message; container.appendChild(msgDiv);
+      const msgDiv = document.createElement("div"); msgDiv.className = "okazcar-progress-filter-msg"; msgDiv.textContent = f.message; container.appendChild(msgDiv);
       if (f.filter_id === "L4" && f.details) { appendCascadeDetails(container, f.details); }
     });
     container.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -110,16 +110,16 @@ export function createProgressTracker() {
         lines.push(tierIcon + " " + tierLabel + " : " + result);
       });
     }
-    lines.forEach(function (line) { var div = document.createElement("div"); div.className = "copilot-cascade-detail"; div.textContent = line; container.appendChild(div); });
+    lines.forEach(function (line) { var div = document.createElement("div"); div.className = "okazcar-cascade-detail"; div.textContent = line; container.appendChild(div); });
   }
 
   function showScore(score, verdict) {
-    const container = document.getElementById("copilot-progress-score");
+    const container = document.getElementById("okazcar-progress-score");
     if (!container) return;
     const color = scoreColor(score);
-    const labelDiv = document.createElement("div"); labelDiv.className = "copilot-progress-score-label"; labelDiv.textContent = "Score global"; container.appendChild(labelDiv);
-    const valueDiv = document.createElement("div"); valueDiv.className = "copilot-progress-score-value"; valueDiv.style.color = color; valueDiv.textContent = String(score); container.appendChild(valueDiv);
-    const verdictDiv = document.createElement("div"); verdictDiv.className = "copilot-progress-score-verdict"; verdictDiv.style.color = color; verdictDiv.textContent = verdict; container.appendChild(verdictDiv);
+    const labelDiv = document.createElement("div"); labelDiv.className = "okazcar-progress-score-label"; labelDiv.textContent = "Score global"; container.appendChild(labelDiv);
+    const valueDiv = document.createElement("div"); valueDiv.className = "okazcar-progress-score-value"; valueDiv.style.color = color; valueDiv.textContent = String(score); container.appendChild(valueDiv);
+    const verdictDiv = document.createElement("div"); verdictDiv.className = "okazcar-progress-score-verdict"; verdictDiv.style.color = color; verdictDiv.textContent = verdict; container.appendChild(verdictDiv);
     container.style.display = "block";
     container.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
@@ -129,46 +129,46 @@ export function createProgressTracker() {
 
 export function showLoading() {
   removePopup();
-  showPopup('<div class="copilot-popup copilot-popup-loading" id="copilot-popup"><div class="copilot-loading-body"><div class="copilot-spinner"></div><p>Analyse en cours...</p></div></div>');
+  showPopup('<div class="okazcar-popup okazcar-popup-loading" id="okazcar-popup"><div class="okazcar-loading-body"><div class="okazcar-spinner"></div><p>Analyse en cours...</p></div></div>');
 }
 
 export function showProgress() {
   removePopup();
   const html = [
-    '<div class="copilot-popup" id="copilot-popup">',
-    '  <div class="copilot-popup-header">',
-    '    <div class="copilot-popup-title-row">',
-    '      <span class="copilot-popup-title">Co-Pilot</span>',
-    '      <button class="copilot-popup-close" id="copilot-close">&times;</button>',
+    '<div class="okazcar-popup" id="okazcar-popup">',
+    '  <div class="okazcar-popup-header">',
+    '    <div class="okazcar-popup-title-row">',
+    '      <span class="okazcar-popup-title">OKazCar</span>',
+    '      <button class="okazcar-popup-close" id="okazcar-close">&times;</button>',
     '    </div>',
-    '    <p class="copilot-popup-vehicle" id="copilot-progress-vehicle">Analyse en cours...</p>',
+    '    <p class="okazcar-popup-vehicle" id="okazcar-progress-vehicle">Analyse en cours...</p>',
     '  </div>',
-    '  <div class="copilot-progress-body">',
-    '    <div class="copilot-progress-phase">',
-    '      <div class="copilot-progress-phase-title">1. Extraction</div>',
-    '      <div class="copilot-step" id="copilot-step-extract" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Extraction des donn\u00e9es de l\'annonce</div></div>',
-    '      <div class="copilot-step" id="copilot-step-phone" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">R\u00e9v\u00e9lation du num\u00e9ro de t\u00e9l\u00e9phone</div></div>',
+    '  <div class="okazcar-progress-body">',
+    '    <div class="okazcar-progress-phase">',
+    '      <div class="okazcar-progress-phase-title">1. Extraction</div>',
+    '      <div class="okazcar-step" id="okazcar-step-extract" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Extraction des donn\u00e9es de l\'annonce</div></div>',
+    '      <div class="okazcar-step" id="okazcar-step-phone" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">R\u00e9v\u00e9lation du num\u00e9ro de t\u00e9l\u00e9phone</div></div>',
     '    </div>',
-    '    <div class="copilot-progress-phase">',
-    '      <div class="copilot-progress-phase-title">2. Collecte prix march\u00e9</div>',
-    '      <div class="copilot-step" id="copilot-step-job" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Demande au serveur : quel v\u00e9hicule collecter ?</div></div>',
-    '      <div class="copilot-step" id="copilot-step-collect" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte des prix (cascade recherche)</div></div>',
-    '      <div class="copilot-step" id="copilot-step-submit" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Envoi des prix au serveur</div></div>',
-    '      <div class="copilot-step" id="copilot-step-bonus" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte bonus multi-r\u00e9gion</div></div>',
+    '    <div class="okazcar-progress-phase">',
+    '      <div class="okazcar-progress-phase-title">2. Collecte prix march\u00e9</div>',
+    '      <div class="okazcar-step" id="okazcar-step-job" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Demande au serveur : quel v\u00e9hicule collecter ?</div></div>',
+    '      <div class="okazcar-step" id="okazcar-step-collect" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Collecte des prix (cascade recherche)</div></div>',
+    '      <div class="okazcar-step" id="okazcar-step-submit" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Envoi des prix au serveur</div></div>',
+    '      <div class="okazcar-step" id="okazcar-step-bonus" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Collecte bonus multi-r\u00e9gion</div></div>',
     '    </div>',
-    '    <div class="copilot-progress-phase">',
-    '      <div class="copilot-progress-phase-title">3. Analyse serveur</div>',
-    '      <div class="copilot-step" id="copilot-step-analyze" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Analyse des 10 filtres (L1 \u2013 L10)</div></div>',
-    '      <div id="copilot-progress-filters" class="copilot-progress-filters"></div>',
-    '      <div class="copilot-step" id="copilot-step-autoviza" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">D\u00e9tection rapport Autoviza</div></div>',
+    '    <div class="okazcar-progress-phase">',
+    '      <div class="okazcar-progress-phase-title">3. Analyse serveur</div>',
+    '      <div class="okazcar-step" id="okazcar-step-analyze" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Analyse des 10 filtres (L1 \u2013 L10)</div></div>',
+    '      <div id="okazcar-progress-filters" class="okazcar-progress-filters"></div>',
+    '      <div class="okazcar-step" id="okazcar-step-autoviza" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">D\u00e9tection rapport Autoviza</div></div>',
     '    </div>',
-    '    <hr class="copilot-progress-separator">',
-    '    <div id="copilot-progress-score" class="copilot-progress-score" style="display:none"></div>',
+    '    <hr class="okazcar-progress-separator">',
+    '    <div id="okazcar-progress-score" class="okazcar-progress-score" style="display:none"></div>',
     '    <div style="text-align:center; padding: 12px 0;">',
-    '      <button class="copilot-btn copilot-btn-retry" id="copilot-progress-details-btn" style="display:none">Voir l\'analyse compl\u00e8te</button>',
+    '      <button class="okazcar-btn okazcar-btn-retry" id="okazcar-progress-details-btn" style="display:none">Voir l\'analyse compl\u00e8te</button>',
     '    </div>',
     '  </div>',
-    '  <div class="copilot-popup-footer"><p>Co-Pilot v1.0 &middot; Analyse en temps r\u00e9el</p></div>',
+    '  <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse en temps r\u00e9el</p></div>',
     '</div>',
   ].join("\n");
   showPopup(html);

@@ -11,7 +11,7 @@ export function buildL10Body(f, d) {
   const marketMedian = d.market_median_days;
 
   if (days == null) {
-    return '<p class="copilot-filter-message">Ancienneté non disponible</p>';
+    return '<p class="okazcar-filter-message">Ancienneté non disponible</p>';
   }
 
   let barColor, verdictText;
@@ -33,36 +33,36 @@ export function buildL10Body(f, d) {
   const cursorPct = Math.min(Math.max((days / maxDisplay) * 100, 2), 98);
   const thresholdPct = Math.min((threshold / maxDisplay) * 100, 95);
 
-  const bigNumber = `<div class="copilot-l10-big"><span class="copilot-l10-days" style="color:${barColor}">${days}</span><span class="copilot-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
+  const bigNumber = `<div class="okazcar-l10-big"><span class="okazcar-l10-days" style="color:${barColor}">${days}</span><span class="okazcar-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
 
   const barHTML = `
-    <div class="copilot-l10-timeline">
-      <div class="copilot-l10-track">
-        <div class="copilot-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
-        <div class="copilot-l10-threshold" style="left:${thresholdPct}%">
-          <div class="copilot-l10-threshold-line"></div>
-          <span class="copilot-l10-threshold-label">Seuil ${threshold}j</span>
+    <div class="okazcar-l10-timeline">
+      <div class="okazcar-l10-track">
+        <div class="okazcar-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
+        <div class="okazcar-l10-threshold" style="left:${thresholdPct}%">
+          <div class="okazcar-l10-threshold-line"></div>
+          <span class="okazcar-l10-threshold-label">Seuil ${threshold}j</span>
         </div>
-        <div class="copilot-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
+        <div class="okazcar-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
       </div>
-      <div class="copilot-l10-scale">
+      <div class="okazcar-l10-scale">
         <span>0j</span>
         <span>${Math.round(maxDisplay)}j</span>
       </div>
     </div>
   `;
 
-  const verdictHTML = `<div class="copilot-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
+  const verdictHTML = `<div class="okazcar-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
 
-  let metaHTML = `<div class="copilot-l10-meta">Seuil basé sur le ${escapeHTML(thresholdSource)}</div>`;
+  let metaHTML = `<div class="okazcar-l10-meta">Seuil basé sur le ${escapeHTML(thresholdSource)}</div>`;
   if (marketMedian != null) {
-    metaHTML += `<div class="copilot-l10-meta">Médiane marché : ${marketMedian} jours</div>`;
+    metaHTML += `<div class="okazcar-l10-meta">Médiane marché : ${marketMedian} jours</div>`;
   }
 
   let republishedHTML = "";
   if (republished) {
-    republishedHTML = '<div class="copilot-l10-republished">Republication détectée — l\'annonce a été remise en ligne pour paraître récente</div>';
+    republishedHTML = '<div class="okazcar-l10-republished">Republication détectée — l\'annonce a été remise en ligne pour paraître récente</div>';
   }
 
-  return `<div class="copilot-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
+  return `<div class="okazcar-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
 }

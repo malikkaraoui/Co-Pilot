@@ -1,17 +1,17 @@
-# Vehicore — Analyse de confiance pour annonces auto
+# OKazCar — Analyse de confiance pour annonces auto
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?logo=googlechrome&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-800_passing-2EA44F)
-![Version](https://img.shields.io/badge/version-0.11.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![Render](https://img.shields.io/badge/deploy-Render-46E3B7?logo=render&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Vehicore** est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur **Leboncoin** et **AutoScout24** (12 pays européens) et attribue un **score de confiance de 0 à 100**.
+**OKazCar** est une extension Chrome couplée à une API Flask qui analyse les annonces de véhicules d'occasion sur **Leboncoin** et **AutoScout24** (12 pays européens) et attribue un **score de confiance de 0 à 100**.
 
 L'utilisateur navigue sur une annonce, clique sur "Analyser", et obtient un verdict instantané avec le détail de 10 filtres indépendants, un radar visuel, et des recommandations personnalisées.
 
@@ -141,7 +141,7 @@ Recherche automatique de vidéos YouTube (tests, avis) liées à chaque véhicul
 - **Backend** : Python 3.12, Flask 3.1, SQLAlchemy 2.0, Pydantic 2.11
 - **IA** : Google Gemini (génération email), yt-dlp + youtube-transcript-api (vidéos)
 - **Base de données** : SQLite (persistée via Docker volume / Render disk)
-- **Extension** : Chrome Manifest V3, vanilla JS, esbuild (bundling), CSS préfixé `.copilot-*`
+- **Extension** : Chrome Manifest V3, vanilla JS, esbuild (bundling), CSS préfixé `.okazcar-*`
 - **Tests** : pytest (800 tests Python) + Vitest (tests JS)
 - **Lint** : ruff
 - **CI** : GitHub Actions (lint + tests)
@@ -161,8 +161,8 @@ Recherche automatique de vidéos YouTube (tests, avis) liées à chaque véhicul
 
 ```bash
 # Cloner le projet
-git clone https://github.com/malikkaraoui/Co-Pilot.git
-cd Co-Pilot
+git clone https://github.com/malikkaraoui/OKazCar.git
+cd OKazCar
 
 # Créer l'environnement virtuel
 python -m venv .venv
@@ -212,7 +212,7 @@ ruff check .
 ## Structure du projet
 
 ```text
-Vehicore/
+OKazCar/
 ├── app/
 │   ├── __init__.py              # Flask Application Factory
 │   ├── api/                     # Blueprint API (routes, market_routes, erreurs)
@@ -233,7 +233,7 @@ Vehicore/
 │   └── popup/                   # Popup de l'extension
 ├── tests/                       # 800+ tests pytest
 ├── data/
-│   ├── vehicore.db              # Base SQLite (non versionné)
+│   ├── okazcar.db               # Base SQLite (non versionné)
 │   └── seeds/                   # Scripts de peuplement (vehicles, argus,
 │                                #   youtube, gemini prompts)
 ├── docs/                        # Documentation (deployment, privacy, specs…)

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for Co-Pilot tests."""
+"""Shared pytest fixtures for OKazCar tests."""
 
 from unittest.mock import patch
 

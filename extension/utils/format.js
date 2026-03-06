@@ -73,11 +73,11 @@ export function buildDetailsHTML(details) {
       ? details.phone_login_hint
       : "Connectez-vous sur LeBonCoin pour acc\u00e9der au num\u00e9ro";
     phoneHintHTML = `
-      <div class="copilot-phone-login-hint">
-        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+      <div class="okazcar-phone-login-hint">
+        <span class="okazcar-phone-hint-icon">&#x1F4F1;</span>
         <span>${escapeHTML(hintText)}</span>
         <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
-           class="copilot-phone-login-link">Se connecter</a>
+           class="okazcar-phone-login-link">Se connecter</a>
       </div>
     `;
   }
@@ -89,13 +89,13 @@ export function buildDetailsHTML(details) {
       const val = k === "precision" && typeof v === "number"
         ? formatPrecisionStars(v)
         : formatDetailValue(v);
-      return `<div class="copilot-detail-row"><span class="copilot-detail-key">${escapeHTML(label)}</span><span class="copilot-detail-value">${val}</span></div>`;
+      return `<div class="okazcar-detail-row"><span class="okazcar-detail-key">${escapeHTML(label)}</span><span class="okazcar-detail-value">${val}</span></div>`;
     })
     .join("");
 
   if (!entries && !phoneHintHTML) return "";
   const detailsBlock = entries
-    ? `<details class="copilot-filter-details"><summary>Voir les détails</summary><div class="copilot-details-content">${entries}</div></details>`
+    ? `<details class="okazcar-filter-details"><summary>Voir les détails</summary><div class="okazcar-details-content">${entries}</div></details>`
     : "";
   return phoneHintHTML + detailsBlock;
 }

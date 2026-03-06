@@ -1,7 +1,7 @@
 {
-  "name": "co-pilot",
-  "version": "0.9.0",
-  "description": "Co-Pilot - Projet géré avec la méthode BMAD",
+  "name": "okazcar",
+  "version": "1.0.0",
+  "description": "OKazCar - Analyse de confiance pour annonces auto",
   "private": true,
   "scripts": {
     "build:ext": "node extension/build.js",
@@ -23,7 +23,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/malikkaraoui/Co-Pilot.git"
+    "url": "https://github.com/malikkaraoui/OKazCar.git"
   },
   "author": "Malik Karaoui",
   "license": "UNLICENSED"

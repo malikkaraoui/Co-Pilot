@@ -5,7 +5,7 @@ import logging
 from flask import jsonify
 
 from app.api import api_bp
-from app.errors import CoPilotError, ValidationError
+from app.errors import OKazCarError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,9 @@ def handle_validation_error(exc):
     ), 400
 
 
-@api_bp.errorhandler(CoPilotError)
-def handle_copilot_error(exc):
-    logger.error("CoPilot error: %s", exc)
+@api_bp.errorhandler(OKazCarError)
+def handle_okazcar_error(exc):
+    logger.error("OKazCar error: %s", exc)
     return jsonify(
         {
             "success": False,

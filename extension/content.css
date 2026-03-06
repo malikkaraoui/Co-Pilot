@@ -1,29 +1,29 @@
 /* ══════════════════════════════════════════════════════════════
-   Co-Pilot Content Script Styles
-   Tous les selecteurs prefixes .copilot-* pour eviter les conflits
+   OKazCar Content Script Styles
+   Tous les selecteurs prefixes .okazcar-* pour eviter les conflits
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Variables ─────────────────────────────────────────────── */
 :root {
-  --copilot-primary: #2563eb;
-  --copilot-primary-hover: #1d4ed8;
-  --copilot-green: #22c55e;
-  --copilot-orange: #f59e0b;
-  --copilot-red: #ef4444;
-  --copilot-gray: #9ca3af;
-  --copilot-bg: #ffffff;
-  --copilot-bg-secondary: #f9fafb;
-  --copilot-text: #111827;
-  --copilot-text-secondary: #6b7280;
-  --copilot-border: #e5e7eb;
-  --copilot-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-  --copilot-radius: 16px;
-  --copilot-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --okazcar-primary: #2563eb;
+  --okazcar-primary-hover: #1d4ed8;
+  --okazcar-green: #22c55e;
+  --okazcar-orange: #f59e0b;
+  --okazcar-red: #ef4444;
+  --okazcar-gray: #9ca3af;
+  --okazcar-bg: #ffffff;
+  --okazcar-bg-secondary: #f9fafb;
+  --okazcar-text: #111827;
+  --okazcar-text-secondary: #6b7280;
+  --okazcar-border: #e5e7eb;
+  --okazcar-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  --okazcar-radius: 16px;
+  --okazcar-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* ── Boutons generiques ───────────────────────────────────── */
-.copilot-btn {
-  font-family: var(--copilot-font);
+.okazcar-btn {
+  font-family: var(--okazcar-font);
   font-size: 14px;
   font-weight: 600;
   border: none;
@@ -33,7 +33,7 @@
 }
 
 /* ── Overlay ──────────────────────────────────────────────── */
-.copilot-overlay {
+.okazcar-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -46,89 +46,89 @@
   align-items: center;
   justify-content: flex-end;
   padding: 20px;
-  animation: copilot-fade-in 0.2s ease;
+  animation: okazcar-fade-in 0.2s ease;
 }
 
-@keyframes copilot-fade-in {
+@keyframes okazcar-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 /* ── Popup principale ─────────────────────────────────────── */
-.copilot-popup {
-  font-family: var(--copilot-font);
+.okazcar-popup {
+  font-family: var(--okazcar-font);
   width: 400px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  background: var(--copilot-bg);
-  border-radius: var(--copilot-radius);
-  box-shadow: var(--copilot-shadow);
-  color: var(--copilot-text);
-  animation: copilot-slide-in 0.3s ease;
+  background: var(--okazcar-bg);
+  border-radius: var(--okazcar-radius);
+  box-shadow: var(--okazcar-shadow);
+  color: var(--okazcar-text);
+  animation: okazcar-slide-in 0.3s ease;
 }
 
-@keyframes copilot-slide-in {
+@keyframes okazcar-slide-in {
   from { transform: translateX(30px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
 
 /* Scrollbar personnalisee */
-.copilot-popup::-webkit-scrollbar {
+.okazcar-popup::-webkit-scrollbar {
   width: 6px;
 }
-.copilot-popup::-webkit-scrollbar-track {
+.okazcar-popup::-webkit-scrollbar-track {
   background: transparent;
 }
-.copilot-popup::-webkit-scrollbar-thumb {
-  background: var(--copilot-border);
+.okazcar-popup::-webkit-scrollbar-thumb {
+  background: var(--okazcar-border);
   border-radius: 3px;
 }
 
 /* ── Header ───────────────────────────────────────────────── */
-.copilot-popup-header {
+.okazcar-popup-header {
   padding: 20px 24px 12px;
-  border-bottom: 1px solid var(--copilot-border);
+  border-bottom: 1px solid var(--okazcar-border);
 }
 
-.copilot-popup-title-row {
+.okazcar-popup-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.copilot-popup-title {
+.okazcar-popup-title {
   font-size: 18px;
   font-weight: 700;
-  color: var(--copilot-primary);
+  color: var(--okazcar-primary);
 }
 
-.copilot-popup-close {
+.okazcar-popup-close {
   background: none;
   border: none;
   font-size: 24px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
   transition: color 0.15s;
 }
 
-.copilot-popup-close:hover {
-  color: var(--copilot-text);
+.okazcar-popup-close:hover {
+  color: var(--okazcar-text);
 }
 
-.copilot-popup-vehicle {
+.okazcar-popup-vehicle {
   font-size: 14px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 4px 0 0;
 }
 
-.copilot-popup-currency {
+.okazcar-popup-currency {
   margin: 4px 0 0;
   font-size: 13px;
 }
 
-.copilot-currency-badge {
+.okazcar-currency-badge {
   display: inline-block;
   padding: 2px 8px;
   font-size: 12px;
@@ -138,20 +138,20 @@
   border-radius: 12px;
 }
 
-.copilot-badge-partial {
+.okazcar-badge-partial {
   display: inline-block;
   margin-top: 8px;
   padding: 2px 10px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--copilot-orange);
+  color: var(--okazcar-orange);
   background: rgba(245, 158, 11, 0.1);
   border-radius: 20px;
   letter-spacing: 0.3px;
 }
 
 /* Badge "Xj en ligne" a cote du nom vehicule */
-.copilot-days-badge {
+.okazcar-days-badge {
   font-size: 11px;
   font-weight: 500;
   margin-left: 6px;
@@ -159,7 +159,7 @@
 }
 
 /* Badge estimation LBC (filtre L4 fallback) */
-.copilot-badge-lbc-estimation {
+.okazcar-badge-lbc-estimation {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 6px;
@@ -173,7 +173,7 @@
 }
 
 /* Badge donnees simulees (filtres L4/L5) */
-.copilot-badge-simulated {
+.okazcar-badge-simulated {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 6px;
@@ -188,147 +188,147 @@
 }
 
 /* ── Jauge circulaire (legacy, conserve pour compatibilite) ── */
-.copilot-popup-gauge {
+.okazcar-popup-gauge {
   padding: 24px;
   text-align: center;
 }
 
-.copilot-gauge-progress {
+.okazcar-gauge-progress {
   transition: stroke-dasharray 1s ease;
 }
 
-.copilot-gauge-score {
+.okazcar-gauge-score {
   font-size: 32px;
   font-weight: 800;
-  font-family: var(--copilot-font);
+  font-family: var(--okazcar-font);
 }
 
-.copilot-gauge-label {
+.okazcar-gauge-label {
   font-size: 13px;
-  fill: var(--copilot-text-secondary);
-  font-family: var(--copilot-font);
+  fill: var(--okazcar-text-secondary);
+  font-family: var(--okazcar-font);
 }
 
-.copilot-verdict {
+.okazcar-verdict {
   font-size: 16px;
   font-weight: 600;
   margin: 8px 0 0;
 }
 
 /* ── Radar chart (vue en araignee) ───────────────────────── */
-.copilot-radar-section {
+.okazcar-radar-section {
   text-align: center;
   padding: 12px 0 8px;
 }
 
-.copilot-radar-svg {
+.okazcar-radar-svg {
   display: block;
   margin: 0 auto;
 }
 
-.copilot-radar-grid {
+.okazcar-radar-grid {
   fill: none;
-  stroke: var(--copilot-border);
+  stroke: var(--okazcar-border);
   stroke-width: 0.8;
 }
 
-.copilot-radar-grid-outer {
+.okazcar-radar-grid-outer {
   fill: none;
   stroke: #d1d5db;
   stroke-width: 1;
 }
 
-.copilot-radar-axis-line {
-  stroke: var(--copilot-border);
+.okazcar-radar-axis-line {
+  stroke: var(--okazcar-border);
   stroke-width: 0.5;
 }
 
-.copilot-radar-dot {
+.okazcar-radar-dot {
   stroke: #fff;
   stroke-width: 1.5;
 }
 
-.copilot-radar-axis-label {
+.okazcar-radar-axis-label {
   font-size: 9.5px;
   font-weight: 600;
-  font-family: var(--copilot-font);
-  fill: var(--copilot-text-secondary);
+  font-family: var(--okazcar-font);
+  fill: var(--okazcar-text-secondary);
 }
 
-.copilot-radar-axis-label.fail {
-  fill: var(--copilot-red);
+.okazcar-radar-axis-label.fail {
+  fill: var(--okazcar-red);
   font-weight: 700;
 }
 
-.copilot-radar-axis-label.warning {
+.okazcar-radar-axis-label.warning {
   fill: #b45309;
   font-weight: 700;
 }
 
-.copilot-radar-axis-label.pass {
-  fill: var(--copilot-text-secondary);
+.okazcar-radar-axis-label.pass {
+  fill: var(--okazcar-text-secondary);
 }
 
-.copilot-radar-score {
+.okazcar-radar-score {
   font-size: 28px;
   font-weight: 800;
-  font-family: var(--copilot-font);
+  font-family: var(--okazcar-font);
 }
 
-.copilot-radar-score-label {
+.okazcar-radar-score-label {
   font-size: 10px;
   font-weight: 600;
-  fill: var(--copilot-text-secondary);
-  font-family: var(--copilot-font);
+  fill: var(--okazcar-text-secondary);
+  font-family: var(--okazcar-font);
 }
 
 /* ── Liste des filtres ────────────────────────────────────── */
-.copilot-popup-filters {
+.okazcar-popup-filters {
   padding: 0 24px 16px;
 }
 
-.copilot-section-title {
+.okazcar-section-title {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 0 0 12px;
 }
 
-.copilot-filter-item {
+.okazcar-filter-item {
   padding: 12px;
   margin-bottom: 8px;
-  background: var(--copilot-bg-secondary);
+  background: var(--okazcar-bg-secondary);
   border-radius: 10px;
-  border-left: 3px solid var(--copilot-gray);
+  border-left: 3px solid var(--okazcar-gray);
   transition: border-color 0.2s;
 }
 
-.copilot-filter-item[data-status="pass"] {
-  border-left-color: var(--copilot-green);
+.okazcar-filter-item[data-status="pass"] {
+  border-left-color: var(--okazcar-green);
 }
-.copilot-filter-item[data-status="warning"] {
-  border-left-color: var(--copilot-orange);
+.okazcar-filter-item[data-status="warning"] {
+  border-left-color: var(--okazcar-orange);
 }
-.copilot-filter-item[data-status="fail"] {
-  border-left-color: var(--copilot-red);
+.okazcar-filter-item[data-status="fail"] {
+  border-left-color: var(--okazcar-red);
 }
-.copilot-filter-item[data-status="neutral"] {
-  border-left-color: var(--copilot-gray);
+.okazcar-filter-item[data-status="neutral"] {
+  border-left-color: var(--okazcar-gray);
   opacity: 0.7;
 }
-.copilot-filter-item[data-status="skip"] {
-  border-left-color: var(--copilot-gray);
+.okazcar-filter-item[data-status="skip"] {
+  border-left-color: var(--okazcar-gray);
 }
 
-.copilot-filter-header {
+.okazcar-filter-header {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.copilot-filter-icon {
+.okazcar-filter-icon {
   font-size: 16px;
   font-weight: 700;
   flex-shrink: 0;
@@ -336,27 +336,27 @@
   text-align: center;
 }
 
-.copilot-filter-label {
+.okazcar-filter-label {
   flex: 1;
   font-size: 13px;
   font-weight: 600;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
 }
 
-.copilot-filter-score {
+.okazcar-filter-score {
   font-size: 13px;
   font-weight: 700;
 }
 
 /* ── Jauge de progression horizontale ──────────────────── */
-.copilot-filter-score-bar {
+.okazcar-filter-score-bar {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
 
-.copilot-score-track {
+.okazcar-score-track {
   width: 60px;
   height: 6px;
   background: #e5e7eb;
@@ -364,27 +364,27 @@
   overflow: hidden;
 }
 
-.copilot-score-fill {
+.okazcar-score-fill {
   height: 100%;
   border-radius: 3px;
   transition: width 0.4s ease;
 }
 
-.copilot-score-text {
+.okazcar-score-text {
   font-size: 12px;
   font-weight: 700;
   min-width: 32px;
   text-align: right;
 }
 
-.copilot-score-na {
+.okazcar-score-na {
   font-size: 12px;
   font-weight: 600;
-  color: var(--copilot-gray);
+  color: var(--okazcar-gray);
 }
 
 /* ── Badges booleens (L2, L8) ──────────────────────────── */
-.copilot-bool-badge {
+.okazcar-bool-badge {
   display: inline-block;
   padding: 2px 8px;
   font-size: 11px;
@@ -394,34 +394,34 @@
   flex-shrink: 0;
 }
 
-.copilot-bool-pass {
+.okazcar-bool-pass {
   color: #166534;
   background: rgba(34, 197, 94, 0.15);
 }
 
-.copilot-bool-fail {
+.okazcar-bool-fail {
   color: #991b1b;
   background: rgba(239, 68, 68, 0.15);
 }
 
-.copilot-bool-warn {
+.okazcar-bool-warn {
   color: #92400e;
   background: rgba(245, 158, 11, 0.15);
 }
 
 /* ── L1 : Complétude des données ───────────────────────── */
-.copilot-l1-body {
+.okazcar-l1-body {
   margin: 8px 0 0 30px;
 }
 
-.copilot-l1-bar {
+.okazcar-l1-bar {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 6px;
 }
 
-.copilot-l1-bar-track {
+.okazcar-l1-bar-track {
   flex: 1;
   height: 8px;
   background: #e5e7eb;
@@ -429,20 +429,20 @@
   overflow: hidden;
 }
 
-.copilot-l1-bar-fill {
+.okazcar-l1-bar-fill {
   height: 100%;
   border-radius: 4px;
   transition: width 0.4s ease;
 }
 
-.copilot-l1-bar-label {
+.okazcar-l1-bar-label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   white-space: nowrap;
 }
 
-.copilot-l1-status {
+.okazcar-l1-status {
   font-size: 12px;
   font-weight: 500;
   padding: 6px 10px;
@@ -450,27 +450,27 @@
   margin-bottom: 6px;
 }
 
-.copilot-l1-ok {
+.okazcar-l1-ok {
   color: #166534;
   background: rgba(34, 197, 94, 0.1);
 }
 
-.copilot-l1-warn {
+.okazcar-l1-warn {
   color: #92400e;
   background: rgba(245, 158, 11, 0.1);
 }
 
-.copilot-l1-missing {
+.okazcar-l1-missing {
   margin-top: 4px;
 }
 
-.copilot-l1-missing-title {
+.okazcar-l1-missing-title {
   font-size: 11px;
   font-weight: 600;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-l1-missing ul {
+.okazcar-l1-missing ul {
   list-style: none;
   padding: 0;
   margin: 2px 0 0;
@@ -479,68 +479,68 @@
   gap: 4px;
 }
 
-.copilot-l1-missing li {
+.okazcar-l1-missing li {
   font-size: 11px;
   padding: 1px 8px;
   border-radius: 10px;
   font-weight: 500;
 }
 
-.copilot-l1-missing-critical {
+.okazcar-l1-missing-critical {
   color: #991b1b;
   background: rgba(239, 68, 68, 0.12);
 }
 
-.copilot-l1-missing-secondary {
+.okazcar-l1-missing-secondary {
   color: #92400e;
   background: rgba(245, 158, 11, 0.12);
 }
 
 /* ── L3 : Cohérence km / année ─────────────────────────── */
-.copilot-l3-body {
+.okazcar-l3-body {
   margin: 8px 0 0 30px;
 }
 
-.copilot-l3-stat {
+.okazcar-l3-stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-bottom: 8px;
 }
 
-.copilot-l3-km-year {
+.okazcar-l3-km-year {
   font-size: 20px;
   font-weight: 700;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
 }
 
-.copilot-l3-expected {
+.okazcar-l3-expected {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-l3-comparison {
+.okazcar-l3-comparison {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
 }
 
-.copilot-l3-bar-row {
+.okazcar-l3-bar-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.copilot-l3-bar-label {
+.okazcar-l3-bar-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   width: 46px;
   flex-shrink: 0;
 }
 
-.copilot-l3-bar-track {
+.okazcar-l3-bar-track {
   flex: 1;
   height: 6px;
   background: #e5e7eb;
@@ -548,22 +548,22 @@
   overflow: hidden;
 }
 
-.copilot-l3-bar-fill {
+.okazcar-l3-bar-fill {
   height: 100%;
   border-radius: 3px;
   transition: width 0.4s ease;
 }
 
-.copilot-l3-bar-value {
+.okazcar-l3-bar-value {
   font-size: 10px;
   font-weight: 600;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   min-width: 60px;
   text-align: right;
   white-space: nowrap;
 }
 
-.copilot-l3-verdict {
+.okazcar-l3-verdict {
   font-size: 12px;
   font-weight: 500;
   padding: 5px 10px;
@@ -571,22 +571,22 @@
   margin-bottom: 4px;
 }
 
-.copilot-l3-ok {
+.okazcar-l3-ok {
   color: #166534;
   background: rgba(34, 197, 94, 0.1);
 }
 
-.copilot-l3-warn {
+.okazcar-l3-warn {
   color: #92400e;
   background: rgba(245, 158, 11, 0.1);
 }
 
-.copilot-l3-alert {
+.okazcar-l3-alert {
   color: #991b1b;
   background: rgba(239, 68, 68, 0.1);
 }
 
-.copilot-l3-pro-badge {
+.okazcar-l3-pro-badge {
   display: inline-block;
   padding: 2px 8px;
   font-size: 10px;
@@ -597,52 +597,52 @@
   margin-bottom: 4px;
 }
 
-.copilot-l3-warnings {
+.okazcar-l3-warnings {
   list-style: none;
   padding: 0;
   margin: 4px 0 0;
 }
 
-.copilot-l3-warnings li {
+.okazcar-l3-warnings li {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   padding: 2px 0;
   line-height: 1.4;
 }
 
-.copilot-l3-warnings li::before {
+.okazcar-l3-warnings li::before {
   content: "\26A0\FE0F ";
 }
 
 /* ── L10 : Ancienneté annonce ──────────────────────────── */
-.copilot-l10-body {
+.okazcar-l10-body {
   margin: 8px 0 0 30px;
 }
 
-.copilot-l10-big {
+.okazcar-l10-big {
   display: flex;
   align-items: baseline;
   gap: 6px;
   margin-bottom: 8px;
 }
 
-.copilot-l10-days {
+.okazcar-l10-days {
   font-size: 28px;
   font-weight: 800;
   line-height: 1;
 }
 
-.copilot-l10-days-label {
+.okazcar-l10-days-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-l10-timeline {
+.okazcar-l10-timeline {
   margin-bottom: 6px;
 }
 
-.copilot-l10-track {
+.okazcar-l10-track {
   position: relative;
   height: 8px;
   background: #e5e7eb;
@@ -650,26 +650,26 @@
   overflow: visible;
 }
 
-.copilot-l10-fill {
+.okazcar-l10-fill {
   height: 100%;
   border-radius: 4px;
   transition: width 0.4s ease;
 }
 
-.copilot-l10-threshold {
+.okazcar-l10-threshold {
   position: absolute;
   top: -4px;
   transform: translateX(-50%);
 }
 
-.copilot-l10-threshold-line {
+.okazcar-l10-threshold-line {
   width: 2px;
   height: 16px;
   background: #6b7280;
   margin: 0 auto;
 }
 
-.copilot-l10-threshold-label {
+.okazcar-l10-threshold-label {
   display: block;
   font-size: 9px;
   font-weight: 600;
@@ -679,7 +679,7 @@
   margin-top: 2px;
 }
 
-.copilot-l10-cursor {
+.okazcar-l10-cursor {
   position: absolute;
   top: -3px;
   width: 14px;
@@ -690,26 +690,26 @@
   transform: translateX(-50%);
 }
 
-.copilot-l10-scale {
+.okazcar-l10-scale {
   display: flex;
   justify-content: space-between;
   font-size: 9px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin-top: 4px;
 }
 
-.copilot-l10-verdict {
+.okazcar-l10-verdict {
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 4px;
 }
 
-.copilot-l10-meta {
+.okazcar-l10-meta {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-l10-republished {
+.okazcar-l10-republished {
   margin-top: 6px;
   padding: 6px 10px;
   font-size: 11px;
@@ -721,35 +721,35 @@
 }
 
 /* ── L9 : Résultat de scan ─────────────────────────────── */
-.copilot-l9-body {
+.okazcar-l9-body {
   margin: 8px 0 0 30px;
 }
 
-.copilot-l9-coverage {
+.okazcar-l9-coverage {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  background: var(--copilot-bg);
+  background: var(--okazcar-bg);
   border-radius: 6px;
   margin-bottom: 8px;
 }
 
-.copilot-l9-coverage-count {
+.okazcar-l9-coverage-count {
   font-size: 14px;
   font-weight: 700;
 }
 
-.copilot-l9-coverage-text {
+.okazcar-l9-coverage-text {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-l9-list {
+.okazcar-l9-list {
   margin-bottom: 6px;
 }
 
-.copilot-l9-list-title {
+.okazcar-l9-list-title {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -757,15 +757,15 @@
   margin-bottom: 4px;
 }
 
-.copilot-l9-fort-title {
+.okazcar-l9-fort-title {
   color: #166534;
 }
 
-.copilot-l9-faible-title {
+.okazcar-l9-faible-title {
   color: #991b1b;
 }
 
-.copilot-l9-list ul {
+.okazcar-l9-list ul {
   list-style: none;
   padding: 0;
   margin: 0;
@@ -774,48 +774,48 @@
   gap: 3px;
 }
 
-.copilot-l9-fort {
+.okazcar-l9-fort {
   font-size: 12px;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   padding: 3px 0;
   line-height: 1.3;
 }
 
-.copilot-l9-fort::before {
+.okazcar-l9-fort::before {
   content: "\2713 ";
   color: #22c55e;
   font-weight: 700;
 }
 
-.copilot-l9-faible {
+.okazcar-l9-faible {
   font-size: 12px;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   padding: 3px 0;
   line-height: 1.3;
 }
 
-.copilot-l9-faible::before {
+.okazcar-l9-faible::before {
   content: "\26A0 ";
   color: #ef4444;
   font-weight: 700;
 }
 
 /* ── L5 : Indice de confiance (échelle bipolaire) ────────── */
-.copilot-l5-body {
+.okazcar-l5-body {
   margin: 6px 0 0 30px;
 }
 
-.copilot-l5-na {
+.okazcar-l5-na {
   font-size: 11px;
   color: #9ca3af;
   font-style: italic;
 }
 
-.copilot-l5-scale {
+.okazcar-l5-scale {
   margin-bottom: 6px;
 }
 
-.copilot-l5-track {
+.okazcar-l5-track {
   position: relative;
   display: flex;
   height: 8px;
@@ -823,24 +823,24 @@
   overflow: visible;
 }
 
-.copilot-l5-zone-left {
+.okazcar-l5-zone-left {
   flex: 1;
   background: linear-gradient(90deg, #fecaca 0%, #fed7aa 100%);
   border-radius: 4px 0 0 4px;
 }
 
-.copilot-l5-zone-center {
+.okazcar-l5-zone-center {
   flex: 1;
   background: #e5e7eb;
 }
 
-.copilot-l5-zone-right {
+.okazcar-l5-zone-right {
   flex: 1;
   background: linear-gradient(90deg, #bbf7d0 0%, #86efac 100%);
   border-radius: 0 4px 4px 0;
 }
 
-.copilot-l5-cursor {
+.okazcar-l5-cursor {
   position: absolute;
   top: -4px;
   width: 14px;
@@ -852,23 +852,23 @@
   transition: left 0.3s ease;
 }
 
-.copilot-l5-zone-red {
+.okazcar-l5-zone-red {
   background: #ef4444;
 }
 
-.copilot-l5-zone-orange {
+.okazcar-l5-zone-orange {
   background: #f97316;
 }
 
-.copilot-l5-zone-neutral {
+.okazcar-l5-zone-neutral {
   background: #9ca3af;
 }
 
-.copilot-l5-zone-green {
+.okazcar-l5-zone-green {
   background: #22c55e;
 }
 
-.copilot-l5-labels {
+.okazcar-l5-labels {
   display: flex;
   justify-content: space-between;
   margin-top: 4px;
@@ -878,27 +878,27 @@
   letter-spacing: 0.3px;
 }
 
-.copilot-l5-label-left {
+.okazcar-l5-label-left {
   color: #ef4444;
 }
 
-.copilot-l5-label-center {
+.okazcar-l5-label-center {
   color: #9ca3af;
 }
 
-.copilot-l5-label-right {
+.okazcar-l5-label-right {
   color: #22c55e;
 }
 
-.copilot-l5-verdict {
+.okazcar-l5-verdict {
   font-size: 11px;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   margin-bottom: 6px;
   line-height: 1.3;
 }
 
 /* Alerte diesel urbain */
-.copilot-l5-diesel {
+.okazcar-l5-diesel {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -911,31 +911,31 @@
   margin-bottom: 6px;
 }
 
-.copilot-l5-diesel-icon {
+.okazcar-l5-diesel-icon {
   font-size: 16px;
   flex-shrink: 0;
   margin-top: 1px;
 }
 
-.copilot-l5-diesel-title {
+.okazcar-l5-diesel-title {
   font-weight: 700;
   margin-bottom: 2px;
 }
 
-.copilot-l5-diesel-text {
+.okazcar-l5-diesel-text {
   font-size: 11px;
   line-height: 1.3;
   opacity: 0.85;
 }
 
-.copilot-l5-footer {
+.okazcar-l5-footer {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 2px;
 }
 
-.copilot-l5-src {
+.okazcar-l5-src {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 8px;
@@ -947,13 +947,13 @@
   letter-spacing: 0.3px;
 }
 
-.copilot-l5-refs {
+.okazcar-l5-refs {
   font-size: 10px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
 /* ── L2 : Modèle reconnu ────────────────────────────────── */
-.copilot-l2-body {
+.okazcar-l2-body {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -961,13 +961,13 @@
   flex-wrap: wrap;
 }
 
-.copilot-l2-na {
+.okazcar-l2-na {
   font-size: 11px;
   color: #9ca3af;
   font-style: italic;
 }
 
-.copilot-l2-badge {
+.okazcar-l2-badge {
   display: inline-block;
   padding: 2px 10px;
   border-radius: 10px;
@@ -975,23 +975,23 @@
   font-weight: 600;
 }
 
-.copilot-l2-badge-ok {
+.okazcar-l2-badge-ok {
   background: #dcfce7;
   color: #16a34a;
 }
 
-.copilot-l2-badge-warn {
+.okazcar-l2-badge-warn {
   background: #fff7ed;
   color: #ea580c;
 }
 
-.copilot-l2-msg {
+.okazcar-l2-msg {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
 /* ── L6 : Téléphone ─────────────────────────────────────── */
-.copilot-l6-body {
+.okazcar-l6-body {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -999,13 +999,13 @@
   flex-wrap: wrap;
 }
 
-.copilot-l6-na {
+.okazcar-l6-na {
   font-size: 11px;
   color: #9ca3af;
   font-style: italic;
 }
 
-.copilot-l6-badge {
+.okazcar-l6-badge {
   display: inline-block;
   padding: 2px 10px;
   border-radius: 10px;
@@ -1014,43 +1014,43 @@
   letter-spacing: 0.2px;
 }
 
-.copilot-l6-badge-mobile {
+.okazcar-l6-badge-mobile {
   background: #dcfce7;
   color: #16a34a;
 }
 
-.copilot-l6-badge-landline {
+.okazcar-l6-badge-landline {
   background: #dbeafe;
   color: #2563eb;
 }
 
-.copilot-l6-badge-foreign {
+.okazcar-l6-badge-foreign {
   background: #fff7ed;
   color: #ea580c;
 }
 
-.copilot-l6-badge-danger {
+.okazcar-l6-badge-danger {
   background: #fef2f2;
   color: #dc2626;
 }
 
-.copilot-l6-badge-ok {
+.okazcar-l6-badge-ok {
   background: #f0fdf4;
   color: #16a34a;
 }
 
-.copilot-l6-badge-default {
+.okazcar-l6-badge-default {
   background: #f3f4f6;
   color: #6b7280;
 }
 
-.copilot-l6-msg {
+.okazcar-l6-msg {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
 /* ── L7 : SIRET / UID vendeur ───────────────────────────── */
-.copilot-l7-body {
+.okazcar-l7-body {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1058,13 +1058,13 @@
   flex-wrap: wrap;
 }
 
-.copilot-l7-na {
+.okazcar-l7-na {
   font-size: 11px;
   color: #9ca3af;
   font-style: italic;
 }
 
-.copilot-l7-badge {
+.okazcar-l7-badge {
   display: inline-block;
   padding: 2px 10px;
   border-radius: 10px;
@@ -1073,59 +1073,59 @@
   letter-spacing: 0.2px;
 }
 
-.copilot-l7-badge-neutral {
+.okazcar-l7-badge-neutral {
   background: #f3f4f6;
   color: #6b7280;
 }
 
-.copilot-l7-badge-verified {
+.okazcar-l7-badge-verified {
   background: #dcfce7;
   color: #16a34a;
 }
 
-.copilot-l7-badge-pro {
+.okazcar-l7-badge-pro {
   background: #dbeafe;
   color: #2563eb;
 }
 
-.copilot-l7-badge-warn {
+.okazcar-l7-badge-warn {
   background: #fff7ed;
   color: #ea580c;
 }
 
-.copilot-l7-badge-fail {
+.okazcar-l7-badge-fail {
   background: #fef2f2;
   color: #dc2626;
 }
 
-.copilot-l7-denom {
+.okazcar-l7-denom {
   font-size: 11px;
   font-weight: 600;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
 }
 
-.copilot-l7-id {
+.okazcar-l7-id {
   font-size: 10px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   font-family: monospace;
 }
 
-.copilot-l7-rating {
+.okazcar-l7-rating {
   font-size: 11px;
   color: #f59e0b;
 }
 
-.copilot-l7-msg {
+.okazcar-l7-msg {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
 /* ── L8 : Détection import ───────────────────────────────── */
-.copilot-l8-body {
+.okazcar-l8-body {
   margin: 6px 0 0 30px;
 }
 
-.copilot-l8-clean {
+.okazcar-l8-clean {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1134,11 +1134,11 @@
   font-weight: 500;
 }
 
-.copilot-l8-clean-icon {
+.okazcar-l8-clean-icon {
   font-size: 14px;
 }
 
-.copilot-l8-alert {
+.okazcar-l8-alert {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1148,70 +1148,70 @@
   font-weight: 600;
 }
 
-.copilot-l8-alert-warn {
+.okazcar-l8-alert-warn {
   background: #fff7ed;
   color: #ea580c;
 }
 
-.copilot-l8-alert-fail {
+.okazcar-l8-alert-fail {
   background: #fef2f2;
   color: #dc2626;
 }
 
-.copilot-l8-alert-icon {
+.okazcar-l8-alert-icon {
   font-size: 14px;
   flex-shrink: 0;
 }
 
-.copilot-l8-signals {
+.okazcar-l8-signals {
   margin: 6px 0 0 0;
   padding: 0 0 0 16px;
   list-style: none;
 }
 
-.copilot-l8-signal {
+.okazcar-l8-signal {
   font-size: 11px;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   padding: 3px 0;
   line-height: 1.3;
 }
 
-.copilot-l8-signal::before {
+.okazcar-l8-signal::before {
   content: "\2022 ";
   color: #ef4444;
   font-weight: 700;
 }
 
-.copilot-filter-message {
+.okazcar-filter-message {
   font-size: 12px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 4px 0 0 30px;
   line-height: 1.4;
 }
 
 /* ── Details depliables ───────────────────────────────────── */
-.copilot-filter-details {
+.okazcar-filter-details {
   margin: 8px 0 0 30px;
 }
 
-.copilot-filter-details summary {
+.okazcar-filter-details summary {
   font-size: 11px;
-  color: var(--copilot-primary);
+  color: var(--okazcar-primary);
   cursor: pointer;
   font-weight: 500;
 }
 
-.copilot-filter-details summary:hover {
+.okazcar-filter-details summary:hover {
   text-decoration: underline;
 }
 
-.copilot-details-content {
+.okazcar-details-content {
   margin-top: 6px;
   padding: 10px 12px;
-  background: var(--copilot-bg);
+  background: var(--okazcar-bg);
   border-radius: 6px;
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   line-height: 1.5;
   word-break: break-word;
   display: flex;
@@ -1219,32 +1219,32 @@
   gap: 6px;
 }
 
-.copilot-detail-row {
+.okazcar-detail-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
   padding: 2px 0;
-  border-bottom: 1px dashed var(--copilot-border);
+  border-bottom: 1px dashed var(--okazcar-border);
 }
 
-.copilot-detail-row:last-child {
+.okazcar-detail-row:last-child {
   border-bottom: none;
 }
 
-.copilot-detail-key {
+.okazcar-detail-key {
   font-weight: 600;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   flex-shrink: 0;
 }
 
-.copilot-detail-value {
+.okazcar-detail-value {
   text-align: right;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
 /* ── Hint connexion telephone ────────────────────────────── */
-.copilot-phone-login-hint {
+.okazcar-phone-login-hint {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1257,12 +1257,12 @@
   color: #92400e;
 }
 
-.copilot-phone-hint-icon {
+.okazcar-phone-hint-icon {
   font-size: 16px;
   flex-shrink: 0;
 }
 
-.copilot-phone-login-link {
+.okazcar-phone-login-link {
   margin-left: auto;
   padding: 3px 10px;
   background: #f59e0b;
@@ -1275,30 +1275,30 @@
   transition: background 0.2s;
 }
 
-.copilot-phone-login-link:hover {
+.okazcar-phone-login-link:hover {
   background: #d97706;
 }
 
 /* ── Section premium (paywall liquid glass) ───────────────── */
-.copilot-premium-section {
+.okazcar-premium-section {
   position: relative;
   margin: 8px 24px 20px;
   border-radius: 12px;
   overflow: hidden;
 }
 
-.copilot-premium-blur {
+.okazcar-premium-blur {
   filter: blur(6px);
   user-select: none;
   pointer-events: none;
   padding: 20px;
-  background: var(--copilot-bg-secondary);
+  background: var(--okazcar-bg-secondary);
   font-size: 13px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   line-height: 1.6;
 }
 
-.copilot-premium-overlay {
+.okazcar-premium-overlay {
   position: absolute;
   top: 0;
   left: 0;
@@ -1309,7 +1309,7 @@
   justify-content: center;
 }
 
-.copilot-premium-glass {
+.okazcar-premium-glass {
   text-align: center;
   padding: 24px;
   background: rgba(255, 255, 255, 0.75);
@@ -1321,24 +1321,24 @@
   max-width: 280px;
 }
 
-.copilot-premium-title {
+.okazcar-premium-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   margin: 0 0 6px;
 }
 
-.copilot-premium-subtitle {
+.okazcar-premium-subtitle {
   font-size: 12px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 0 0 16px;
   line-height: 1.4;
 }
 
-.copilot-premium-cta {
+.okazcar-premium-cta {
   display: inline-block;
   padding: 10px 24px;
-  background: linear-gradient(135deg, var(--copilot-primary), #7c3aed);
+  background: linear-gradient(135deg, var(--okazcar-primary), #7c3aed);
   color: #fff;
   font-size: 14px;
   font-weight: 700;
@@ -1349,23 +1349,23 @@
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
-.copilot-premium-cta:hover {
+.okazcar-premium-cta:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
 }
 
-.copilot-premium-cta:disabled {
+.okazcar-premium-cta:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
 }
 
 /* ── Banniere Autoviza (rapport gratuit LBC) ────────────── */
-.copilot-autoviza-banner {
+.okazcar-autoviza-banner {
   margin: 8px 24px 8px;
 }
 
-.copilot-autoviza-link {
+.okazcar-autoviza-link {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1374,45 +1374,45 @@
   border: 1px solid #bfdbfe;
   border-radius: 10px;
   text-decoration: none;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
-.copilot-autoviza-link:hover {
+.okazcar-autoviza-link:hover {
   border-color: #3b82f6;
   box-shadow: 0 2px 12px rgba(59, 130, 246, 0.15);
   transform: translateY(-1px);
 }
 
-.copilot-autoviza-icon {
+.okazcar-autoviza-icon {
   font-size: 22px;
   flex-shrink: 0;
   line-height: 1;
 }
 
-.copilot-autoviza-text {
+.okazcar-autoviza-text {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.copilot-autoviza-text strong {
+.okazcar-autoviza-text strong {
   font-size: 13px;
   font-weight: 600;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   line-height: 1.3;
 }
 
-.copilot-autoviza-text small {
+.okazcar-autoviza-text small {
   font-size: 11px;
   color: #3b82f6;
   font-weight: 500;
   line-height: 1.3;
 }
 
-.copilot-autoviza-arrow {
+.okazcar-autoviza-arrow {
   font-size: 22px;
   color: #3b82f6;
   font-weight: 300;
@@ -1421,11 +1421,11 @@
 }
 
 /* ── Banniere YouTube (video featured) ────────────────────── */
-.copilot-youtube-banner {
+.okazcar-youtube-banner {
   margin: 8px 24px 8px;
 }
 
-.copilot-youtube-link {
+.okazcar-youtube-link {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1438,30 +1438,30 @@
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.copilot-youtube-link:hover {
+.okazcar-youtube-link:hover {
   border-color: #ef4444;
   box-shadow: 0 2px 12px rgba(239, 68, 68, 0.15);
 }
 
-.copilot-youtube-icon {
+.okazcar-youtube-icon {
   font-size: 22px;
   flex-shrink: 0;
 }
 
-.copilot-youtube-text {
+.okazcar-youtube-text {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.copilot-youtube-text strong {
+.okazcar-youtube-text strong {
   font-size: 13px;
   font-weight: 600;
   color: #dc2626;
 }
 
-.copilot-youtube-text small {
+.okazcar-youtube-text small {
   font-size: 11px;
   color: #6b7280;
   overflow: hidden;
@@ -1469,7 +1469,7 @@
   white-space: nowrap;
 }
 
-.copilot-youtube-arrow {
+.okazcar-youtube-arrow {
   font-size: 22px;
   color: #dc2626;
   font-weight: 300;
@@ -1478,11 +1478,11 @@
 }
 
 /* ── Banniere carVertical ────────────────────────────────── */
-.copilot-carvertical-banner {
+.okazcar-carvertical-banner {
   margin: 8px 24px 16px;
 }
 
-.copilot-carvertical-link {
+.okazcar-carvertical-link {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1491,18 +1491,18 @@
   border: 1px solid #bbf7d0;
   border-radius: 10px;
   text-decoration: none;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
-.copilot-carvertical-link:hover {
+.okazcar-carvertical-link:hover {
   border-color: #00B775;
   box-shadow: 0 2px 12px rgba(0, 183, 117, 0.15);
   transform: translateY(-1px);
 }
 
-.copilot-carvertical-logo {
+.okazcar-carvertical-logo {
   width: 28px;
   height: 28px;
   border-radius: 6px;
@@ -1510,28 +1510,28 @@
   object-fit: cover;
 }
 
-.copilot-carvertical-text {
+.okazcar-carvertical-text {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.copilot-carvertical-text strong {
+.okazcar-carvertical-text strong {
   font-size: 13px;
   font-weight: 600;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   line-height: 1.3;
 }
 
-.copilot-carvertical-text small {
+.okazcar-carvertical-text small {
   font-size: 11px;
   color: #00B775;
   font-weight: 500;
   line-height: 1.3;
 }
 
-.copilot-carvertical-arrow {
+.okazcar-carvertical-arrow {
   font-size: 22px;
   color: #00B775;
   font-weight: 300;
@@ -1540,11 +1540,11 @@
 }
 
 /* ── Banniere Email Vendeur ─────────────────────────────── */
-.copilot-email-banner {
+.okazcar-email-banner {
   margin: 8px 24px 16px;
 }
 
-.copilot-email-btn {
+.okazcar-email-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1561,35 +1561,35 @@
   transition: all 0.2s ease;
 }
 
-.copilot-email-btn:hover {
+.okazcar-email-btn:hover {
   border-color: #6366f1;
   box-shadow: 0 2px 12px rgba(99, 102, 241, 0.15);
   transform: translateY(-1px);
 }
 
-.copilot-email-textarea {
+.okazcar-email-textarea {
   width: 100%;
   min-height: 120px;
   padding: 10px;
-  border: 1px solid var(--copilot-border);
+  border: 1px solid var(--okazcar-border);
   border-radius: 8px;
   font-family: inherit;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--copilot-text);
-  background: var(--copilot-bg);
+  color: var(--okazcar-text);
+  background: var(--okazcar-bg);
   resize: vertical;
   box-sizing: border-box;
 }
 
-.copilot-email-actions {
+.okazcar-email-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
 }
 
-.copilot-email-copy {
+.okazcar-email-copy {
   padding: 6px 12px;
   background: #4338ca;
   color: #fff;
@@ -1601,17 +1601,17 @@
   transition: background 0.2s ease;
 }
 
-.copilot-email-copy:hover {
+.okazcar-email-copy:hover {
   background: #3730a3;
 }
 
-.copilot-email-copied {
+.okazcar-email-copied {
   font-size: 12px;
   color: #22c55e;
   font-weight: 600;
 }
 
-.copilot-email-loading {
+.okazcar-email-loading {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1620,7 +1620,7 @@
   font-size: 13px;
 }
 
-.copilot-email-error {
+.okazcar-email-error {
   padding: 8px 12px;
   background: #fef2f2;
   border: 1px solid #fecaca;
@@ -1631,133 +1631,133 @@
 }
 
 /* ── Footer ───────────────────────────────────────────────── */
-.copilot-popup-footer {
+.okazcar-popup-footer {
   padding: 12px 24px;
-  border-top: 1px solid var(--copilot-border);
+  border-top: 1px solid var(--okazcar-border);
   text-align: center;
 }
 
-.copilot-popup-footer p {
+.okazcar-popup-footer p {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 0;
 }
 
 /* ── Loading ──────────────────────────────────────────────── */
-.copilot-popup-loading {
+.okazcar-popup-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 200px;
 }
 
-.copilot-loading-body {
+.okazcar-loading-body {
   text-align: center;
   padding: 40px;
 }
 
-.copilot-loading-body p {
+.okazcar-loading-body p {
   font-size: 14px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 16px 0 0;
 }
 
-.copilot-spinner {
+.okazcar-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--copilot-border);
-  border-top-color: var(--copilot-primary);
+  border: 4px solid var(--okazcar-border);
+  border-top-color: var(--okazcar-primary);
   border-radius: 50%;
   margin: 0 auto;
-  animation: copilot-spin 0.8s linear infinite;
+  animation: okazcar-spin 0.8s linear infinite;
 }
 
-@keyframes copilot-spin {
+@keyframes okazcar-spin {
   to { transform: rotate(360deg); }
 }
 
 /* ── Erreur ───────────────────────────────────────────────── */
-.copilot-error-body {
+.okazcar-error-body {
   text-align: center;
   padding: 40px 24px;
 }
 
-.copilot-error-icon {
+.okazcar-error-icon {
   font-size: 40px;
   margin-bottom: 12px;
 }
 
-.copilot-error-message {
+.okazcar-error-message {
   font-size: 14px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   line-height: 1.5;
   margin: 0 0 20px;
 }
 
-.copilot-btn-retry {
+.okazcar-btn-retry {
   padding: 8px 20px;
-  background: var(--copilot-primary);
+  background: var(--okazcar-primary);
   color: #fff;
 }
 
-.copilot-btn-retry:hover {
-  background: var(--copilot-primary-hover);
+.okazcar-btn-retry:hover {
+  background: var(--okazcar-primary-hover);
 }
 
 /* ── Popup non-vehicule ──────────────────────────────────── */
-.copilot-not-vehicle-body {
+.okazcar-not-vehicle-body {
   text-align: center;
   padding: 32px 24px;
 }
 
-.copilot-not-vehicle-icon {
+.okazcar-not-vehicle-icon {
   font-size: 56px;
   margin-bottom: 12px;
   line-height: 1;
 }
 
-.copilot-not-vehicle-title {
+.okazcar-not-vehicle-title {
   font-size: 18px;
   font-weight: 700;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   margin: 0 0 12px;
 }
 
-.copilot-not-vehicle-category {
+.okazcar-not-vehicle-category {
   font-size: 13px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 0 0 8px;
 }
 
-.copilot-not-vehicle-hint {
+.okazcar-not-vehicle-hint {
   font-size: 12px;
   color: #9ca3af;
   margin: 0;
 }
 
 /* ── Progress Checklist ─────────────────────────────────── */
-.copilot-progress-body {
+.okazcar-progress-body {
   padding: 16px 20px;
   max-height: 70vh;
   overflow-y: auto;
 }
 
-.copilot-progress-phase {
+.okazcar-progress-phase {
   margin-bottom: 12px;
 }
 
-.copilot-progress-phase-title {
+.okazcar-progress-phase-title {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin: 0 0 6px;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--copilot-border);
+  border-bottom: 1px solid var(--okazcar-border);
 }
 
-.copilot-step {
+.okazcar-step {
   display: flex;
   align-items: flex-start;
   flex-wrap: wrap;
@@ -1765,27 +1765,27 @@
   padding: 4px 0;
   font-size: 13px;
   line-height: 1.4;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   transition: opacity 0.2s ease;
 }
 
-.copilot-step[data-status="pending"] {
+.okazcar-step[data-status="pending"] {
   opacity: 0.4;
 }
 
-.copilot-step[data-status="running"] {
+.okazcar-step[data-status="running"] {
   opacity: 1;
 }
 
-.copilot-step[data-status="done"] {
+.okazcar-step[data-status="done"] {
   opacity: 1;
 }
 
-.copilot-step[data-status="error"] {
+.okazcar-step[data-status="error"] {
   opacity: 1;
 }
 
-.copilot-step-icon {
+.okazcar-step-icon {
   flex-shrink: 0;
   width: 18px;
   height: 18px;
@@ -1796,70 +1796,70 @@
   margin-top: 1px;
 }
 
-.copilot-step-icon.pending {
-  color: var(--copilot-gray);
+.okazcar-step-icon.pending {
+  color: var(--okazcar-gray);
 }
 
-.copilot-step-icon.running {
-  color: var(--copilot-primary);
+.okazcar-step-icon.running {
+  color: var(--okazcar-primary);
 }
 
-.copilot-step-icon.done {
-  color: var(--copilot-green);
+.okazcar-step-icon.done {
+  color: var(--okazcar-green);
 }
 
-.copilot-step-icon.warning {
-  color: var(--copilot-orange);
+.okazcar-step-icon.warning {
+  color: var(--okazcar-orange);
 }
 
-.copilot-step-icon.error {
-  color: var(--copilot-red);
+.okazcar-step-icon.error {
+  color: var(--okazcar-red);
 }
 
-.copilot-step-icon.skip {
-  color: var(--copilot-gray);
+.okazcar-step-icon.skip {
+  color: var(--okazcar-gray);
 }
 
-.copilot-step-text {
+.okazcar-step-text {
   flex: 1;
   min-width: 0;
 }
 
-.copilot-step-detail {
+.okazcar-step-detail {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin-top: 1px;
 }
 
 /* Mini spinner for running steps */
-.copilot-mini-spinner {
+.okazcar-mini-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--copilot-border);
-  border-top-color: var(--copilot-primary);
+  border: 2px solid var(--okazcar-border);
+  border-top-color: var(--okazcar-primary);
   border-radius: 50%;
-  animation: copilot-spin 0.8s linear infinite;
+  animation: okazcar-spin 0.8s linear infinite;
 }
 
 /* Substeps (indented) */
-.copilot-substeps {
+.okazcar-substeps {
   flex-basis: 100%;
   margin: 2px 0 2px 26px;
   padding-left: 10px;
-  border-left: 2px solid var(--copilot-border);
+  border-left: 2px solid var(--okazcar-border);
 }
 
-.copilot-substep {
+.okazcar-substep {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   padding: 2px 0;
   font-size: 12px;
   line-height: 1.3;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-substep-icon {
+.okazcar-substep-icon {
   flex-shrink: 0;
   width: 14px;
   text-align: center;
@@ -1868,11 +1868,11 @@
 }
 
 /* Filter results in progress checklist */
-.copilot-progress-filters {
+.okazcar-progress-filters {
   margin: 4px 0 4px 26px;
 }
 
-.copilot-progress-filter {
+.okazcar-progress-filter {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1881,79 +1881,79 @@
   line-height: 1.3;
 }
 
-.copilot-progress-filter-icon {
+.okazcar-progress-filter-icon {
   flex-shrink: 0;
   width: 16px;
   text-align: center;
   font-size: 11px;
 }
 
-.copilot-progress-filter-id {
+.okazcar-progress-filter-id {
   font-weight: 600;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   width: 24px;
   flex-shrink: 0;
 }
 
-.copilot-progress-filter-label {
+.okazcar-progress-filter-label {
   flex: 1;
   min-width: 0;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
 }
 
-.copilot-progress-filter-score {
+.okazcar-progress-filter-score {
   font-weight: 600;
   flex-shrink: 0;
 }
 
-.copilot-progress-filter-msg {
+.okazcar-progress-filter-msg {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin-left: 46px;
   line-height: 1.3;
 }
 
 /* Cascade details in L4 */
-.copilot-cascade-detail {
+.okazcar-cascade-detail {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin-left: 46px;
   padding: 1px 0;
 }
 
 /* Separator before score */
-.copilot-progress-separator {
+.okazcar-progress-separator {
   border: none;
-  border-top: 1px solid var(--copilot-border);
+  border-top: 1px solid var(--okazcar-border);
   margin: 12px 0;
 }
 
 /* Score reveal in progress */
-.copilot-progress-score {
+.okazcar-progress-score {
   text-align: center;
   padding: 8px 0;
-  animation: copilot-fade-in 0.4s ease;
+  animation: okazcar-fade-in 0.4s ease;
 }
 
-.copilot-progress-score-label {
+.okazcar-progress-score-label {
   font-size: 12px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   margin-bottom: 4px;
 }
 
-.copilot-progress-score-value {
+.okazcar-progress-score-value {
   font-size: 32px;
   font-weight: 800;
   line-height: 1;
 }
 
-.copilot-progress-score-verdict {
+.okazcar-progress-score-verdict {
   font-size: 14px;
   font-weight: 600;
   margin-top: 4px;
 }
 
-@keyframes copilot-fade-in {
+@keyframes okazcar-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
@@ -1962,12 +1962,12 @@
    Barre de prix Argus (L4) — verdict ultra lisible
    ══════════════════════════════════════════════════════════════ */
 
-.copilot-price-bar-container {
+.okazcar-price-bar-container {
   margin: 8px 0 0 0;
 }
 
 /* Big verdict banner */
-.copilot-price-verdict {
+.okazcar-price-verdict {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1976,60 +1976,60 @@
   margin-bottom: 10px;
 }
 
-.copilot-price-verdict-emoji {
+.okazcar-price-verdict-emoji {
   font-size: 20px;
   line-height: 1;
   flex-shrink: 0;
 }
 
-.copilot-price-verdict-text {
+.okazcar-price-verdict-text {
   font-size: 14px;
   font-weight: 800;
   line-height: 1.2;
 }
 
-.copilot-price-verdict-pct {
+.okazcar-price-verdict-pct {
   font-size: 12px;
   font-weight: 600;
   opacity: 0.8;
 }
 
-.copilot-price-verdict.verdict-below {
+.okazcar-price-verdict.verdict-below {
   background: #f0fdf4;
   color: #16a34a;
 }
 
-.copilot-price-verdict.verdict-above-warning {
+.okazcar-price-verdict.verdict-above-warning {
   background: #fff7ed;
   color: #ea580c;
 }
 
-.copilot-price-verdict.verdict-above-fail {
+.okazcar-price-verdict.verdict-above-fail {
   background: #fef2f2;
   color: #dc2626;
 }
 
-.copilot-price-verdict.verdict-fair {
+.okazcar-price-verdict.verdict-fair {
   background: #f0fdf4;
   color: #16a34a;
 }
 
-.copilot-price-verdict.verdict-below-suspect {
+.okazcar-price-verdict.verdict-below-suspect {
   background: #fff7ed;
   color: #ea580c;
 }
 
 /* Bar track */
-.copilot-price-bar-track {
+.okazcar-price-bar-track {
   position: relative;
   height: 6px;
-  background: var(--copilot-border);
+  background: var(--okazcar-border);
   border-radius: 3px;
   margin: 0 12px;
 }
 
 /* Colored fill zone between markers */
-.copilot-price-bar-fill {
+.okazcar-price-bar-fill {
   position: absolute;
   top: 0;
   height: 100%;
@@ -2037,7 +2037,7 @@
 }
 
 /* Dashed line between markers */
-.copilot-price-arrow-zone {
+.okazcar-price-arrow-zone {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -2048,7 +2048,7 @@
 }
 
 /* Market reference: vertical line + label */
-.copilot-price-market-ref {
+.okazcar-price-market-ref {
   position: absolute;
   top: -8px;
   transform: translateX(-50%);
@@ -2058,32 +2058,32 @@
   z-index: 3;
 }
 
-.copilot-price-market-line {
+.okazcar-price-market-line {
   width: 2px;
   height: 22px;
-  background: var(--copilot-text);
+  background: var(--okazcar-text);
   border-radius: 1px;
 }
 
-.copilot-price-market-label {
+.okazcar-price-market-label {
   font-size: 10px;
   font-weight: 700;
-  color: var(--copilot-text);
+  color: var(--okazcar-text);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   margin-top: 2px;
   white-space: nowrap;
 }
 
-.copilot-price-market-price {
+.okazcar-price-market-price {
   font-size: 11px;
   font-weight: 600;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
   white-space: nowrap;
 }
 
 /* Car emoji marker for annonce price */
-.copilot-price-car {
+.okazcar-price-car {
   position: absolute;
   top: -10px;
   transform: translateX(-50%);
@@ -2093,13 +2093,13 @@
   align-items: center;
 }
 
-.copilot-price-car-emoji {
+.okazcar-price-car-emoji {
   font-size: 20px;
   line-height: 1;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
 }
 
-.copilot-price-car-price {
+.okazcar-price-car-price {
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -2107,12 +2107,12 @@
 }
 
 /* Spacer for labels below bar */
-.copilot-price-bar-spacer {
+.okazcar-price-bar-spacer {
   height: 42px;
 }
 
 /* ── L4 Footer : source + samples + precision ───────────── */
-.copilot-l4-footer {
+.okazcar-l4-footer {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2121,7 +2121,7 @@
   flex-wrap: wrap;
 }
 
-.copilot-l4-source {
+.okazcar-l4-source {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 10px;
@@ -2131,44 +2131,44 @@
   text-transform: uppercase;
 }
 
-.copilot-l4-src-lbc {
+.okazcar-l4-src-lbc {
   background: #ff6e14;
   color: #fff;
 }
 
-.copilot-l4-src-as24 {
+.okazcar-l4-src-as24 {
   background: #0061c9;
   color: #fff;
 }
 
-.copilot-l4-src-seed {
+.okazcar-l4-src-seed {
   background: #e5e7eb;
   color: #6b7280;
 }
 
-.copilot-l4-src-est {
+.okazcar-l4-src-est {
   background: #fef3c7;
   color: #92400e;
 }
 
-.copilot-l4-src-default {
+.okazcar-l4-src-default {
   background: #e5e7eb;
   color: #6b7280;
 }
 
-.copilot-l4-samples {
+.okazcar-l4-samples {
   font-size: 11px;
-  color: var(--copilot-text-secondary);
+  color: var(--okazcar-text-secondary);
 }
 
-.copilot-l4-precision {
+.okazcar-l4-precision {
   font-size: 11px;
   color: #f59e0b;
   letter-spacing: 1px;
 }
 
 /* ── L4 Banniere anguille sous roche ────────────────────── */
-.copilot-l4-stale {
+.okazcar-l4-stale {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -2181,18 +2181,18 @@
   color: #92400e;
 }
 
-.copilot-l4-stale-icon {
+.okazcar-l4-stale-icon {
   font-size: 16px;
   flex-shrink: 0;
   margin-top: 1px;
 }
 
-.copilot-l4-stale-title {
+.okazcar-l4-stale-title {
   font-weight: 700;
   margin-bottom: 2px;
 }
 
-.copilot-l4-stale-text {
+.okazcar-l4-stale-text {
   font-size: 11px;
   line-height: 1.3;
   opacity: 0.85;

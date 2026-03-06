@@ -1,5 +1,5 @@
 /**
- * Co-Pilot Background Service Worker
+ * OKazCar Background Service Worker
  *
  * Gere l'injection on-demand du content script,
  * les appels API LBC en contexte MAIN world,
@@ -93,10 +93,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       target: { tabId },
       world: "MAIN",
       func: () => {
-        let el = document.getElementById("__copilot_next_data__");
+        let el = document.getElementById("__okazcar_next_data__");
         if (!el) {
           el = document.createElement("div");
-          el.id = "__copilot_next_data__";
+          el.id = "__okazcar_next_data__";
           el.style.display = "none";
           document.documentElement.appendChild(el);
         }

@@ -5,11 +5,11 @@ inputDocuments:
   - '_bmad-output/planning-artifacts/architecture.md'
 ---
 
-# Co-Pilot - Epic Breakdown
+# OKazCar - Epic Breakdown
 
 ## Overview
 
-This document provides the complete epic and story breakdown for Co-Pilot, decomposing the requirements from the PRD and Architecture requirements into implementable stories.
+This document provides the complete epic and story breakdown for OKazCar, decomposing the requirements from the PRD and Architecture requirements into implementable stories.
 
 ## Requirements Inventory
 
@@ -97,7 +97,7 @@ This document provides the complete epic and story breakdown for Co-Pilot, decom
 - SQLAlchemy ORM : modeles Vehicle, VehicleSpec, ScanLog, ScanResult, FilterResult, ArgusPrice, AppLog, User
 - Pydantic schemas : AnalyzeRequest, AnalyzeResponse, VehicleSchema, FilterResultSchema, APIResponse envelope
 - FilterResult dataclass uniforme : filter_id, status, score, message, details
-- Hierarchie exceptions : CoPilotError -> FilterError, ExtractionError, ExternalAPIError, ValidationError
+- Hierarchie exceptions : OKazCarError -> FilterError, ExtractionError, ExternalAPIError, ValidationError
 - FilterEngine avec ThreadPoolExecutor(max_workers=9) pour parallelisation
 - Flask-Login pour admin (user admin en config)
 - Flask-CORS whitelist extension uniquement
@@ -105,7 +105,7 @@ This document provides the complete epic and story breakdown for Co-Pilot, decom
 - GitHub Actions CI : lint (ruff/flake8) + pytest
 - Python logging standard + DBHandler custom pour alimenter le dashboard
 - Configuration par classes Python (Config, DevConfig, TestConfig) + fichier .env
-- Extension Chrome : Manifest V3, vanilla JS, CSS prefixe copilot-
+- Extension Chrome : Manifest V3, vanilla JS, CSS prefixe okazcar-
 - Sequence d'implementation : Flask factory -> Models -> API -> Filtres -> Dashboard -> Extension -> Pipeline -> Tests
 
 ### FR Coverage Map
@@ -252,7 +252,7 @@ Afin que les filtres puissent etre ajoutes incrementalement et s'executent en pa
 **Alors** il DOIT implementer `run()` et retourner un FilterResult (filter_id, status, score, message, details)
 **Et** FilterEngine execute les filtres en parallele via ThreadPoolExecutor (NFR4)
 **Et** un filtre qui leve FilterError retourne automatiquement un FilterResult avec status="skip" (FR14)
-**Et** la hierarchie d'exceptions CoPilotError est definie (FilterError, ExtractionError, ExternalAPIError, ValidationError)
+**Et** la hierarchie d'exceptions OKazCarError est definie (FilterError, ExtractionError, ExternalAPIError, ValidationError)
 **Et** un stub filter de test passe avec succes
 
 ### Story 1.5 : Endpoint API /api/analyze avec scoring
@@ -310,7 +310,7 @@ Afin que les filtres suivants travaillent sur des donnees fiables.
 ### Story 2.2 : L2 Referentiel Filter
 
 En tant que systeme,
-Je veux verifier si le modele vehicule de l'annonce existe dans le referentiel Co-Pilot,
+Je veux verifier si le modele vehicule de l'annonce existe dans le referentiel OKazCar,
 Afin de savoir si on peut appliquer les filtres specifiques au modele.
 
 **Criteres d'acceptation :**
@@ -523,7 +523,7 @@ L'utilisateur voit un bouton sur Leboncoin, clique, voit la jauge circulaire, sc
 
 En tant qu'utilisateur,
 Je veux que l'extension detecte automatiquement les pages annonces Leboncoin,
-Afin que le bouton Co-Pilot apparaisse sans action de ma part.
+Afin que le bouton OKazCar apparaisse sans action de ma part.
 
 **Criteres d'acceptation :**
 
@@ -537,14 +537,14 @@ Afin que le bouton Co-Pilot apparaisse sans action de ma part.
 ### Story 4.2 : Bouton d'injection + appel API
 
 En tant qu'utilisateur,
-Je veux cliquer sur un bouton "Analyser avec Co-Pilot" injecte dans la page,
+Je veux cliquer sur un bouton "Analyser avec OKazCar" injecte dans la page,
 Afin de declencher l'analyse de l'annonce (FR1, FR15).
 
 **Criteres d'acceptation :**
 
 **Etant donne** le content script charge sur une page annonce
 **Quand** le DOM est pret
-**Alors** un bouton stylise .copilot-btn est injecte pres du prix de l'annonce
+**Alors** un bouton stylise .okazcar-btn est injecte pres du prix de l'annonce
 **Et** au clic, le script extrait __NEXT_DATA__ du DOM
 **Et** les donnees sont envoyees a POST /api/analyze
 **Et** une animation d'attente demarre en < 200ms (NFR5, FR16)
@@ -562,7 +562,7 @@ Afin de comprendre le verdict en un coup d'oeil (FR17).
 **Alors** une popup contextuelle s'affiche avec une jauge circulaire SVG
 **Et** la jauge affiche le score 0-100 au centre avec code couleur (vert > 70, orange 40-70, rouge < 40)
 **Et** la popup est scrollable pour les details (FR18)
-**Et** tous les elements CSS sont prefixes .copilot-*
+**Et** tous les elements CSS sont prefixes .okazcar-*
 
 ### Story 4.4 : Details filtres + verdicts couleur
 

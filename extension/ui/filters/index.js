@@ -55,17 +55,17 @@ export function buildFiltersList(filters, vehicle) {
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
       const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4"
-        ? '<span class="copilot-badge-simulated">Données simulées</span>'
+        ? '<span class="okazcar-badge-simulated">Données simulées</span>'
         : "";
       const scoreBarHTML = f.filter_id === "L9" && f.status !== "skip" && f.status !== "neutral"
         ? buildScoreBar({ ...f, score: Math.min(f.score, l9CoverageRatio) })
         : buildScoreBar(f);
       const bodyHTML = buildFilterBody(f, vehicle, sorted);
       return `
-        <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
-          <div class="copilot-filter-header">
-            <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
-            <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
+        <div class="okazcar-filter-item" data-status="${escapeHTML(f.status)}">
+          <div class="okazcar-filter-header">
+            <span class="okazcar-filter-icon" style="color:${color}">${icon}</span>
+            <span class="okazcar-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
             ${scoreBarHTML}
           </div>
           ${bodyHTML}

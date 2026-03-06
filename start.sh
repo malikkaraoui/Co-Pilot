@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  Co-Pilot -- Script de lancement complet
+#  OKazCar -- Script de lancement complet
 #  Usage :  ./start.sh          (lance tout)
 #           ./start.sh --seed   (force le re-seed des données)
 #           ./start.sh --reset  (supprime la DB et repart à zéro)
@@ -22,7 +22,7 @@ step() { echo -e "\n${CYAN}[$1]${NC} $2"; }
 cd "$(dirname "$0")"
 PORT=5001
 VENV=".venv"
-DB="data/copilot.db"
+DB="data/okazcar.db"
 
 # -- Flags ----------------------------------------------------
 FORCE_SEED=false
@@ -35,7 +35,7 @@ for arg in "$@"; do
 done
 
 echo -e "${CYAN}╔═══════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║        Co-Pilot  ·  Démarrage         ║${NC}"
+echo -e "${CYAN}║        OKazCar  ·  Démarrage          ║${NC}"
 echo -e "${CYAN}╚═══════════════════════════════════════╝${NC}"
 
 # -- 1. Python ------------------------------------------------

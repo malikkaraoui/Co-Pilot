@@ -6,17 +6,17 @@ date: 2026-02-09
 author: Malik
 ---
 
-# Product Brief: Co-Pilot
+# Product Brief: OKazCar
 
 ## Executive Summary
 
-Co-Pilot est un copilote d'achat automobile intelligent qui se presente sous la forme d'une extension Chrome. En un clic sur une annonce Leboncoin, il analyse instantanement l'annonce et delivre un score de confiance, les red flags detectes et une fiche de connaissance sur le vehicule -- transformant un acheteur non-expert en acheteur eclaire.
+OKazCar est un okazcare d'achat automobile intelligent qui se presente sous la forme d'une extension Chrome. En un clic sur une annonce Leboncoin, il analyse instantanement l'annonce et delivre un score de confiance, les red flags detectes et une fiche de connaissance sur le vehicule -- transformant un acheteur non-expert en acheteur eclaire.
 
 **Le pitch :** "Tu cliques sur l'annonce, et en 10 secondes tu sais si c'est fiable ou pas."
 
 Le marche du vehicule d'occasion en France est un terrain mine : brouteurs nigerians, compteurs trafiques, imports douteux, reventes avant entretien lourd, et une explosion technologique (hybrides, electriques, marques chinoises) qui depasse meme les passionnes. Aujourd'hui, les acheteurs paient une "taxe de reassurance" -- mandataires, concessionnaires, LOA -- faute d'outil leur donnant confiance pour acheter en direct.
 
-Co-Pilot elimine cette taxe en democratisant l'expertise automobile derriere un simple clic.
+OKazCar elimine cette taxe en democratisant l'expertise automobile derriere un simple clic.
 
 ---
 
@@ -51,7 +51,7 @@ Les outils existent mais sont **eparpilles, passifs et inintelligibles** :
 
 ### Proposed Solution
 
-Co-Pilot est une extension Chrome qui, en un clic sur une annonce Leboncoin, declenche un pipeline d'analyse multi-couches :
+OKazCar est une extension Chrome qui, en un clic sur une annonce Leboncoin, declenche un pipeline d'analyse multi-couches :
 
 - **Verification vendeur** (SIRET, telephone, patterns d'arnaque)
 - **Coherence annonce** (modele/annee/motorisation/prix vs referentiel)
@@ -59,14 +59,14 @@ Co-Pilot est une extension Chrome qui, en un clic sur une annonce Leboncoin, dec
 - **Analyse visuelle** (coherence entre les photos de l'annonce)
 - **Fiche reputation vehicule** (points faibles connus, entretien, pronostic)
 - **Score de confiance global** avec rapport detaille des red flags
-- **Generation d'email calibre** : si des doutes sont detectes, Co-Pilot genere un email technique cible que l'acheteur envoie au vendeur, forcant celui-ci a se positionner par ecrit hors plateforme
+- **Generation d'email calibre** : si des doutes sont detectes, OKazCar genere un email technique cible que l'acheteur envoie au vendeur, forcant celui-ci a se positionner par ecrit hors plateforme
 
 L'intelligence est cachee derriere un clic. L'utilisateur voit un verdict, pas des donnees.
 
 ### Key Differentiators
 
-- **Verdict, pas donnees** : Co-Pilot interprete pour l'utilisateur au lieu de lui donner des tableaux bruts
-- **Pronostic, pas historique** : Co-Pilot ne dit pas d'ou vient la voiture, il dit ou elle va -- couts a prevoir, problemes connus, risques a anticiper
+- **Verdict, pas donnees** : OKazCar interprete pour l'utilisateur au lieu de lui donner des tableaux bruts
+- **Pronostic, pas historique** : OKazCar ne dit pas d'ou vient la voiture, il dit ou elle va -- couts a prevoir, problemes connus, risques a anticiper
 - **Zero friction** : extension Chrome, un clic, pas de site a visiter ni de formulaire a remplir
 - **Triple couverture** : detection d'arnaques + education technologique + protection juridique en un seul outil
 - **Bouclier juridique integre** : generation d'emails techniques cibles qui forcent le vendeur a se positionner par ecrit, hors plateforme -- creant une trace exploitable en cas de litige (contrairement aux messages Leboncoin qui disparaissent avec l'annonce)
@@ -81,18 +81,18 @@ L'intelligence est cachee derriere un clic. L'utilisateur voit un verdict, pas d
 ### Primary Users
 
 **Persona 1 : "Le Responsable Prudent" -- Jean-Pierre, 58 ans**
-Beau-pere type. Il porte le poids de l'achat familial -- c'est aussi l'argent de sa femme, il ne peut pas faire le con. Aujourd'hui il va en concession ou chez un mandataire parce qu'il a trop peur de se faire arnaquer en C2C. Il prefere payer plus pour etre rassure. Il pourrait demander a un proche mais il ne veut pas deranger. Co-Pilot lui donne la confiance d'acheter seul, sans intermediaire couteux, avec un verdict clair qu'il comprend.
+Beau-pere type. Il porte le poids de l'achat familial -- c'est aussi l'argent de sa femme, il ne peut pas faire le con. Aujourd'hui il va en concession ou chez un mandataire parce qu'il a trop peur de se faire arnaquer en C2C. Il prefere payer plus pour etre rassure. Il pourrait demander a un proche mais il ne veut pas deranger. OKazCar lui donne la confiance d'acheter seul, sans intermediaire couteux, avec un verdict clair qu'il comprend.
 
 **Persona 2 : "La Mefiante du Circuit Traditionnel" -- Sophie, 34 ans**
-Elle sait qu'elle se fait plumer en LOA/concession mais n'ose pas aller sur le marche C2C. Elle cherche des preuves sociales avant de faire confiance a un outil. Elle consulte les avis des autres utilisateurs Co-Pilot, se rassure, puis ose. Co-Pilot est sa porte de sortie du circuit traditionnel.
+Elle sait qu'elle se fait plumer en LOA/concession mais n'ose pas aller sur le marche C2C. Elle cherche des preuves sociales avant de faire confiance a un outil. Elle consulte les avis des autres utilisateurs OKazCar, se rassure, puis ose. OKazCar est sa porte de sortie du circuit traditionnel.
 
 **Persona 3 : "Le Brule" -- Kevin, 24 ans**
-Il a achete une C3 Pluriel en pensant tout savoir. Problemes electriques, faisceau cabriolet identique au non-cabriolet -- il a appris la douleur. Son prochain achat, il le fera avec Co-Pilot. Pas la cible du premier achat (ils pensent tout savoir), mais celle du deuxieme.
+Il a achete une C3 Pluriel en pensant tout savoir. Problemes electriques, faisceau cabriolet identique au non-cabriolet -- il a appris la douleur. Son prochain achat, il le fera avec OKazCar. Pas la cible du premier achat (ils pensent tout savoir), mais celle du deuxieme.
 
 ### Secondary Users
 
 **Persona 4 : "Le Revendeur Malin" -- Karim, 41 ans**
-Petit revendeur qui connait les voitures mais veut gagner du temps et de la marge. Co-Pilot est son outil de productivite : scan rapide des annonces, red flags instantanes, estimation de marge. Utilisateur power, potentiellement abonne premium.
+Petit revendeur qui connait les voitures mais veut gagner du temps et de la marge. OKazCar est son outil de productivite : scan rapide des annonces, red flags instantanes, estimation de marge. Utilisateur power, potentiellement abonne premium.
 
 ### User Journey
 
@@ -105,7 +105,7 @@ Bouche-a-oreille, YouTube (reviews/demos), partenaires cles (assurances), Chrome
 3. Un assistant se presente
 4. En un clic → extraction JSON de la page + analyse locale
 5. En quelques secondes → **jauge circulaire sur 100** avec retours texte (warnings, red flags, checks valides)
-6. Premiere impression de valeur, zero friction, zero cout pour Co-Pilot
+6. Premiere impression de valeur, zero friction, zero cout pour OKazCar
 
 **Conversion (Payant -- artillerie lourde) :**
 7. S'il veut creuser → paiement

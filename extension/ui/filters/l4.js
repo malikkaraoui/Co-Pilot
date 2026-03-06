@@ -85,11 +85,11 @@ export function buildPriceBarHTML(details, vehicle) {
 
   const src = details.source || "";
   let srcLabel = "";
-  let srcClass = "copilot-l4-src-default";
-  if (src === "marche_leboncoin") { srcLabel = "LBC"; srcClass = "copilot-l4-src-lbc"; }
-  else if (src === "marche_autoscout24") { srcLabel = "AS24"; srcClass = "copilot-l4-src-as24"; }
-  else if (src === "argus_seed") { srcLabel = "Argus Seed"; srcClass = "copilot-l4-src-seed"; }
-  else if (src === "estimation_lbc") { srcLabel = "Estimation LBC"; srcClass = "copilot-l4-src-est"; }
+  let srcClass = "okazcar-l4-src-default";
+  if (src === "marche_leboncoin") { srcLabel = "LBC"; srcClass = "okazcar-l4-src-lbc"; }
+  else if (src === "marche_autoscout24") { srcLabel = "AS24"; srcClass = "okazcar-l4-src-as24"; }
+  else if (src === "argus_seed") { srcLabel = "Argus Seed"; srcClass = "okazcar-l4-src-seed"; }
+  else if (src === "estimation_lbc") { srcLabel = "Estimation LBC"; srcClass = "okazcar-l4-src-est"; }
 
   const currentSite = _detectCurrentSite();
   const marketSite = src === 'marche_leboncoin'
@@ -114,50 +114,50 @@ export function buildPriceBarHTML(details, vehicle) {
 
   let footerHTML = "";
   if (srcLabel) {
-    footerHTML = `<div class="copilot-l4-footer">`;
-    footerHTML += `<span class="copilot-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
+    footerHTML = `<div class="okazcar-l4-footer">`;
+    footerHTML += `<span class="okazcar-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
     if (sampleCount != null) {
-      footerHTML += `<span class="copilot-l4-samples">Bas\u00E9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
+      footerHTML += `<span class="okazcar-l4-samples">Bas\u00E9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
     }
-    if (precisionStars) footerHTML += `<span class="copilot-l4-precision" title="Pr\u00E9cision de l'\u00E9chantillon">${precisionStars}</span>`;
+    if (precisionStars) footerHTML += `<span class="okazcar-l4-precision" title="Pr\u00E9cision de l'\u00E9chantillon">${precisionStars}</span>`;
     footerHTML += `</div>`;
   }
 
   let staleHTML = "";
   if (details.stale_below_market) {
     const staleDays = details.days_online || "30+";
-    staleHTML = `<div class="copilot-l4-stale">
-      <span class="copilot-l4-stale-icon">\uD83D\uDC40</span>
+    staleHTML = `<div class="okazcar-l4-stale">
+      <span class="okazcar-l4-stale-icon">\uD83D\uDC40</span>
       <div>
-        <div class="copilot-l4-stale-title">Prix bas + ${staleDays} jours en ligne</div>
-        <div class="copilot-l4-stale-text">Les acheteurs n'ont pas franchi le pas \u2014 il y a peut-\u00EAtre anguille sous roche</div>
+        <div class="okazcar-l4-stale-title">Prix bas + ${staleDays} jours en ligne</div>
+        <div class="okazcar-l4-stale-text">Les acheteurs n'ont pas franchi le pas \u2014 il y a peut-\u00EAtre anguille sous roche</div>
       </div>
     </div>`;
   }
 
   return `
-    <div class="copilot-price-bar-container">
-      <div class="copilot-price-verdict ${escapeHTML(verdictClass)}">
-        <span class="copilot-price-verdict-emoji">${verdictEmoji}</span>
+    <div class="okazcar-price-bar-container">
+      <div class="okazcar-price-verdict ${escapeHTML(verdictClass)}">
+        <span class="okazcar-price-verdict-emoji">${verdictEmoji}</span>
         <div>
-          <div class="copilot-price-verdict-text">${escapeHTML(line1)}</div>
-          <div class="copilot-price-verdict-pct">${escapeHTML(line2)}</div>
+          <div class="okazcar-price-verdict-text">${escapeHTML(line1)}</div>
+          <div class="okazcar-price-verdict-pct">${escapeHTML(line2)}</div>
         </div>
       </div>
-      <div class="copilot-price-bar-track">
-        <div class="copilot-price-bar-fill" style="left:${fillLeft}%;width:${fillWidth}%;background:${fillBg}"></div>
-        <div class="copilot-price-arrow-zone" style="left:${fillLeft}%;width:${fillWidth}%;border-color:${color}"></div>
-        <div class="copilot-price-market-ref" style="left:${argusPct}%">
-          <div class="copilot-price-market-line"></div>
-          <div class="copilot-price-market-label">March\u00E9</div>
-          <div class="copilot-price-market-price">${fmtP(displayRef)}</div>
+      <div class="okazcar-price-bar-track">
+        <div class="okazcar-price-bar-fill" style="left:${fillLeft}%;width:${fillWidth}%;background:${fillBg}"></div>
+        <div class="okazcar-price-arrow-zone" style="left:${fillLeft}%;width:${fillWidth}%;border-color:${color}"></div>
+        <div class="okazcar-price-market-ref" style="left:${argusPct}%">
+          <div class="okazcar-price-market-line"></div>
+          <div class="okazcar-price-market-label">March\u00E9</div>
+          <div class="okazcar-price-market-price">${fmtP(displayRef)}</div>
         </div>
-        <div class="copilot-price-car" style="left:${annoncePct}%">
-          <span class="copilot-price-car-emoji">\uD83D\uDE97</span>
-          <div class="copilot-price-car-price" style="color:${color}">${fmtP(displayAnnonce)}</div>
+        <div class="okazcar-price-car" style="left:${annoncePct}%">
+          <span class="okazcar-price-car-emoji">\uD83D\uDE97</span>
+          <div class="okazcar-price-car-price" style="color:${color}">${fmtP(displayAnnonce)}</div>
         </div>
       </div>
-      <div class="copilot-price-bar-spacer"></div>
+      <div class="okazcar-price-bar-spacer"></div>
       ${footerHTML}
       ${staleHTML}
     </div>

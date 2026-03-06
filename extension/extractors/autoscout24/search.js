@@ -211,7 +211,7 @@ function _parseSearchPricesJsonLd(html, targetMake = null) {
           if (targetMake) {
             const adBrand = _extractJsonLdBrand(item);
             if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
-              console.debug('[CoPilot] AS24 brand safety: rejet %s (cible: %s)', adBrand, targetMake);
+              console.debug('[OKazCar] AS24 brand safety: rejet %s (cible: %s)', adBrand, targetMake);
               continue;
             }
           }

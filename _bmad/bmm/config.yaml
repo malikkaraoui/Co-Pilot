@@ -3,7 +3,7 @@
 # Version: 6.0.0-Beta.8
 # Date: 2026-02-09T08:54:43.553Z
 
-project_name: Co-Pilot
+project_name: OKazCar
 user_skill_level: intermediate
 planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"
 implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"

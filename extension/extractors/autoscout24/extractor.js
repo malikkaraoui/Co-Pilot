@@ -73,17 +73,17 @@ export class AutoScout24Extractor extends SiteExtractor {
         && hasModelMatch;
       if (!vehicleInUrl) {
         console.warn(
-          '[CoPilot] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
+          '[OKazCar] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
           this._adData.make, this._adData.model || '?', urlSlug
         );
         const freshLd = _findJsonLdByMake(document, urlHint.make, urlHint.model, urlSlug);
         if (freshLd) {
-          console.log('[CoPilot] Found fresh JSON-LD for %s, using it', urlHint.make);
+          console.log('[OKazCar] Found fresh JSON-LD for %s, using it', urlHint.make);
           this._rsc = null;
           this._jsonLd = freshLd;
           this._adData = normalizeToAdData(null, freshLd);
         } else {
-          console.log('[CoPilot] No matching JSON-LD, falling back to DOM');
+          console.log('[OKazCar] No matching JSON-LD, falling back to DOM');
           this._rsc = null;
           this._jsonLd = null;
           this._adData = fallbackAdDataFromDom(document, window.location.href);
@@ -172,7 +172,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       return { submitted: false, isCurrentVehicle: false };
     }
     if (!this._fetch || !this._apiUrl) {
-      console.warn('[CoPilot] AS24 collectMarketPrices: deps not injected');
+      console.warn('[OKazCar] AS24 collectMarketPrices: deps not injected');
       return { submitted: false, isCurrentVehicle: false };
     }
 
@@ -213,11 +213,11 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     let jobResp;
     try {
-      console.log('[CoPilot] AS24 next-job →', jobUrl);
+      console.log('[OKazCar] AS24 next-job →', jobUrl);
       jobResp = await this._fetch(jobUrl).then((r) => r.json());
-      console.log('[CoPilot] AS24 next-job ←', JSON.stringify(jobResp));
+      console.log('[OKazCar] AS24 next-job ←', JSON.stringify(jobResp));
     } catch (err) {
-      console.warn('[CoPilot] AS24 next-job error:', err);
+      console.warn('[OKazCar] AS24 next-job error:', err);
       if (progress) {
         progress.update('job', 'error', 'Serveur injoignable');
         progress.update('collect', 'skip');
@@ -454,7 +454,7 @@ export class AutoScout24Extractor extends SiteExtractor {
 
         const enough = prices.length >= MIN_PRICES;
 
-        console.log('[CoPilot] AS24 strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s',
+        console.log('[OKazCar] AS24 strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s',
           i + 1, precision, newPrices.length, unique.length, prices.length, searchUrl.substring(0, 120));
 
         searchLog.push({
@@ -476,11 +476,11 @@ export class AutoScout24Extractor extends SiteExtractor {
         }
 
         if (prices.length >= MAX_PRICES_CAP) {
-          console.log('[CoPilot] AS24 cap %d atteint, arret', MAX_PRICES_CAP);
+          console.log('[OKazCar] AS24 cap %d atteint, arret', MAX_PRICES_CAP);
           break;
         }
       } catch (err) {
-        console.error('[CoPilot] AS24 search error:', err);
+        console.error('[OKazCar] AS24 search error:', err);
         searchLog.push({ ...logBase, ads_found: 0, url: searchUrl, was_selected: false, reason: err.message });
         if (progress) progress.addSubStep?.('collect', `Stratégie ${i + 1} · ${label}`, 'skip', 'Erreur');
       }
@@ -516,7 +516,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         as24_slug_model: learnedSlugModel || (!searchLog.some((s) => (s.reason || '').startsWith('HTTP 404')) ? targetModelKey : null),
       };
 
-      console.log('[CoPilot] AS24 submit payload:', JSON.stringify({
+      console.log('[OKazCar] AS24 submit payload:', JSON.stringify({
         make: payload.make, model: payload.model, year: payload.year,
         region: payload.region, precision: payload.precision, country: payload.country,
         fuel: payload.fuel, hp_range: payload.hp_range, gearbox: payload.gearbox,
@@ -538,14 +538,14 @@ export class AutoScout24Extractor extends SiteExtractor {
           submitted = true;
         } else {
           const errBody = await resp.text().catch(() => '');
-          console.error('[CoPilot] AS24 market-prices POST %d: %s', resp.status, errBody);
+          console.error('[OKazCar] AS24 market-prices POST %d: %s', resp.status, errBody);
           const errMsg = (() => {
             try { return JSON.parse(errBody)?.message || `HTTP ${resp.status}`; } catch { return `HTTP ${resp.status}`; }
           })();
           if (progress) progress.update('submit', 'error', errMsg);
         }
       } catch (err) {
-        console.error('[CoPilot] AS24 market-prices POST error:', err);
+        console.error('[OKazCar] AS24 market-prices POST error:', err);
         if (progress) progress.update('submit', 'error', 'Erreur réseau');
       }
     } else {
@@ -648,7 +648,7 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     for (const job of bonusJobs) {
       if ((job.country || 'FR') !== countryCode) {
-        console.log('[CoPilot] AS24 bonus skip: country %s != %s', job.country, countryCode);
+        console.log('[OKazCar] AS24 bonus skip: country %s != %s', job.country, countryCode);
         await this._reportJobDone(jobDoneUrl, job.job_id, false);
         if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model}`, 'skip', 'Pays différent');
         continue;
@@ -661,7 +661,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         const jobModelKey = job.slug_model || toAs24Slug(job.model);
         const jobYear = parseInt(job.year, 10);
         if (!Number.isFinite(jobYear) || jobYear < 1990 || jobYear > 2030) {
-          console.warn('[CoPilot] AS24 bonus skip invalid year for %s %s: %o', job.make, job.model, job.year);
+          console.warn('[OKazCar] AS24 bonus skip invalid year for %s %s: %o', job.make, job.model, job.year);
           await this._reportJobDone(jobDoneUrl, job.job_id, false);
           if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', 'Année invalide');
           continue;
@@ -769,7 +769,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           const prices = parseSearchPrices(html, job.make);
           bestAdsCount = Math.max(bestAdsCount, prices.length);
 
-          console.log('[CoPilot] AS24 bonus %s %s %d %s [%s]: %d prix',
+          console.log('[OKazCar] AS24 bonus %s %s %d %s [%s]: %d prix',
             job.make, job.model, jobYear, job.region, strategy.label, prices.length);
 
           bonusSearchLog.push({
@@ -841,7 +841,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           let errMsg = null;
           if (!postResp.ok) {
             const errBody = await postResp.text().catch(() => '');
-            console.error('[CoPilot] AS24 bonus POST %d for %s %s: %s', postResp.status, job.make, job.model, errBody);
+            console.error('[OKazCar] AS24 bonus POST %d for %s %s: %s', postResp.status, job.make, job.model, errBody);
             try {
               errMsg = JSON.parse(errBody)?.message || null;
             } catch {
@@ -873,7 +873,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           }
         }
       } catch (err) {
-        console.warn('[CoPilot] AS24 bonus job error:', err);
+        console.warn('[OKazCar] AS24 bonus job error:', err);
         await this._reportJobDone(jobDoneUrl, job.job_id, false);
         if (progress) progress.addSubStep?.('bonus', `${job.make} ${job.model} · ${job.region}`, 'skip', 'Erreur');
       }

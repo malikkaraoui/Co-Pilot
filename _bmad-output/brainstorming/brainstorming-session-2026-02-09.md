@@ -1,7 +1,7 @@
 ---
 stepsCompleted: [1, 2, 3, 4]
 inputDocuments: ['docs/vision.txt', 'docs/EXEMPLE leboncoin lbc_extract.py', 'docs/Critères_Evaluation_python_formation.pdf', 'docs/URL.txt', 'docs/car-list.json', 'docs/car_trim.csv', 'docs/car_specification_value.csv', 'docs/car_option.csv']
-session_topic: 'MVP Co-Pilot automobile — borner le périmètre pour livrer un MVP fonctionnel avant le 16 mars 2026'
+session_topic: 'MVP OKazCar automobile — borner le périmètre pour livrer un MVP fonctionnel avant le 16 mars 2026'
 session_goals: 'Trancher quoi garder/couper, séquencer intelligemment, maximiser le score sur la grille d évaluation Python SE'
 selected_approach: 'ai-recommended'
 techniques_used: ['resource-constraints', 'assumption-reversal', 'first-principles-thinking']
@@ -17,7 +17,7 @@ workflow_completed: true
 
 ## Session Overview
 
-**Sujet :** MVP Co-Pilot automobile — définir le périmètre exact dans les contraintes de temps
+**Sujet :** MVP OKazCar automobile — définir le périmètre exact dans les contraintes de temps
 **Objectifs :** Identifier quels piliers prioriser, quelles fonctionnalités couper, séquencer l'exécution semaine par semaine
 
 ### Documents de contexte
@@ -210,7 +210,7 @@ _Nouveauté :_ Flask n'est pas une vitrine, c'est un vrai outil d'exploitation �
 
 | Critère | Couverture MVP |
 |---------|---------------|
-| 01 Conception | Ambition (copilote IA auto) + workflow BMAD documenté |
+| 01 Conception | Ambition (okazcare IA auto) + workflow BMAD documenté |
 | 02 Structure logique | Classes par filtre, modules, pipeline amont/live, SQLite |
 | 03 Méthode de travail | BMAD Method, Git, fichiers organisés, fonctions pures |
 | 04 Programmation Python | Classes, héritage, modules built-in, bibliothèques, scalabilité |

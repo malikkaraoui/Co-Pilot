@@ -72,7 +72,7 @@ export function filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake = 
       if (targetMake) {
         const adBrand = _extractAdBrand(ad);
         if (adBrand && !brandMatches(adBrand, targetMake)) {
-          console.debug('[CoPilot] brand safety: rejet %s (cible: %s)', adBrand, targetMake);
+          console.debug('[OKazCar] brand safety: rejet %s (cible: %s)', adBrand, targetMake);
           return false;
         }
       }
@@ -99,12 +99,12 @@ export async function fetchSearchPricesViaApi(searchUrl) {
       });
       if (result?.ok) {
         const ads = result.data?.ads || result.data?.results || [];
-        console.log("[CoPilot] API finder (MAIN world): %d ads bruts", ads.length);
+        console.log("[OKazCar] API finder (MAIN world): %d ads bruts", ads.length);
         return ads.length > 0 ? ads : null;
       }
-      console.warn("[CoPilot] API finder (MAIN): %s", result?.error || `HTTP ${result?.status}`);
+      console.warn("[OKazCar] API finder (MAIN): %s", result?.error || `HTTP ${result?.status}`);
     } catch (err) {
-      console.debug("[CoPilot] chrome.runtime.sendMessage echoue:", err.message);
+      console.debug("[OKazCar] chrome.runtime.sendMessage echoue:", err.message);
     }
   }
 
@@ -119,7 +119,7 @@ export async function fetchSearchPricesViaApi(searchUrl) {
   });
 
   if (!resp.ok) {
-    console.warn("[CoPilot] API finder (direct): HTTP %d", resp.status);
+    console.warn("[OKazCar] API finder (direct): HTTP %d", resp.status);
     return null;
   }
 
@@ -152,22 +152,22 @@ export async function fetchSearchPrices(searchUrl, targetYear, yearSpread, targe
   try {
     ads = await fetchSearchPricesViaApi(searchUrl);
     if (ads && ads.length > 0) {
-      console.log("[CoPilot] fetchSearchPrices (API): %d ads bruts", ads.length);
+      console.log("[OKazCar] fetchSearchPrices (API): %d ads bruts", ads.length);
       return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
     }
   } catch (err) {
-    console.debug("[CoPilot] API finder indisponible:", err.message);
+    console.debug("[OKazCar] API finder indisponible:", err.message);
   }
 
   try {
     ads = await fetchSearchPricesViaHtml(searchUrl);
     if (ads && ads.length > 0) {
-      console.log("[CoPilot] fetchSearchPrices (HTML): %d ads bruts", ads.length);
+      console.log("[OKazCar] fetchSearchPrices (HTML): %d ads bruts", ads.length);
       return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
     }
-    console.log("[CoPilot] fetchSearchPrices: 0 ads (API + HTML)");
+    console.log("[OKazCar] fetchSearchPrices: 0 ads (API + HTML)");
   } catch (err) {
-    console.debug("[CoPilot] HTML scraping failed:", err.message);
+    console.debug("[OKazCar] HTML scraping failed:", err.message);
   }
 
   return [];

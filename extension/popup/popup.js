@@ -1,5 +1,5 @@
 /**
- * Co-Pilot Popup Script
+ * OKazCar Popup Script
  *
  * Gere le bouton "Analyser cette annonce" dans le popup de l'extension.
  * Envoie un message au background pour injecter le content script on-demand.

@@ -17,7 +17,7 @@ export function isStaleData(data) {
 }
 
 export async function extractNextData() {
-  const el = document.getElementById("__copilot_next_data__");
+  const el = document.getElementById("__okazcar_next_data__");
   if (el && el.textContent) {
     try {
       const data = JSON.parse(el.textContent);
@@ -79,7 +79,7 @@ export function extractLbcTokensFromDom() {
       if (qModel) result.modelToken = qModel.trim();
     }
   } catch (e) {
-    console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
+    console.warn("[OKazCar] extractLbcTokensFromDom error:", e);
   }
   return result;
 }

@@ -971,7 +971,7 @@ _FILTER_META = [
     {
         "id": "L2",
         "name": "Modele reconnu",
-        "description": "Verifie si la marque/modele existe dans le referentiel vehicules Co-Pilot. "
+        "description": "Verifie si la marque/modele existe dans le referentiel vehicules OKazCar. "
         "Detecte les modeles generiques LBC (Autres).",
         "data_source": "Referentiel vehicules (92 modeles, 293 specs)",
         "data_source_type": "real",

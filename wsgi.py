@@ -1,4 +1,4 @@
-"""Point d'entree WSGI pour Co-Pilot."""
+"""Point d'entree WSGI pour OKazCar."""
 
 from app import create_app
 

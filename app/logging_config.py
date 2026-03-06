@@ -1,4 +1,4 @@
-"""Configuration de la journalisation pour Co-Pilot.
+"""Configuration de la journalisation pour OKazCar.
 
 Configure le logging standard Python avec un handler console.
 Un DBHandler pour le tableau de bord admin sera ajoute dans une story ulterieure.

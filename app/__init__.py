@@ -1,4 +1,4 @@
-"""Fabrique d'application Flask pour Co-Pilot."""
+"""Fabrique d'application Flask pour OKazCar."""
 
 import logging
 import os
@@ -119,5 +119,5 @@ def create_app(config_name: str | None = None) -> Flask:
         db.create_all()
         ensure_admin_user()
 
-    logger.info("Co-Pilot app created with config '%s'", config_name)
+    logger.info("OKazCar app created with config '%s'", config_name)
     return app

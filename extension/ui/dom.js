@@ -22,17 +22,17 @@ export function initDom({ runAnalysis, apiUrl, getLastScanId }) {
 }
 
 export function removePopup() {
-  const existing = document.getElementById("copilot-popup");
+  const existing = document.getElementById("okazcar-popup");
   if (existing) existing.remove();
-  const overlay = document.getElementById("copilot-overlay");
+  const overlay = document.getElementById("okazcar-overlay");
   if (overlay) overlay.remove();
 }
 
 export function showPopup(safeHTML) {
   removePopup();
   const overlay = document.createElement("div");
-  overlay.id = "copilot-overlay";
-  overlay.className = "copilot-overlay";
+  overlay.id = "okazcar-overlay";
+  overlay.className = "okazcar-overlay";
   overlay.addEventListener("click", (e) => { if (e.target === overlay) removePopup(); });
 
   // safeHTML is pre-escaped; parse it into DOM nodes
@@ -42,22 +42,22 @@ export function showPopup(safeHTML) {
   overlay.appendChild(popupNode);
   document.body.appendChild(overlay);
 
-  const closeBtn = document.getElementById("copilot-close");
+  const closeBtn = document.getElementById("okazcar-close");
   if (closeBtn) closeBtn.addEventListener("click", removePopup);
-  const retryBtn = document.getElementById("copilot-retry");
+  const retryBtn = document.getElementById("okazcar-retry");
   if (retryBtn) retryBtn.addEventListener("click", () => { removePopup(); if (_runAnalysis) _runAnalysis(); });
-  const premiumBtn = document.getElementById("copilot-premium-btn");
+  const premiumBtn = document.getElementById("okazcar-premium-btn");
   if (premiumBtn) {
     premiumBtn.addEventListener("click", () => { premiumBtn.textContent = "Bientôt disponible !"; premiumBtn.disabled = true; });
   }
 
-  const emailBtn = document.getElementById("copilot-email-btn");
+  const emailBtn = document.getElementById("okazcar-email-btn");
   if (emailBtn) {
     emailBtn.addEventListener("click", async () => {
-      const loading = document.getElementById("copilot-email-loading");
-      const result = document.getElementById("copilot-email-result");
-      const errorDiv = document.getElementById("copilot-email-error");
-      const textArea = document.getElementById("copilot-email-text");
+      const loading = document.getElementById("okazcar-email-loading");
+      const result = document.getElementById("okazcar-email-result");
+      const errorDiv = document.getElementById("okazcar-email-error");
+      const textArea = document.getElementById("okazcar-email-text");
       emailBtn.style.display = "none";
       loading.style.display = "flex";
       errorDiv.style.display = "none";
@@ -73,12 +73,12 @@ export function showPopup(safeHTML) {
     });
   }
 
-  const copyBtn = document.getElementById("copilot-email-copy");
+  const copyBtn = document.getElementById("okazcar-email-copy");
   if (copyBtn) {
     copyBtn.addEventListener("click", () => {
-      const textArea = document.getElementById("copilot-email-text");
+      const textArea = document.getElementById("okazcar-email-text");
       navigator.clipboard.writeText(textArea.value).then(() => {
-        const copied = document.getElementById("copilot-email-copied");
+        const copied = document.getElementById("okazcar-email-copied");
         copied.style.display = "inline";
         setTimeout(() => { copied.style.display = "none"; }, 2000);
       });

@@ -48,7 +48,7 @@ class TestLogin:
         with client:
             resp = client.get("/admin/login")
             assert resp.status_code == 200
-            assert b"Co-Pilot Admin" in resp.data
+            assert b"OKazCar Admin" in resp.data
 
     def test_redirect_to_login_when_unauthenticated(self, client):
         """Un visiteur non connecte est redirige vers login."""

@@ -14,7 +14,7 @@
 
   // extension/shared/cooldown.js
   var COLLECT_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
-  var STORAGE_KEY = "copilot_last_collect";
+  var STORAGE_KEY = "okazcar_last_collect";
   function shouldSkipCollection() {
     const lastCollect = parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
     return Date.now() - lastCollect < COLLECT_COOLDOWN_MS;
@@ -139,7 +139,7 @@
     return dataAdId !== urlAdId;
   }
   async function extractNextData() {
-    const el = document.getElementById("__copilot_next_data__");
+    const el = document.getElementById("__okazcar_next_data__");
     if (el && el.textContent) {
       try {
         const data = JSON.parse(el.textContent);
@@ -191,7 +191,7 @@
         if (qModel) result.modelToken = qModel.trim();
       }
     } catch (e) {
-      console.warn("[CoPilot] extractLbcTokensFromDom error:", e);
+      console.warn("[OKazCar] extractLbcTokensFromDom error:", e);
     }
     return result;
   }
@@ -561,7 +561,7 @@
       if (targetMake) {
         const adBrand = _extractAdBrand(ad);
         if (adBrand && !brandMatches(adBrand, targetMake)) {
-          console.debug("[CoPilot] brand safety: rejet %s (cible: %s)", adBrand, targetMake);
+          console.debug("[OKazCar] brand safety: rejet %s (cible: %s)", adBrand, targetMake);
           return false;
         }
       }
@@ -585,12 +585,12 @@
         });
         if (result?.ok) {
           const ads = result.data?.ads || result.data?.results || [];
-          console.log("[CoPilot] API finder (MAIN world): %d ads bruts", ads.length);
+          console.log("[OKazCar] API finder (MAIN world): %d ads bruts", ads.length);
           return ads.length > 0 ? ads : null;
         }
-        console.warn("[CoPilot] API finder (MAIN): %s", result?.error || `HTTP ${result?.status}`);
+        console.warn("[OKazCar] API finder (MAIN): %s", result?.error || `HTTP ${result?.status}`);
       } catch (err) {
-        console.debug("[CoPilot] chrome.runtime.sendMessage echoue:", err.message);
+        console.debug("[OKazCar] chrome.runtime.sendMessage echoue:", err.message);
       }
     }
     const resp = await fetch("https://api.leboncoin.fr/finder/search", {
@@ -603,7 +603,7 @@
       body
     });
     if (!resp.ok) {
-      console.warn("[CoPilot] API finder (direct): HTTP %d", resp.status);
+      console.warn("[OKazCar] API finder (direct): HTTP %d", resp.status);
       return null;
     }
     const data = await resp.json();
@@ -626,21 +626,21 @@
     try {
       ads = await fetchSearchPricesViaApi(searchUrl);
       if (ads && ads.length > 0) {
-        console.log("[CoPilot] fetchSearchPrices (API): %d ads bruts", ads.length);
+        console.log("[OKazCar] fetchSearchPrices (API): %d ads bruts", ads.length);
         return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
       }
     } catch (err) {
-      console.debug("[CoPilot] API finder indisponible:", err.message);
+      console.debug("[OKazCar] API finder indisponible:", err.message);
     }
     try {
       ads = await fetchSearchPricesViaHtml(searchUrl);
       if (ads && ads.length > 0) {
-        console.log("[CoPilot] fetchSearchPrices (HTML): %d ads bruts", ads.length);
+        console.log("[OKazCar] fetchSearchPrices (HTML): %d ads bruts", ads.length);
         return filterAndMapSearchAds(ads, targetYear, yearSpread, targetMake);
       }
-      console.log("[CoPilot] fetchSearchPrices: 0 ads (API + HTML)");
+      console.log("[OKazCar] fetchSearchPrices: 0 ads (API + HTML)");
     } catch (err) {
-      console.debug("[CoPilot] HTML scraping failed:", err.message);
+      console.debug("[OKazCar] HTML scraping failed:", err.message);
     }
     return [];
   }
@@ -664,10 +664,10 @@
       });
     } catch (e) {
       if (isBenignRuntimeTeardownError(e)) {
-        console.debug("[CoPilot] job-done report skipped (extension reloaded/unloaded)");
+        console.debug("[OKazCar] job-done report skipped (extension reloaded/unloaded)");
         return;
       }
-      console.warn("[CoPilot] job-done report failed:", e);
+      console.warn("[OKazCar] job-done report failed:", e);
     }
   }
   async function executeBonusJobs(bonusJobs, progress) {
@@ -725,7 +725,7 @@
         }
         const locParam = LBC_REGIONS[job.region];
         if (!locParam) {
-          console.warn("[CoPilot] bonus job: region inconnue '%s', skip", job.region);
+          console.warn("[OKazCar] bonus job: region inconnue '%s', skip", job.region);
           await reportJobDone(jobDoneUrl, job.job_id, false);
           if (progress) progress.addSubStep("bonus", job.region, "skip", "R\xE9gion inconnue");
           continue;
@@ -735,7 +735,7 @@
         const yearMeta = _yearMeta(jobYear, 1);
         if (yearMeta.regdate) searchUrl += `&regdate=${yearMeta.regdate}`;
         const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
-        console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
+        console.log("[OKazCar] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
         if (progress) {
           const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
           const criteriaSummary = _criteriaSummary(
@@ -806,7 +806,7 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(bonusPayload)
             });
-            console.log("[CoPilot] bonus job POST %s: %s", job.region, bResp.ok ? "OK" : "FAIL");
+            console.log("[OKazCar] bonus job POST %s: %s", job.region, bResp.ok ? "OK" : "FAIL");
             await reportJobDone(jobDoneUrl, job.job_id, bResp.ok);
           } else {
             await reportJobDone(jobDoneUrl, job.job_id, false);
@@ -816,13 +816,13 @@
         }
       } catch (err) {
         if (isBenignRuntimeTeardownError(err)) {
-          console.info("[CoPilot] bonus jobs interrompus: extension recharg\xE9e/d\xE9charg\xE9e");
+          console.info("[OKazCar] bonus jobs interrompus: extension recharg\xE9e/d\xE9charg\xE9e");
           if (progress) {
             progress.update("bonus", "warning", "Extension recharg\xE9e, jobs bonus interrompus");
           }
           break;
         }
-        console.warn("[CoPilot] bonus job %s failed:", job.region, err);
+        console.warn("[OKazCar] bonus job %s failed:", job.region, err);
         await reportJobDone(jobDoneUrl, job.job_id, false);
       }
     }
@@ -836,7 +836,7 @@
     const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
     const urlCategory = urlMatch ? urlMatch[1] : null;
     if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) {
-      console.log("[CoPilot] collecte ignoree: categorie exclue", urlCategory);
+      console.log("[OKazCar] collecte ignoree: categorie exclue", urlCategory);
       if (progress) {
         progress.update("job", "skip", "Cat\xE9gorie exclue : " + urlCategory);
         progress.update("collect", "skip");
@@ -849,7 +849,7 @@
     const location2 = extractLocationFromNextData(nextData);
     const region = location2?.region || "";
     if (!region) {
-      console.warn("[CoPilot] collecte ignoree: pas de region dans nextData");
+      console.warn("[OKazCar] collecte ignoree: pas de region dans nextData");
       if (progress) {
         progress.update("job", "skip", "R\xE9gion non disponible");
         progress.update("collect", "skip");
@@ -858,18 +858,18 @@
       }
       return { submitted: false };
     }
-    console.log("[CoPilot] collecte: region=%s, location=%o, km=%d", region, location2, mileageKm);
+    console.log("[OKazCar] collecte: region=%s, location=%o, km=%d", region, location2, mileageKm);
     if (progress) progress.update("job", "running");
     const fuelForJob = (fuel || "").toLowerCase();
     const gearboxForJob = (gearbox || "").toLowerCase();
     const jobUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&site=lbc` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRange ? `&hp_range=${encodeURIComponent(hpRange)}` : "");
     let jobResp;
     try {
-      console.log("[CoPilot] next-job \u2192", jobUrl);
+      console.log("[OKazCar] next-job \u2192", jobUrl);
       jobResp = await lbcDeps.backendFetch(jobUrl).then((r) => r.json());
-      console.log("[CoPilot] next-job \u2190", JSON.stringify(jobResp));
+      console.log("[OKazCar] next-job \u2190", JSON.stringify(jobResp));
     } catch (err) {
-      console.warn("[CoPilot] next-job erreur:", err);
+      console.warn("[OKazCar] next-job erreur:", err);
       if (progress) {
         progress.update("job", "error", "Serveur injoignable");
         progress.update("collect", "skip");
@@ -881,7 +881,7 @@
     if (!jobResp?.data?.collect) {
       const queuedJobs = jobResp?.data?.bonus_jobs || [];
       if (queuedJobs.length === 0) {
-        console.log("[CoPilot] next-job: collect=false, aucun bonus en queue");
+        console.log("[OKazCar] next-job: collect=false, aucun bonus en queue");
         if (progress) {
           progress.update("job", "done", "Donn\xE9es d\xE9j\xE0 \xE0 jour, pas de collecte n\xE9cessaire");
           progress.update("collect", "skip", "Non n\xE9cessaire");
@@ -890,7 +890,7 @@
         }
         return { submitted: false };
       }
-      console.log("[CoPilot] next-job: collect=false, %d bonus jobs en queue", queuedJobs.length);
+      console.log("[OKazCar] next-job: collect=false, %d bonus jobs en queue", queuedJobs.length);
       if (progress) {
         progress.update("job", "done", "V\xE9hicule \xE0 jour \u2014 " + queuedJobs.length + " jobs en attente");
         progress.update("collect", "skip", "V\xE9hicule d\xE9j\xE0 \xE0 jour");
@@ -904,11 +904,11 @@
     const targetRegion = jobResp.data.region;
     const isRedirect = !!jobResp.data.redirect;
     const bonusJobs = jobResp.data.bonus_jobs || [];
-    console.log("[CoPilot] next-job: %d bonus jobs", bonusJobs.length);
+    console.log("[OKazCar] next-job: %d bonus jobs", bonusJobs.length);
     const isCurrentVehicle = target.make.toLowerCase() === make.toLowerCase() && target.model.toLowerCase() === model.toLowerCase();
     if (!isCurrentVehicle) {
       if (shouldSkipCollection()) {
-        console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte redirect \u2014 bonus jobs toujours executes");
+        console.log("[OKazCar] cooldown actif pour autre vehicule, skip collecte redirect \u2014 bonus jobs toujours executes");
         if (progress) {
           progress.update("job", "done", "Cooldown actif (autre v\xE9hicule collect\xE9 r\xE9cemment)");
           progress.update("collect", "skip", "Cooldown 24h");
@@ -926,7 +926,7 @@
     if (progress) {
       progress.update("job", "done", targetLabel + (isCurrentVehicle ? " (v\xE9hicule courant)" : " (autre v\xE9hicule du r\xE9f\xE9rentiel)"));
     }
-    console.log("[CoPilot] collecte cible: %s %s %d (isCurrentVehicle=%s, redirect=%s)", target.make, target.model, target.year, isCurrentVehicle, isRedirect);
+    console.log("[OKazCar] collecte cible: %s %s %d (isCurrentVehicle=%s, redirect=%s)", target.make, target.model, target.year, isCurrentVehicle, isRedirect);
     const targetYear = parseInt(target.year, 10) || 0;
     const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
     const brandUpper = toLbcBrandToken(target.make);
@@ -996,7 +996,7 @@
       });
     }
     console.log(
-      "[CoPilot] fuel=%s \u2192 fuelCode=%s | gearbox=%s \u2192 gearboxCode=%s | hp=%d \u2192 hpRange=%s | km=%d",
+      "[OKazCar] fuel=%s \u2192 fuelCode=%s | gearbox=%s \u2192 gearboxCode=%s | hp=%d \u2192 hpRange=%s | km=%d",
       targetFuel,
       fuelCode,
       (gearbox || "").toLowerCase(),
@@ -1005,8 +1005,8 @@
       hpRange,
       mileageKm
     );
-    console.log("[CoPilot] coreUrl:", coreUrl);
-    console.log("[CoPilot] %d strategies, geoParam=%s, regionParam=%s", strategies.length, geoParam || "(vide)", regionParam || "(vide)");
+    console.log("[OKazCar] coreUrl:", coreUrl);
+    console.log("[OKazCar] %d strategies, geoParam=%s, regionParam=%s", strategies.length, geoParam || "(vide)", regionParam || "(vide)");
     let submitted = false;
     let prices = [];
     let collectedPrecision = null;
@@ -1044,7 +1044,7 @@
         if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
         const strategy = strategies[i];
         if (strategy.isTextFallback && prices.length >= MIN_PRICES_FOR_ARGUS) {
-          console.log("[CoPilot] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
+          console.log("[OKazCar] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
           searchLog.push({
             step: i + 1,
             precision: strategy.precision,
@@ -1082,7 +1082,7 @@
         prices = [...prices, ...unique];
         const enoughPrices = prices.length >= MIN_PRICES_FOR_ARGUS;
         console.log(
-          "[CoPilot] strategie %d (precision=%d): %d nouveaux prix (%d uniques), total=%d | %s",
+          "[OKazCar] strategie %d (precision=%d): %d nouveaux prix (%d uniques), total=%d | %s",
           i + 1,
           strategy.precision,
           newPrices.length,
@@ -1121,16 +1121,16 @@
         });
         if (enoughPrices && collectedPrecision === null) {
           collectedPrecision = strategy.precision;
-          console.log("[CoPilot] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
+          console.log("[OKazCar] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
         }
         if (prices.length >= MAX_PRICES_CAP) {
-          console.log("[CoPilot] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
+          console.log("[OKazCar] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
           break;
         }
       }
       const secondaryBrand = DUAL_BRAND_ALIASES[brandUpper];
       if (secondaryBrand && !modelIsGeneric && prices.length < MAX_PRICES_CAP) {
-        console.log("[CoPilot] dual-brand: %s \u2192 secondary brand %s", brandUpper, secondaryBrand);
+        console.log("[OKazCar] dual-brand: %s \u2192 secondary brand %s", brandUpper, secondaryBrand);
         const dualQuery = `${target.make} ${target.model}`;
         const dualCoreUrl = `https://www.leboncoin.fr/recherche?category=2&u_car_brand=${encodeURIComponent(secondaryBrand)}&text=${encodeURIComponent(dualQuery)}`;
         const dualStrategies = [
@@ -1162,7 +1162,7 @@
           const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
           prices = [...prices, ...unique];
           console.log(
-            "[CoPilot] dual-brand strategie %d: %d nouveaux (%d uniques), total=%d | %s",
+            "[OKazCar] dual-brand strategie %d: %d nouveaux (%d uniques), total=%d | %s",
             strategies.length + d + 1,
             newPrices.length,
             unique.length,
@@ -1209,9 +1209,9 @@
         const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
         const priceInts = priceDetails.map((p) => p.price);
         if (priceInts.length < MIN_PRICES_FOR_ARGUS) {
-          console.warn("[CoPilot] apres filtrage >500: %d prix valides (< %d requis)", priceInts.length, MIN_PRICES_FOR_ARGUS);
+          console.warn("[OKazCar] apres filtrage >500: %d prix valides (< %d requis)", priceInts.length, MIN_PRICES_FOR_ARGUS);
           if (priceInts.length >= 5) {
-            console.log("[CoPilot] envoi degrad\xE9 avec %d prix (min 5)", priceInts.length);
+            console.log("[OKazCar] envoi degrad\xE9 avec %d prix (min 5)", priceInts.length);
           } else {
             if (progress) {
               progress.update("submit", "warning", "Trop de prix invalides apr\xE8s filtrage");
@@ -1236,7 +1236,7 @@
           site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
           site_model_token: isCurrentVehicle ? vehicle.site_model_token : null
         };
-        console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
+        console.log("[OKazCar] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
         const marketResp = await lbcDeps.backendFetch(marketUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1245,10 +1245,10 @@
         submitted = marketResp.ok;
         if (!marketResp.ok) {
           const errBody = await marketResp.json().catch(() => null);
-          console.warn("[CoPilot] POST /api/market-prices FAILED:", marketResp.status, errBody);
+          console.warn("[OKazCar] POST /api/market-prices FAILED:", marketResp.status, errBody);
           if (progress) progress.update("submit", "error", "Erreur serveur (" + marketResp.status + ")");
         } else {
-          console.log("[CoPilot] POST /api/market-prices OK, submitted=true");
+          console.log("[OKazCar] POST /api/market-prices OK, submitted=true");
           if (progress) progress.update("submit", "done", priceInts.length + " prix envoy\xE9s (" + targetRegion + ")");
           if (bonusJobs.length > 0) {
             await executeBonusJobs(bonusJobs, progress);
@@ -1257,7 +1257,7 @@
           }
         }
       } else {
-        console.log(`[CoPilot] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
+        console.log(`[OKazCar] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
         if (progress) {
           progress.update("collect", "warning", prices.length + " annonces trouv\xE9es (minimum " + MIN_PRICES_FOR_ARGUS + ")");
           progress.update("submit", "skip", "Pas assez de donn\xE9es");
@@ -1283,13 +1283,13 @@
               site_model_token: isCurrentVehicle ? vehicle.site_model_token : null
             })
           });
-          console.log("[CoPilot] failed search reported to server");
+          console.log("[OKazCar] failed search reported to server");
         } catch (e) {
-          console.warn("[CoPilot] failed-search report error:", e);
+          console.warn("[OKazCar] failed-search report error:", e);
         }
       }
     } catch (err) {
-      console.error("[CoPilot] market collection failed:", err);
+      console.error("[OKazCar] market collection failed:", err);
       if (progress) {
         progress.update("collect", "error", "Erreur pendant la collecte");
         progress.update("submit", "skip");
@@ -1959,7 +1959,7 @@
             if (targetMake) {
               const adBrand = _extractJsonLdBrand(item);
               if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
-                console.debug("[CoPilot] AS24 brand safety: rejet %s (cible: %s)", adBrand, targetMake);
+                console.debug("[OKazCar] AS24 brand safety: rejet %s (cible: %s)", adBrand, targetMake);
                 continue;
               }
             }
@@ -2806,19 +2806,19 @@
         const vehicleInUrl = urlSlug.startsWith(makeSlug) && hasModelMatch;
         if (!vehicleInUrl) {
           console.warn(
-            '[CoPilot] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
+            '[OKazCar] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
             this._adData.make,
             this._adData.model || "?",
             urlSlug
           );
           const freshLd = _findJsonLdByMake(document, urlHint.make, urlHint.model, urlSlug);
           if (freshLd) {
-            console.log("[CoPilot] Found fresh JSON-LD for %s, using it", urlHint.make);
+            console.log("[OKazCar] Found fresh JSON-LD for %s, using it", urlHint.make);
             this._rsc = null;
             this._jsonLd = freshLd;
             this._adData = normalizeToAdData(null, freshLd);
           } else {
-            console.log("[CoPilot] No matching JSON-LD, falling back to DOM");
+            console.log("[OKazCar] No matching JSON-LD, falling back to DOM");
             this._rsc = null;
             this._jsonLd = null;
             this._adData = fallbackAdDataFromDom(document, window.location.href);
@@ -2890,7 +2890,7 @@
         return { submitted: false, isCurrentVehicle: false };
       }
       if (!this._fetch || !this._apiUrl) {
-        console.warn("[CoPilot] AS24 collectMarketPrices: deps not injected");
+        console.warn("[OKazCar] AS24 collectMarketPrices: deps not injected");
         return { submitted: false, isCurrentVehicle: false };
       }
       const tld = extractTld(window.location.href);
@@ -2916,11 +2916,11 @@
       const jobUrl = this._apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(this._adData.make)}&model=${encodeURIComponent(this._adData.model)}&year=${encodeURIComponent(year)}&region=${encodeURIComponent(region)}&country=${encodeURIComponent(countryCode)}&site=as24&tld=${encodeURIComponent(tld)}&slug_make=${encodeURIComponent(slugMakeForJob)}&slug_model=${encodeURIComponent(slugModelForJob)}` + (fuelForJob ? `&fuel=${encodeURIComponent(fuelForJob)}` : "") + (gearboxForJob ? `&gearbox=${encodeURIComponent(gearboxForJob)}` : "") + (hpRangeStr ? `&hp_range=${encodeURIComponent(hpRangeStr)}` : "");
       let jobResp;
       try {
-        console.log("[CoPilot] AS24 next-job \u2192", jobUrl);
+        console.log("[OKazCar] AS24 next-job \u2192", jobUrl);
         jobResp = await this._fetch(jobUrl).then((r) => r.json());
-        console.log("[CoPilot] AS24 next-job \u2190", JSON.stringify(jobResp));
+        console.log("[OKazCar] AS24 next-job \u2190", JSON.stringify(jobResp));
       } catch (err) {
-        console.warn("[CoPilot] AS24 next-job error:", err);
+        console.warn("[OKazCar] AS24 next-job error:", err);
         if (progress) {
           progress.update("job", "error", "Serveur injoignable");
           progress.update("collect", "skip");
@@ -3118,7 +3118,7 @@
           prices = [...prices, ...unique];
           const enough = prices.length >= MIN_PRICES;
           console.log(
-            "[CoPilot] AS24 strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s",
+            "[OKazCar] AS24 strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s",
             i + 1,
             precision,
             newPrices.length,
@@ -3148,11 +3148,11 @@
             break;
           }
           if (prices.length >= MAX_PRICES_CAP) {
-            console.log("[CoPilot] AS24 cap %d atteint, arret", MAX_PRICES_CAP);
+            console.log("[OKazCar] AS24 cap %d atteint, arret", MAX_PRICES_CAP);
             break;
           }
         } catch (err) {
-          console.error("[CoPilot] AS24 search error:", err);
+          console.error("[OKazCar] AS24 search error:", err);
           searchLog.push({ ...logBase, ads_found: 0, url: searchUrl, was_selected: false, reason: err.message });
           if (progress) progress.addSubStep?.("collect", `Strat\xE9gie ${i + 1} \xB7 ${label}`, "skip", "Erreur");
         }
@@ -3182,7 +3182,7 @@
           as24_slug_make: learnedSlugMake || targetMakeKey,
           as24_slug_model: learnedSlugModel || (!searchLog.some((s) => (s.reason || "").startsWith("HTTP 404")) ? targetModelKey : null)
         };
-        console.log("[CoPilot] AS24 submit payload:", JSON.stringify({
+        console.log("[OKazCar] AS24 submit payload:", JSON.stringify({
           make: payload.make,
           model: payload.model,
           year: payload.year,
@@ -3211,7 +3211,7 @@
             submitted = true;
           } else {
             const errBody = await resp.text().catch(() => "");
-            console.error("[CoPilot] AS24 market-prices POST %d: %s", resp.status, errBody);
+            console.error("[OKazCar] AS24 market-prices POST %d: %s", resp.status, errBody);
             const errMsg = (() => {
               try {
                 return JSON.parse(errBody)?.message || `HTTP ${resp.status}`;
@@ -3222,7 +3222,7 @@
             if (progress) progress.update("submit", "error", errMsg);
           }
         } catch (err) {
-          console.error("[CoPilot] AS24 market-prices POST error:", err);
+          console.error("[OKazCar] AS24 market-prices POST error:", err);
           if (progress) progress.update("submit", "error", "Erreur r\xE9seau");
         }
       } else {
@@ -3312,7 +3312,7 @@
       if (progress) progress.update("bonus", "running", `${bonusJobs.length} jobs`);
       for (const job of bonusJobs) {
         if ((job.country || "FR") !== countryCode) {
-          console.log("[CoPilot] AS24 bonus skip: country %s != %s", job.country, countryCode);
+          console.log("[OKazCar] AS24 bonus skip: country %s != %s", job.country, countryCode);
           await this._reportJobDone(jobDoneUrl, job.job_id, false);
           if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model}`, "skip", "Pays diff\xE9rent");
           continue;
@@ -3323,7 +3323,7 @@
           const jobModelKey = job.slug_model || toAs24Slug(job.model);
           const jobYear = parseInt(job.year, 10);
           if (!Number.isFinite(jobYear) || jobYear < 1990 || jobYear > 2030) {
-            console.warn("[CoPilot] AS24 bonus skip invalid year for %s %s: %o", job.make, job.model, job.year);
+            console.warn("[OKazCar] AS24 bonus skip invalid year for %s %s: %o", job.make, job.model, job.year);
             await this._reportJobDone(jobDoneUrl, job.job_id, false);
             if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, "skip", "Ann\xE9e invalide");
             continue;
@@ -3418,7 +3418,7 @@
             const prices = parseSearchPrices(html, job.make);
             bestAdsCount = Math.max(bestAdsCount, prices.length);
             console.log(
-              "[CoPilot] AS24 bonus %s %s %d %s [%s]: %d prix",
+              "[OKazCar] AS24 bonus %s %s %d %s [%s]: %d prix",
               job.make,
               job.model,
               jobYear,
@@ -3490,7 +3490,7 @@
             let errMsg = null;
             if (!postResp.ok) {
               const errBody = await postResp.text().catch(() => "");
-              console.error("[CoPilot] AS24 bonus POST %d for %s %s: %s", postResp.status, job.make, job.model, errBody);
+              console.error("[OKazCar] AS24 bonus POST %d for %s %s: %s", postResp.status, job.make, job.model, errBody);
               try {
                 errMsg = JSON.parse(errBody)?.message || null;
               } catch {
@@ -3518,7 +3518,7 @@
             }
           }
         } catch (err) {
-          console.warn("[CoPilot] AS24 bonus job error:", err);
+          console.warn("[OKazCar] AS24 bonus job error:", err);
           await this._reportJobDone(jobDoneUrl, job.job_id, false);
           if (progress) progress.addSubStep?.("bonus", `${job.make} ${job.model} \xB7 ${job.region}`, "skip", "Erreur");
         }
@@ -3633,21 +3633,21 @@
     if (details.phone_login_hint) {
       const hintText = typeof details.phone_login_hint === "string" ? details.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
       phoneHintHTML = `
-      <div class="copilot-phone-login-hint">
-        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+      <div class="okazcar-phone-login-hint">
+        <span class="okazcar-phone-hint-icon">&#x1F4F1;</span>
         <span>${escapeHTML(hintText)}</span>
         <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
-           class="copilot-phone-login-link">Se connecter</a>
+           class="okazcar-phone-login-link">Se connecter</a>
       </div>
     `;
     }
     const entries = Object.entries(details).filter(([k, v]) => v !== null && v !== void 0 && k !== "phone_login_hint").map(([k, v]) => {
       const label = DETAIL_LABELS[k] || k;
       const val = k === "precision" && typeof v === "number" ? formatPrecisionStars(v) : formatDetailValue(v);
-      return `<div class="copilot-detail-row"><span class="copilot-detail-key">${escapeHTML(label)}</span><span class="copilot-detail-value">${val}</span></div>`;
+      return `<div class="okazcar-detail-row"><span class="okazcar-detail-key">${escapeHTML(label)}</span><span class="okazcar-detail-value">${val}</span></div>`;
     }).join("");
     if (!entries && !phoneHintHTML) return "";
-    const detailsBlock = entries ? `<details class="copilot-filter-details"><summary>Voir les d\xE9tails</summary><div class="copilot-details-content">${entries}</div></details>` : "";
+    const detailsBlock = entries ? `<details class="okazcar-filter-details"><summary>Voir les d\xE9tails</summary><div class="okazcar-details-content">${entries}</div></details>` : "";
     return phoneHintHTML + detailsBlock;
   }
 
@@ -3715,16 +3715,16 @@
     _lastScanIdGetter = getLastScanId;
   }
   function removePopup() {
-    const existing = document.getElementById("copilot-popup");
+    const existing = document.getElementById("okazcar-popup");
     if (existing) existing.remove();
-    const overlay = document.getElementById("copilot-overlay");
+    const overlay = document.getElementById("okazcar-overlay");
     if (overlay) overlay.remove();
   }
   function showPopup(safeHTML) {
     removePopup();
     const overlay = document.createElement("div");
-    overlay.id = "copilot-overlay";
-    overlay.className = "copilot-overlay";
+    overlay.id = "okazcar-overlay";
+    overlay.className = "okazcar-overlay";
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) removePopup();
     });
@@ -3733,27 +3733,27 @@
     const popupNode = template.content.firstElementChild;
     overlay.appendChild(popupNode);
     document.body.appendChild(overlay);
-    const closeBtn = document.getElementById("copilot-close");
+    const closeBtn = document.getElementById("okazcar-close");
     if (closeBtn) closeBtn.addEventListener("click", removePopup);
-    const retryBtn = document.getElementById("copilot-retry");
+    const retryBtn = document.getElementById("okazcar-retry");
     if (retryBtn) retryBtn.addEventListener("click", () => {
       removePopup();
       if (_runAnalysis) _runAnalysis();
     });
-    const premiumBtn = document.getElementById("copilot-premium-btn");
+    const premiumBtn = document.getElementById("okazcar-premium-btn");
     if (premiumBtn) {
       premiumBtn.addEventListener("click", () => {
         premiumBtn.textContent = "Bient\xF4t disponible !";
         premiumBtn.disabled = true;
       });
     }
-    const emailBtn = document.getElementById("copilot-email-btn");
+    const emailBtn = document.getElementById("okazcar-email-btn");
     if (emailBtn) {
       emailBtn.addEventListener("click", async () => {
-        const loading = document.getElementById("copilot-email-loading");
-        const result = document.getElementById("copilot-email-result");
-        const errorDiv = document.getElementById("copilot-email-error");
-        const textArea = document.getElementById("copilot-email-text");
+        const loading = document.getElementById("okazcar-email-loading");
+        const result = document.getElementById("okazcar-email-result");
+        const errorDiv = document.getElementById("okazcar-email-error");
+        const textArea = document.getElementById("okazcar-email-text");
         emailBtn.style.display = "none";
         loading.style.display = "flex";
         errorDiv.style.display = "none";
@@ -3778,12 +3778,12 @@
         loading.style.display = "none";
       });
     }
-    const copyBtn = document.getElementById("copilot-email-copy");
+    const copyBtn = document.getElementById("okazcar-email-copy");
     if (copyBtn) {
       copyBtn.addEventListener("click", () => {
-        const textArea = document.getElementById("copilot-email-text");
+        const textArea = document.getElementById("okazcar-email-text");
         navigator.clipboard.writeText(textArea.value).then(() => {
-          const copied = document.getElementById("copilot-email-copied");
+          const copied = document.getElementById("okazcar-email-copied");
           copied.style.display = "inline";
           setTimeout(() => {
             copied.style.display = "none";
@@ -3826,13 +3826,13 @@
         const p = pt(i, R * pct);
         pts.push(`${p.x},${p.y}`);
       }
-      const cls = pct === 1 ? "copilot-radar-grid-outer" : "copilot-radar-grid";
+      const cls = pct === 1 ? "okazcar-radar-grid-outer" : "okazcar-radar-grid";
       gridSVG += `<polygon points="${pts.join(" ")}" class="${cls}"/>`;
     }
     let axesSVG = "";
     for (let i = 0; i < n; i++) {
       const p = pt(i, R);
-      axesSVG += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" class="copilot-radar-axis-line"/>`;
+      axesSVG += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" class="okazcar-radar-axis-line"/>`;
     }
     const dataPts = [];
     for (let i = 0; i < n; i++) {
@@ -3851,7 +3851,7 @@
       if (f.status === "fail") dotColor = "#ef4444";
       else if (f.status === "warning") dotColor = "#f59e0b";
       else if (f.status === "skip") dotColor = "#9ca3af";
-      dotsSVG += `<circle cx="${dp.x}" cy="${dp.y}" r="4" fill="${dotColor}" class="copilot-radar-dot"/>`;
+      dotsSVG += `<circle cx="${dp.x}" cy="${dp.y}" r="4" fill="${dotColor}" class="okazcar-radar-dot"/>`;
       const lp = pt(i, R + labelPad);
       let anchor = "middle";
       if (lp.x < cx - 10) anchor = "end";
@@ -3859,21 +3859,21 @@
       const statusCls = f.status === "fail" ? "fail" : f.status === "warning" ? "warning" : "pass";
       const shortLabel = escapeHTML(RADAR_SHORT_LABELS[f.filter_id] || f.filter_id);
       const pctLabel = Math.round(score * 100) + "%";
-      labelsSVG += `<text x="${lp.x}" y="${lp.y}" text-anchor="${anchor}" dominant-baseline="central" class="copilot-radar-axis-label ${statusCls}">`;
+      labelsSVG += `<text x="${lp.x}" y="${lp.y}" text-anchor="${anchor}" dominant-baseline="central" class="okazcar-radar-axis-label ${statusCls}">`;
       labelsSVG += `<tspan>${shortLabel}</tspan>`;
       labelsSVG += `<tspan x="${lp.x}" dy="12" font-size="9" font-weight="700">${pctLabel}</tspan>`;
       labelsSVG += `</text>`;
     }
     return `
-    <svg class="copilot-radar-svg" width="320" height="310" viewBox="0 0 320 310">
+    <svg class="okazcar-radar-svg" width="320" height="310" viewBox="0 0 320 310">
       ${gridSVG}
       ${axesSVG}
       <polygon points="${dataStr}" fill="${mainColor}" opacity="0.15"/>
       <polygon points="${dataStr}" fill="none" stroke="${mainColor}" stroke-width="2" stroke-linejoin="round"/>
       ${dotsSVG}
       ${labelsSVG}
-      <text x="${cx}" y="${cy - 6}" text-anchor="middle" class="copilot-radar-score" fill="${mainColor}">${overallScore}</text>
-      <text x="${cx}" y="${cy + 14}" text-anchor="middle" class="copilot-radar-score-label">/100</text>
+      <text x="${cx}" y="${cy - 6}" text-anchor="middle" class="okazcar-radar-score" fill="${mainColor}">${overallScore}</text>
+      <text x="${cx}" y="${cy + 14}" text-anchor="middle" class="okazcar-radar-score-label">/100</text>
     </svg>
   `;
   }
@@ -3881,18 +3881,18 @@
   function buildScoreBar(f) {
     const color = statusColor(f.status);
     if (f.status === "neutral") {
-      return '<span class="copilot-filter-score copilot-score-na">N/A</span>';
+      return '<span class="okazcar-filter-score okazcar-score-na">N/A</span>';
     }
     if (f.status === "skip") {
-      return '<div class="copilot-filter-score-bar"><div class="copilot-score-track"><div class="copilot-score-fill" style="width:0%;background:#d1d5db"></div></div><span class="copilot-score-text" style="color:#9ca3af">skip</span></div>';
+      return '<div class="okazcar-filter-score-bar"><div class="okazcar-score-track"><div class="okazcar-score-fill" style="width:0%;background:#d1d5db"></div></div><span class="okazcar-score-text" style="color:#9ca3af">skip</span></div>';
     }
     if (BOOLEAN_FILTERS.includes(f.filter_id)) {
-      const badgeClass = f.status === "pass" ? "copilot-bool-pass" : f.status === "fail" ? "copilot-bool-fail" : "copilot-bool-warn";
+      const badgeClass = f.status === "pass" ? "okazcar-bool-pass" : f.status === "fail" ? "okazcar-bool-fail" : "okazcar-bool-warn";
       const badgeText = f.status === "pass" ? "\u2713 OK" : f.status === "fail" ? "\u2717 NOK" : "\u26A0";
-      return `<span class="copilot-bool-badge ${badgeClass}">${badgeText}</span>`;
+      return `<span class="okazcar-bool-badge ${badgeClass}">${badgeText}</span>`;
     }
     const pct = Math.round(f.score * 100);
-    return `<div class="copilot-filter-score-bar"><div class="copilot-score-track"><div class="copilot-score-fill" style="width:${pct}%;background:${color}"></div></div><span class="copilot-score-text" style="color:${color}">${pct}%</span></div>`;
+    return `<div class="okazcar-filter-score-bar"><div class="okazcar-score-track"><div class="okazcar-score-fill" style="width:${pct}%;background:${color}"></div></div><span class="okazcar-score-text" style="color:${color}">${pct}%</span></div>`;
   }
 
   // extension/ui/filters/l1.js
@@ -3914,48 +3914,48 @@
     const pct = total > 0 ? Math.round(present / total * 100) : 0;
     const color = statusColor(f.status);
     const barHTML = `
-    <div class="copilot-l1-bar">
-      <div class="copilot-l1-bar-track">
-        <div class="copilot-l1-bar-fill" style="width:${pct}%;background:${color}"></div>
+    <div class="okazcar-l1-bar">
+      <div class="okazcar-l1-bar-track">
+        <div class="okazcar-l1-bar-fill" style="width:${pct}%;background:${color}"></div>
       </div>
-      <span class="copilot-l1-bar-label">${present}/${total} champs renseign\xE9s</span>
+      <span class="okazcar-l1-bar-label">${present}/${total} champs renseign\xE9s</span>
     </div>
   `;
     let statusMsg = "";
     if (f.status === "pass") {
-      statusMsg = '<div class="copilot-l1-status copilot-l1-ok">Donn\xE9es compl\xE8tes \u2014 analyse fiable</div>';
+      statusMsg = '<div class="okazcar-l1-status okazcar-l1-ok">Donn\xE9es compl\xE8tes \u2014 analyse fiable</div>';
     } else {
-      statusMsg = `<div class="copilot-l1-status copilot-l1-warn">Donn\xE9es incompl\xE8tes \u2014 l'analyse qui suit peut \xEAtre moins fiable</div>`;
+      statusMsg = `<div class="okazcar-l1-status okazcar-l1-warn">Donn\xE9es incompl\xE8tes \u2014 l'analyse qui suit peut \xEAtre moins fiable</div>`;
     }
     let missingHTML = "";
     const criticals = d.missing_critical || [];
     const secondaries = d.missing_secondary || [];
     if (criticals.length > 0) {
-      const items = criticals.map((f2) => `<li class="copilot-l1-missing-critical">${escapeHTML(FIELD_LABELS_FR[f2] || f2)}</li>`).join("");
-      missingHTML += `<div class="copilot-l1-missing"><span class="copilot-l1-missing-title">Critiques :</span><ul>${items}</ul></div>`;
+      const items = criticals.map((f2) => `<li class="okazcar-l1-missing-critical">${escapeHTML(FIELD_LABELS_FR[f2] || f2)}</li>`).join("");
+      missingHTML += `<div class="okazcar-l1-missing"><span class="okazcar-l1-missing-title">Critiques :</span><ul>${items}</ul></div>`;
     }
     if (secondaries.length > 0) {
-      const items = secondaries.map((f2) => `<li class="copilot-l1-missing-secondary">${escapeHTML(FIELD_LABELS_FR[f2] || f2)}</li>`).join("");
-      missingHTML += `<div class="copilot-l1-missing"><span class="copilot-l1-missing-title">Secondaires :</span><ul>${items}</ul></div>`;
+      const items = secondaries.map((f2) => `<li class="okazcar-l1-missing-secondary">${escapeHTML(FIELD_LABELS_FR[f2] || f2)}</li>`).join("");
+      missingHTML += `<div class="okazcar-l1-missing"><span class="okazcar-l1-missing-title">Secondaires :</span><ul>${items}</ul></div>`;
     }
-    return `<div class="copilot-l1-body">${barHTML}${statusMsg}${missingHTML}</div>`;
+    return `<div class="okazcar-l1-body">${barHTML}${statusMsg}${missingHTML}</div>`;
   }
 
   // extension/ui/filters/l2.js
   function buildL2Body(f, d) {
     if (f.status === "skip") {
-      return `<div class="copilot-l2-body"><span class="copilot-l2-na">${escapeHTML(f.message)}</span></div>`;
+      return `<div class="okazcar-l2-body"><span class="okazcar-l2-na">${escapeHTML(f.message)}</span></div>`;
     }
     if (f.status === "pass") {
       const brand = d.brand || "";
       const model = d.model || "";
       const gen = d.generation ? ` \xB7 ${d.generation}` : "";
-      return `<div class="copilot-l2-body">
-      <span class="copilot-l2-badge copilot-l2-badge-ok">\u2713 ${escapeHTML(brand)} ${escapeHTML(model)}${escapeHTML(gen)}</span>
+      return `<div class="okazcar-l2-body">
+      <span class="okazcar-l2-badge okazcar-l2-badge-ok">\u2713 ${escapeHTML(brand)} ${escapeHTML(model)}${escapeHTML(gen)}</span>
     </div>`;
     }
-    return `<div class="copilot-l2-body">
-    <span class="copilot-l2-msg">${escapeHTML(f.message)}</span>
+    return `<div class="okazcar-l2-body">
+    <span class="okazcar-l2-msg">${escapeHTML(f.message)}</span>
   </div>`;
   }
 
@@ -3970,13 +3970,13 @@
     const avgExpected = d.avg_km_per_year;
     const kmRatio = d.km_ratio;
     if (kmYear == null || expectedKm == null) {
-      return `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
+      return `<p class="okazcar-filter-message">${escapeHTML(f.message)}</p>`;
     }
     const fmtKm = (n) => Math.round(n).toLocaleString("fr-FR");
     const statHTML = `
-    <div class="copilot-l3-stat">
-      <span class="copilot-l3-km-year">~${fmtKm(kmYear)} km/an</span>
-      <span class="copilot-l3-expected">Attendu : ~${fmtKm(avgExpected || 15e3)} km/an pour un v\xE9hicule de ${age} an${age > 1 ? "s" : ""}</span>
+    <div class="okazcar-l3-stat">
+      <span class="okazcar-l3-km-year">~${fmtKm(kmYear)} km/an</span>
+      <span class="okazcar-l3-expected">Attendu : ~${fmtKm(avgExpected || 15e3)} km/an pour un v\xE9hicule de ${age} an${age > 1 ? "s" : ""}</span>
     </div>
   `;
     const maxKm = Math.max(mileage, expectedKm) * 1.3;
@@ -3984,44 +3984,44 @@
     const expectedPct = Math.min(expectedKm / maxKm * 100, 100);
     const barColor = kmRatio < 0.5 ? "#3b82f6" : kmRatio <= 1.5 ? "#22c55e" : kmRatio <= 2 ? "#f59e0b" : "#ef4444";
     const barHTML = `
-    <div class="copilot-l3-comparison">
-      <div class="copilot-l3-bar-row">
-        <span class="copilot-l3-bar-label">R\xE9el</span>
-        <div class="copilot-l3-bar-track"><div class="copilot-l3-bar-fill" style="width:${realPct}%;background:${barColor}"></div></div>
-        <span class="copilot-l3-bar-value">${fmtKm(mileage)} km</span>
+    <div class="okazcar-l3-comparison">
+      <div class="okazcar-l3-bar-row">
+        <span class="okazcar-l3-bar-label">R\xE9el</span>
+        <div class="okazcar-l3-bar-track"><div class="okazcar-l3-bar-fill" style="width:${realPct}%;background:${barColor}"></div></div>
+        <span class="okazcar-l3-bar-value">${fmtKm(mileage)} km</span>
       </div>
-      <div class="copilot-l3-bar-row">
-        <span class="copilot-l3-bar-label">Attendu</span>
-        <div class="copilot-l3-bar-track"><div class="copilot-l3-bar-fill" style="width:${expectedPct}%;background:#9ca3af"></div></div>
-        <span class="copilot-l3-bar-value">${fmtKm(expectedKm)} km</span>
+      <div class="okazcar-l3-bar-row">
+        <span class="okazcar-l3-bar-label">Attendu</span>
+        <div class="okazcar-l3-bar-track"><div class="okazcar-l3-bar-fill" style="width:${expectedPct}%;background:#9ca3af"></div></div>
+        <span class="okazcar-l3-bar-value">${fmtKm(expectedKm)} km</span>
       </div>
     </div>
   `;
     const isRecentLowKm = d.is_recent_low_km;
     let verdictHTML = "";
     if (f.status === "pass") {
-      verdictHTML = `<div class="copilot-l3-verdict copilot-l3-ok">Kilom\xE9trage coh\xE9rent avec l'\xE2ge du v\xE9hicule</div>`;
+      verdictHTML = `<div class="okazcar-l3-verdict okazcar-l3-ok">Kilom\xE9trage coh\xE9rent avec l'\xE2ge du v\xE9hicule</div>`;
     } else if (isRecentLowKm && isPro) {
-      verdictHTML = '<div class="copilot-l3-verdict copilot-l3-warn">V\xE9hicule quasi-neuf \u2014 probable immatriculation constructeur</div>';
+      verdictHTML = '<div class="okazcar-l3-verdict okazcar-l3-warn">V\xE9hicule quasi-neuf \u2014 probable immatriculation constructeur</div>';
     } else if (isRecentLowKm) {
-      verdictHTML = `<div class="copilot-l3-verdict copilot-l3-warn">V\xE9hicule quasi-neuf \u2014 n'a pas trouv\xE9 preneur</div>`;
+      verdictHTML = `<div class="okazcar-l3-verdict okazcar-l3-warn">V\xE9hicule quasi-neuf \u2014 n'a pas trouv\xE9 preneur</div>`;
     } else if (kmRatio < 0.5) {
-      verdictHTML = '<div class="copilot-l3-verdict copilot-l3-alert">Kilom\xE9trage tr\xE8s bas \u2014 compteur remis \xE0 z\xE9ro ?</div>';
+      verdictHTML = '<div class="okazcar-l3-verdict okazcar-l3-alert">Kilom\xE9trage tr\xE8s bas \u2014 compteur remis \xE0 z\xE9ro ?</div>';
     } else if (kmRatio > 2) {
-      verdictHTML = '<div class="copilot-l3-verdict copilot-l3-alert">Kilom\xE9trage tr\xE8s \xE9lev\xE9 \u2014 usure acc\xE9l\xE9r\xE9e</div>';
+      verdictHTML = '<div class="okazcar-l3-verdict okazcar-l3-alert">Kilom\xE9trage tr\xE8s \xE9lev\xE9 \u2014 usure acc\xE9l\xE9r\xE9e</div>';
     } else {
-      verdictHTML = '<div class="copilot-l3-verdict copilot-l3-warn">Kilom\xE9trage \xE0 surveiller</div>';
+      verdictHTML = '<div class="okazcar-l3-verdict okazcar-l3-warn">Kilom\xE9trage \xE0 surveiller</div>';
     }
     let proHTML = "";
     if (isPro) {
-      proHTML = '<span class="copilot-l3-pro-badge">V\xE9hicule pro</span>';
+      proHTML = '<span class="okazcar-l3-pro-badge">V\xE9hicule pro</span>';
     }
     let warningsHTML = "";
     if (warnings.length > 0) {
       const items = warnings.map((w) => `<li>${escapeHTML(w)}</li>`).join("");
-      warningsHTML = `<ul class="copilot-l3-warnings">${items}</ul>`;
+      warningsHTML = `<ul class="okazcar-l3-warnings">${items}</ul>`;
     }
-    return `<div class="copilot-l3-body">${statHTML}${barHTML}${verdictHTML}${proHTML}${warningsHTML}</div>`;
+    return `<div class="okazcar-l3-body">${statHTML}${barHTML}${verdictHTML}${proHTML}${warningsHTML}</div>`;
   }
 
   // extension/ui/filters/l4.js
@@ -4097,19 +4097,19 @@
     const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " " + escapeHTML(sym);
     const src = details.source || "";
     let srcLabel = "";
-    let srcClass = "copilot-l4-src-default";
+    let srcClass = "okazcar-l4-src-default";
     if (src === "marche_leboncoin") {
       srcLabel = "LBC";
-      srcClass = "copilot-l4-src-lbc";
+      srcClass = "okazcar-l4-src-lbc";
     } else if (src === "marche_autoscout24") {
       srcLabel = "AS24";
-      srcClass = "copilot-l4-src-as24";
+      srcClass = "okazcar-l4-src-as24";
     } else if (src === "argus_seed") {
       srcLabel = "Argus Seed";
-      srcClass = "copilot-l4-src-seed";
+      srcClass = "okazcar-l4-src-seed";
     } else if (src === "estimation_lbc") {
       srcLabel = "Estimation LBC";
-      srcClass = "copilot-l4-src-est";
+      srcClass = "okazcar-l4-src-est";
     }
     const currentSite = _detectCurrentSite();
     const marketSite = src === "marche_leboncoin" ? "leboncoin" : src === "marche_autoscout24" ? "autoscout24" : null;
@@ -4128,48 +4128,48 @@
     }
     let footerHTML = "";
     if (srcLabel) {
-      footerHTML = `<div class="copilot-l4-footer">`;
-      footerHTML += `<span class="copilot-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
+      footerHTML = `<div class="okazcar-l4-footer">`;
+      footerHTML += `<span class="okazcar-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
       if (sampleCount != null) {
-        footerHTML += `<span class="copilot-l4-samples">Bas\xE9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
+        footerHTML += `<span class="okazcar-l4-samples">Bas\xE9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
       }
-      if (precisionStars) footerHTML += `<span class="copilot-l4-precision" title="Pr\xE9cision de l'\xE9chantillon">${precisionStars}</span>`;
+      if (precisionStars) footerHTML += `<span class="okazcar-l4-precision" title="Pr\xE9cision de l'\xE9chantillon">${precisionStars}</span>`;
       footerHTML += `</div>`;
     }
     let staleHTML = "";
     if (details.stale_below_market) {
       const staleDays = details.days_online || "30+";
-      staleHTML = `<div class="copilot-l4-stale">
-      <span class="copilot-l4-stale-icon">\u{1F440}</span>
+      staleHTML = `<div class="okazcar-l4-stale">
+      <span class="okazcar-l4-stale-icon">\u{1F440}</span>
       <div>
-        <div class="copilot-l4-stale-title">Prix bas + ${staleDays} jours en ligne</div>
-        <div class="copilot-l4-stale-text">Les acheteurs n'ont pas franchi le pas \u2014 il y a peut-\xEAtre anguille sous roche</div>
+        <div class="okazcar-l4-stale-title">Prix bas + ${staleDays} jours en ligne</div>
+        <div class="okazcar-l4-stale-text">Les acheteurs n'ont pas franchi le pas \u2014 il y a peut-\xEAtre anguille sous roche</div>
       </div>
     </div>`;
     }
     return `
-    <div class="copilot-price-bar-container">
-      <div class="copilot-price-verdict ${escapeHTML(verdictClass)}">
-        <span class="copilot-price-verdict-emoji">${verdictEmoji}</span>
+    <div class="okazcar-price-bar-container">
+      <div class="okazcar-price-verdict ${escapeHTML(verdictClass)}">
+        <span class="okazcar-price-verdict-emoji">${verdictEmoji}</span>
         <div>
-          <div class="copilot-price-verdict-text">${escapeHTML(line1)}</div>
-          <div class="copilot-price-verdict-pct">${escapeHTML(line2)}</div>
+          <div class="okazcar-price-verdict-text">${escapeHTML(line1)}</div>
+          <div class="okazcar-price-verdict-pct">${escapeHTML(line2)}</div>
         </div>
       </div>
-      <div class="copilot-price-bar-track">
-        <div class="copilot-price-bar-fill" style="left:${fillLeft}%;width:${fillWidth}%;background:${fillBg}"></div>
-        <div class="copilot-price-arrow-zone" style="left:${fillLeft}%;width:${fillWidth}%;border-color:${color}"></div>
-        <div class="copilot-price-market-ref" style="left:${argusPct}%">
-          <div class="copilot-price-market-line"></div>
-          <div class="copilot-price-market-label">March\xE9</div>
-          <div class="copilot-price-market-price">${fmtP(displayRef)}</div>
+      <div class="okazcar-price-bar-track">
+        <div class="okazcar-price-bar-fill" style="left:${fillLeft}%;width:${fillWidth}%;background:${fillBg}"></div>
+        <div class="okazcar-price-arrow-zone" style="left:${fillLeft}%;width:${fillWidth}%;border-color:${color}"></div>
+        <div class="okazcar-price-market-ref" style="left:${argusPct}%">
+          <div class="okazcar-price-market-line"></div>
+          <div class="okazcar-price-market-label">March\xE9</div>
+          <div class="okazcar-price-market-price">${fmtP(displayRef)}</div>
         </div>
-        <div class="copilot-price-car" style="left:${annoncePct}%">
-          <span class="copilot-price-car-emoji">\u{1F697}</span>
-          <div class="copilot-price-car-price" style="color:${color}">${fmtP(displayAnnonce)}</div>
+        <div class="okazcar-price-car" style="left:${annoncePct}%">
+          <span class="okazcar-price-car-emoji">\u{1F697}</span>
+          <div class="okazcar-price-car-price" style="color:${color}">${fmtP(displayAnnonce)}</div>
         </div>
       </div>
-      <div class="copilot-price-bar-spacer"></div>
+      <div class="okazcar-price-bar-spacer"></div>
       ${footerHTML}
       ${staleHTML}
     </div>
@@ -4188,7 +4188,7 @@
   }
   function buildL5Body(f, d) {
     if (f.status === "skip") {
-      return `<div class="copilot-l5-body"><span class="copilot-l5-na">${escapeHTML(f.message)}</span></div>`;
+      return `<div class="okazcar-l5-body"><span class="okazcar-l5-na">${escapeHTML(f.message)}</span></div>`;
     }
     const zPrice = d.z_scores?.price;
     const anomalies = d.anomalies || [];
@@ -4199,43 +4199,43 @@
     let cursorPct, zoneClass, verdictText;
     if (hasOutlier) {
       cursorPct = zPrice > 0 ? 8 : 12;
-      zoneClass = "copilot-l5-zone-red";
+      zoneClass = "okazcar-l5-zone-red";
       verdictText = "Anomalie d\xE9tect\xE9e \u2014 prix tr\xE8s \xE9loign\xE9 de la distribution";
     } else if (hasMargin) {
       cursorPct = zPrice > 0 ? 22 : 28;
-      zoneClass = "copilot-l5-zone-orange";
+      zoneClass = "okazcar-l5-zone-orange";
       verdictText = "Signal faible \u2014 prix en marge de la distribution";
     } else if (anomalies.length === 0 || dieselOnly) {
       const bonus = Math.min(refCount, 20) / 20 * 20;
       cursorPct = 60 + bonus;
-      zoneClass = refCount >= 10 ? "copilot-l5-zone-green" : "copilot-l5-zone-neutral";
+      zoneClass = refCount >= 10 ? "okazcar-l5-zone-green" : "okazcar-l5-zone-neutral";
       verdictText = refCount >= 10 ? `RAS \u2014 aucune anomalie (${refCount} v\xE9hicules compar\xE9s)` : `RAS \u2014 confiance mod\xE9r\xE9e (${refCount} r\xE9f\xE9rences)`;
     } else {
       cursorPct = 35;
-      zoneClass = "copilot-l5-zone-orange";
+      zoneClass = "okazcar-l5-zone-orange";
       verdictText = anomalies[0];
     }
-    let html = `<div class="copilot-l5-body">`;
-    html += `<div class="copilot-l5-scale">`;
-    html += `  <div class="copilot-l5-track">`;
-    html += `    <div class="copilot-l5-zone-left"></div>`;
-    html += `    <div class="copilot-l5-zone-center"></div>`;
-    html += `    <div class="copilot-l5-zone-right"></div>`;
-    html += `    <div class="copilot-l5-cursor ${zoneClass}" style="left:${cursorPct}%"></div>`;
+    let html = `<div class="okazcar-l5-body">`;
+    html += `<div class="okazcar-l5-scale">`;
+    html += `  <div class="okazcar-l5-track">`;
+    html += `    <div class="okazcar-l5-zone-left"></div>`;
+    html += `    <div class="okazcar-l5-zone-center"></div>`;
+    html += `    <div class="okazcar-l5-zone-right"></div>`;
+    html += `    <div class="okazcar-l5-cursor ${zoneClass}" style="left:${cursorPct}%"></div>`;
     html += `  </div>`;
-    html += `  <div class="copilot-l5-labels">`;
-    html += `    <span class="copilot-l5-label-left">Louche</span>`;
-    html += `    <span class="copilot-l5-label-center">RAS</span>`;
-    html += `    <span class="copilot-l5-label-right">Fiable</span>`;
+    html += `  <div class="okazcar-l5-labels">`;
+    html += `    <span class="okazcar-l5-label-left">Louche</span>`;
+    html += `    <span class="okazcar-l5-label-center">RAS</span>`;
+    html += `    <span class="okazcar-l5-label-right">Fiable</span>`;
     html += `  </div>`;
     html += `</div>`;
-    html += `<div class="copilot-l5-verdict">${escapeHTML(verdictText)}</div>`;
+    html += `<div class="okazcar-l5-verdict">${escapeHTML(verdictText)}</div>`;
     if (d.diesel_urban) {
-      html += `<div class="copilot-l5-diesel">`;
-      html += `  <span class="copilot-l5-diesel-icon">\u2699\uFE0F</span>`;
+      html += `<div class="okazcar-l5-diesel">`;
+      html += `  <span class="okazcar-l5-diesel-icon">\u2699\uFE0F</span>`;
       html += `  <div>`;
-      html += `    <div class="copilot-l5-diesel-title">Diesel en zone urbaine dense</div>`;
-      html += `    <div class="copilot-l5-diesel-text">Risque FAP, injecteurs, vanne EGR \u2014 les r\xE9g\xE9n\xE9rations ne se font pas en ville</div>`;
+      html += `    <div class="okazcar-l5-diesel-title">Diesel en zone urbaine dense</div>`;
+      html += `    <div class="okazcar-l5-diesel-text">Risque FAP, injecteurs, vanne EGR \u2014 les r\xE9g\xE9n\xE9rations ne se font pas en ville</div>`;
       html += `  </div>`;
       html += `</div>`;
     }
@@ -4250,9 +4250,9 @@
       srcLabel += " \xB7 march\xE9 externe";
     }
     if (srcLabel || refCount) {
-      html += `<div class="copilot-l5-footer">`;
-      if (srcLabel) html += `<span class="copilot-l5-src">${escapeHTML(srcLabel)}</span>`;
-      if (refCount) html += `<span class="copilot-l5-refs">Bas\xE9 sur ${refCount} v\xE9hicule${refCount > 1 ? "s" : ""}</span>`;
+      html += `<div class="okazcar-l5-footer">`;
+      if (srcLabel) html += `<span class="okazcar-l5-src">${escapeHTML(srcLabel)}</span>`;
+      if (refCount) html += `<span class="okazcar-l5-refs">Bas\xE9 sur ${refCount} v\xE9hicule${refCount > 1 ? "s" : ""}</span>`;
       html += `</div>`;
     }
     html += `</div>`;
@@ -4262,55 +4262,55 @@
   // extension/ui/filters/l6.js
   function buildL6Body(f, d) {
     if (f.status === "neutral") {
-      return `<div class="copilot-l6-body"><span class="copilot-l6-na">T\xE9l\xE9phone non disponible</span></div>`;
+      return `<div class="okazcar-l6-body"><span class="okazcar-l6-na">T\xE9l\xE9phone non disponible</span></div>`;
     }
     if (f.status === "skip" && d.phone_login_hint) {
       const hintText = typeof d.phone_login_hint === "string" ? d.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
-      return `<div class="copilot-l6-body">
-      <div class="copilot-phone-login-hint">
-        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+      return `<div class="okazcar-l6-body">
+      <div class="okazcar-phone-login-hint">
+        <span class="okazcar-phone-hint-icon">&#x1F4F1;</span>
         <span>${escapeHTML(hintText)}</span>
         <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
-           class="copilot-phone-login-link">Se connecter</a>
+           class="okazcar-phone-login-link">Se connecter</a>
       </div>
     </div>`;
     }
     const phoneType = d.type || "";
     let badgeText = "";
-    let badgeClass = "copilot-l6-badge-default";
+    let badgeClass = "okazcar-l6-badge-default";
     if (phoneType.startsWith("mobile")) {
       badgeText = "Mobile";
-      badgeClass = "copilot-l6-badge-mobile";
+      badgeClass = "okazcar-l6-badge-mobile";
     } else if (phoneType.startsWith("landline")) {
       badgeText = "Fixe";
-      badgeClass = "copilot-l6-badge-landline";
+      badgeClass = "okazcar-l6-badge-landline";
     } else if (phoneType === "telemarketing_arcep") {
       badgeText = "D\xE9marchage";
-      badgeClass = "copilot-l6-badge-danger";
+      badgeClass = "okazcar-l6-badge-danger";
     } else if (phoneType === "virtual_onoff") {
       badgeText = "Virtuel";
-      badgeClass = "copilot-l6-badge-danger";
+      badgeClass = "okazcar-l6-badge-danger";
     } else if (d.is_foreign) {
       const prefix = d.prefix || "";
       const flag = d.prefix_country_flag || "";
       const countryName = d.prefix_country_name || "";
       const suffix = [prefix, flag, countryName].filter(Boolean).join(" ");
       badgeText = `\xC9tranger${suffix ? " (" + suffix + ")" : ""}`;
-      badgeClass = "copilot-l6-badge-foreign";
+      badgeClass = "okazcar-l6-badge-foreign";
     } else if (phoneType.startsWith("local") || phoneType === "present_unverified") {
       badgeText = "Pr\xE9sent";
-      badgeClass = "copilot-l6-badge-ok";
+      badgeClass = "okazcar-l6-badge-ok";
     }
     if (d.no_phone_pro) {
       badgeText = "Pro sans t\xE9l\xE9phone";
-      badgeClass = "copilot-l6-badge-danger";
+      badgeClass = "okazcar-l6-badge-danger";
     }
-    let html = `<div class="copilot-l6-body">`;
+    let html = `<div class="okazcar-l6-body">`;
     if (badgeText) {
-      html += `<span class="copilot-l6-badge ${badgeClass}">${escapeHTML(badgeText)}</span>`;
+      html += `<span class="okazcar-l6-badge ${badgeClass}">${escapeHTML(badgeText)}</span>`;
     }
     if (f.message && f.status !== "pass") {
-      html += `<span class="copilot-l6-msg">${escapeHTML(f.message)}</span>`;
+      html += `<span class="okazcar-l6-msg">${escapeHTML(f.message)}</span>`;
     }
     html += `</div>`;
     return html;
@@ -4320,17 +4320,17 @@
   function buildL7Body(f, d) {
     const ownerType = (d.owner_type || "").toLowerCase();
     if (f.status === "neutral" || ownerType === "private" || ownerType === "particulier") {
-      return `<div class="copilot-l7-body"><span class="copilot-l7-badge copilot-l7-badge-neutral">Particulier</span></div>`;
+      return `<div class="okazcar-l7-body"><span class="okazcar-l7-badge okazcar-l7-badge-neutral">Particulier</span></div>`;
     }
     if (f.status === "skip") {
-      return `<div class="copilot-l7-body"><span class="copilot-l7-na">${escapeHTML(f.message)}</span></div>`;
+      return `<div class="okazcar-l7-body"><span class="okazcar-l7-na">${escapeHTML(f.message)}</span></div>`;
     }
-    let html = `<div class="copilot-l7-body">`;
+    let html = `<div class="okazcar-l7-body">`;
     if (d.platform_verified) {
-      html += `<span class="copilot-l7-badge copilot-l7-badge-verified">Pro v\xE9rifi\xE9</span>`;
+      html += `<span class="okazcar-l7-badge okazcar-l7-badge-verified">Pro v\xE9rifi\xE9</span>`;
       if (d.dealer_rating != null && d.dealer_review_count != null) {
         const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
-        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+        html += `<span class="okazcar-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
       }
       html += `</div>`;
       return html;
@@ -4338,24 +4338,24 @@
     if (f.status === "pass") {
       const denom = d.denomination || d.name || "";
       const siretOrUid = d.formatted || d.siret || d.uid || "";
-      html += `<span class="copilot-l7-badge copilot-l7-badge-pro">Pro</span>`;
-      if (denom) html += `<span class="copilot-l7-denom">${escapeHTML(denom)}</span>`;
-      if (siretOrUid) html += `<span class="copilot-l7-id">${escapeHTML(siretOrUid)}</span>`;
+      html += `<span class="okazcar-l7-badge okazcar-l7-badge-pro">Pro</span>`;
+      if (denom) html += `<span class="okazcar-l7-denom">${escapeHTML(denom)}</span>`;
+      if (siretOrUid) html += `<span class="okazcar-l7-id">${escapeHTML(siretOrUid)}</span>`;
       if (d.dealer_rating != null && d.dealer_review_count != null) {
         const stars = "\u2605".repeat(Math.round(Number(d.dealer_rating)));
-        html += `<span class="copilot-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
+        html += `<span class="okazcar-l7-rating">${stars} ${d.dealer_rating}/5 (${d.dealer_review_count} avis)</span>`;
       }
       html += `</div>`;
       return html;
     }
     if (f.status === "warning") {
-      html += `<span class="copilot-l7-badge copilot-l7-badge-warn">Pro non identifi\xE9</span>`;
-      html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
+      html += `<span class="okazcar-l7-badge okazcar-l7-badge-warn">Pro non identifi\xE9</span>`;
+      html += `<span class="okazcar-l7-msg">${escapeHTML(f.message)}</span>`;
       html += `</div>`;
       return html;
     }
-    html += `<span class="copilot-l7-badge copilot-l7-badge-fail">Pro suspect</span>`;
-    html += `<span class="copilot-l7-msg">${escapeHTML(f.message)}</span>`;
+    html += `<span class="okazcar-l7-badge okazcar-l7-badge-fail">Pro suspect</span>`;
+    html += `<span class="okazcar-l7-msg">${escapeHTML(f.message)}</span>`;
     html += `</div>`;
     return html;
   }
@@ -4365,23 +4365,23 @@
     const signals = d.signals || [];
     const strongCount = d.strong_count || 0;
     if (f.status === "pass" || signals.length === 0) {
-      return `<div class="copilot-l8-body">
-      <div class="copilot-l8-clean">
-        <span class="copilot-l8-clean-icon">\u2705</span>
+      return `<div class="okazcar-l8-body">
+      <div class="okazcar-l8-clean">
+        <span class="okazcar-l8-clean-icon">\u2705</span>
         <span>Aucun signal d'import d\xE9tect\xE9</span>
       </div>
     </div>`;
     }
     let headerText = strongCount >= 2 ? "Import probable" : strongCount === 1 ? "Signal d'import d\xE9tect\xE9" : "Signal faible d'import";
-    const headerClass = f.status === "fail" ? "copilot-l8-alert-fail" : "copilot-l8-alert-warn";
-    let html = `<div class="copilot-l8-body">`;
-    html += `<div class="copilot-l8-alert ${headerClass}">`;
-    html += `<span class="copilot-l8-alert-icon">${f.status === "fail" ? "\u{1F6A8}" : "\u26A0\uFE0F"}</span>`;
-    html += `<span class="copilot-l8-alert-text">${escapeHTML(headerText)} (${signals.length} indice${signals.length > 1 ? "s" : ""})</span>`;
+    const headerClass = f.status === "fail" ? "okazcar-l8-alert-fail" : "okazcar-l8-alert-warn";
+    let html = `<div class="okazcar-l8-body">`;
+    html += `<div class="okazcar-l8-alert ${headerClass}">`;
+    html += `<span class="okazcar-l8-alert-icon">${f.status === "fail" ? "\u{1F6A8}" : "\u26A0\uFE0F"}</span>`;
+    html += `<span class="okazcar-l8-alert-text">${escapeHTML(headerText)} (${signals.length} indice${signals.length > 1 ? "s" : ""})</span>`;
     html += `</div>`;
-    html += `<ul class="copilot-l8-signals">`;
+    html += `<ul class="okazcar-l8-signals">`;
     for (const sig of signals) {
-      html += `<li class="copilot-l8-signal">${escapeHTML(sig)}</li>`;
+      html += `<li class="okazcar-l8-signal">${escapeHTML(sig)}</li>`;
     }
     html += `</ul></div>`;
     return html;
@@ -4399,35 +4399,35 @@
       const coverageColor = evaluated === total ? "#22c55e" : evaluated >= total * 0.7 ? "#f59e0b" : "#ef4444";
       const coverageText = evaluated === total ? "Analyse compl\xE8te" : `Analyse partielle \u2014 ${total - evaluated} filtre${total - evaluated > 1 ? "s" : ""} non \xE9valu\xE9${total - evaluated > 1 ? "s" : ""} (donn\xE9es absentes de l'annonce)`;
       coverageHTML = `
-      <div class="copilot-l9-coverage">
-        <span class="copilot-l9-coverage-count" style="color:${coverageColor}">${evaluated}/${total} filtres \xE9valu\xE9s</span>
-        <span class="copilot-l9-coverage-text">${escapeHTML(coverageText)}</span>
+      <div class="okazcar-l9-coverage">
+        <span class="okazcar-l9-coverage-count" style="color:${coverageColor}">${evaluated}/${total} filtres \xE9valu\xE9s</span>
+        <span class="okazcar-l9-coverage-text">${escapeHTML(coverageText)}</span>
       </div>
     `;
     }
     let fortsHTML = "";
     if (forts.length > 0) {
-      const items = forts.map((p) => `<li class="copilot-l9-fort">${escapeHTML(p)}</li>`).join("");
-      fortsHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-fort-title">Points forts</div><ul>${items}</ul></div>`;
+      const items = forts.map((p) => `<li class="okazcar-l9-fort">${escapeHTML(p)}</li>`).join("");
+      fortsHTML = `<div class="okazcar-l9-list"><div class="okazcar-l9-list-title okazcar-l9-fort-title">Points forts</div><ul>${items}</ul></div>`;
     }
     let faiblesHTML = "";
     if (faibles.length > 0) {
-      const items = faibles.map((p) => `<li class="copilot-l9-faible">${escapeHTML(p)}</li>`).join("");
-      faiblesHTML = `<div class="copilot-l9-list"><div class="copilot-l9-list-title copilot-l9-faible-title">Points faibles</div><ul>${items}</ul></div>`;
+      const items = faibles.map((p) => `<li class="okazcar-l9-faible">${escapeHTML(p)}</li>`).join("");
+      faiblesHTML = `<div class="okazcar-l9-list"><div class="okazcar-l9-list-title okazcar-l9-faible-title">Points faibles</div><ul>${items}</ul></div>`;
     }
     let phoneHintHTML = "";
     if (d.phone_login_hint) {
       const hintText = typeof d.phone_login_hint === "string" ? d.phone_login_hint : "Connectez-vous sur LeBonCoin pour acc\xE9der au num\xE9ro";
       phoneHintHTML = `
-      <div class="copilot-phone-login-hint">
-        <span class="copilot-phone-hint-icon">&#x1F4F1;</span>
+      <div class="okazcar-phone-login-hint">
+        <span class="okazcar-phone-hint-icon">&#x1F4F1;</span>
         <span>${escapeHTML(hintText)}</span>
         <a href="https://auth.leboncoin.fr/login/" target="_blank" rel="noopener noreferrer"
-           class="copilot-phone-login-link">Se connecter</a>
+           class="okazcar-phone-login-link">Se connecter</a>
       </div>
     `;
     }
-    return `<div class="copilot-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
+    return `<div class="okazcar-l9-body">${coverageHTML}${fortsHTML}${faiblesHTML}${phoneHintHTML}</div>`;
   }
 
   // extension/ui/filters/l10.js
@@ -4439,7 +4439,7 @@
     const thresholdSource = d.threshold_source === "marche" ? "march\xE9" : "prix";
     const marketMedian = d.market_median_days;
     if (days == null) {
-      return '<p class="copilot-filter-message">Anciennet\xE9 non disponible</p>';
+      return '<p class="okazcar-filter-message">Anciennet\xE9 non disponible</p>';
     }
     let barColor, verdictText;
     if (ratio <= 0.3) {
@@ -4458,38 +4458,38 @@
     const maxDisplay = threshold * 2.5;
     const cursorPct = Math.min(Math.max(days / maxDisplay * 100, 2), 98);
     const thresholdPct = Math.min(threshold / maxDisplay * 100, 95);
-    const bigNumber = `<div class="copilot-l10-big"><span class="copilot-l10-days" style="color:${barColor}">${days}</span><span class="copilot-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
+    const bigNumber = `<div class="okazcar-l10-big"><span class="okazcar-l10-days" style="color:${barColor}">${days}</span><span class="okazcar-l10-days-label">jour${days > 1 ? "s" : ""} en ligne</span></div>`;
     const barHTML = `
-    <div class="copilot-l10-timeline">
-      <div class="copilot-l10-track">
-        <div class="copilot-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
-        <div class="copilot-l10-threshold" style="left:${thresholdPct}%">
-          <div class="copilot-l10-threshold-line"></div>
-          <span class="copilot-l10-threshold-label">Seuil ${threshold}j</span>
+    <div class="okazcar-l10-timeline">
+      <div class="okazcar-l10-track">
+        <div class="okazcar-l10-fill" style="width:${cursorPct}%;background:${barColor}"></div>
+        <div class="okazcar-l10-threshold" style="left:${thresholdPct}%">
+          <div class="okazcar-l10-threshold-line"></div>
+          <span class="okazcar-l10-threshold-label">Seuil ${threshold}j</span>
         </div>
-        <div class="copilot-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
+        <div class="okazcar-l10-cursor" style="left:${cursorPct}%;background:${barColor}"></div>
       </div>
-      <div class="copilot-l10-scale">
+      <div class="okazcar-l10-scale">
         <span>0j</span>
         <span>${Math.round(maxDisplay)}j</span>
       </div>
     </div>
   `;
-    const verdictHTML = `<div class="copilot-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
-    let metaHTML = `<div class="copilot-l10-meta">Seuil bas\xE9 sur le ${escapeHTML(thresholdSource)}</div>`;
+    const verdictHTML = `<div class="okazcar-l10-verdict" style="color:${barColor}">${escapeHTML(verdictText)}</div>`;
+    let metaHTML = `<div class="okazcar-l10-meta">Seuil bas\xE9 sur le ${escapeHTML(thresholdSource)}</div>`;
     if (marketMedian != null) {
-      metaHTML += `<div class="copilot-l10-meta">M\xE9diane march\xE9 : ${marketMedian} jours</div>`;
+      metaHTML += `<div class="okazcar-l10-meta">M\xE9diane march\xE9 : ${marketMedian} jours</div>`;
     }
     let republishedHTML = "";
     if (republished) {
-      republishedHTML = `<div class="copilot-l10-republished">Republication d\xE9tect\xE9e \u2014 l'annonce a \xE9t\xE9 remise en ligne pour para\xEEtre r\xE9cente</div>`;
+      republishedHTML = `<div class="okazcar-l10-republished">Republication d\xE9tect\xE9e \u2014 l'annonce a \xE9t\xE9 remise en ligne pour para\xEEtre r\xE9cente</div>`;
     }
-    return `<div class="copilot-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
+    return `<div class="okazcar-l10-body">${bigNumber}${barHTML}${verdictHTML}${metaHTML}${republishedHTML}</div>`;
   }
 
   // extension/ui/filters/generic.js
   function buildGenericBody(f) {
-    const msgHTML = `<p class="copilot-filter-message">${escapeHTML(f.message)}</p>`;
+    const msgHTML = `<p class="okazcar-filter-message">${escapeHTML(f.message)}</p>`;
     const detailsHTML = f.details ? buildDetailsHTML(f.details) : "";
     return msgHTML + detailsHTML;
   }
@@ -4539,14 +4539,14 @@
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
-      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="copilot-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
+      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="okazcar-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
       const scoreBarHTML = f.filter_id === "L9" && f.status !== "skip" && f.status !== "neutral" ? buildScoreBar({ ...f, score: Math.min(f.score, l9CoverageRatio) }) : buildScoreBar(f);
       const bodyHTML = buildFilterBody(f, vehicle, sorted);
       return `
-        <div class="copilot-filter-item" data-status="${escapeHTML(f.status)}">
-          <div class="copilot-filter-header">
-            <span class="copilot-filter-icon" style="color:${color}">${icon}</span>
-            <span class="copilot-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
+        <div class="okazcar-filter-item" data-status="${escapeHTML(f.status)}">
+          <div class="okazcar-filter-header">
+            <span class="okazcar-filter-icon" style="color:${color}">${icon}</span>
+            <span class="okazcar-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
             ${scoreBarHTML}
           </div>
           ${bodyHTML}
@@ -4557,20 +4557,20 @@
 
   // extension/ui/banners.js
   function buildPremiumSection() {
-    return `<div class="copilot-premium-section"><div class="copilot-premium-blur"><div class="copilot-premium-fake"><p><strong>Rapport d\xE9taill\xE9 du v\xE9hicule</strong></p><p>Fiche fiabilit\xE9 compl\xE8te avec probl\xE8mes connus, co\xFBts d'entretien pr\xE9vus, historique des rappels constructeur et comparaison avec les alternatives du segment.</p><p>Estimation de la valeur r\xE9elle bas\xE9e sur 12 crit\xE8res r\xE9gionaux.</p><p>Recommandation d'achat personnalis\xE9e avec score de confiance.</p></div></div><div class="copilot-premium-overlay"><div class="copilot-premium-glass"><p class="copilot-premium-title">Analyse compl\xE8te</p><p class="copilot-premium-subtitle">D\xE9bloquez le rapport d\xE9taill\xE9 avec fiabilit\xE9, co\xFBts et recommandations.</p><button class="copilot-premium-cta" id="copilot-premium-btn">D\xE9bloquer \u2013 9,90 \u20AC</div></div></div>`;
+    return `<div class="okazcar-premium-section"><div class="okazcar-premium-blur"><div class="okazcar-premium-fake"><p><strong>Rapport d\xE9taill\xE9 du v\xE9hicule</strong></p><p>Fiche fiabilit\xE9 compl\xE8te avec probl\xE8mes connus, co\xFBts d'entretien pr\xE9vus, historique des rappels constructeur et comparaison avec les alternatives du segment.</p><p>Estimation de la valeur r\xE9elle bas\xE9e sur 12 crit\xE8res r\xE9gionaux.</p><p>Recommandation d'achat personnalis\xE9e avec score de confiance.</p></div></div><div class="okazcar-premium-overlay"><div class="okazcar-premium-glass"><p class="okazcar-premium-title">Analyse compl\xE8te</p><p class="okazcar-premium-subtitle">D\xE9bloquez le rapport d\xE9taill\xE9 avec fiabilit\xE9, co\xFBts et recommandations.</p><button class="okazcar-premium-cta" id="okazcar-premium-btn">D\xE9bloquer \u2013 9,90 \u20AC</div></div></div>`;
   }
   function buildYouTubeBanner(featuredVideo) {
     if (!featuredVideo || !featuredVideo.url) return "";
     const title = featuredVideo.title || "D\xE9couvrir ce mod\xE8le en vid\xE9o";
     const channel = featuredVideo.channel || "";
-    return `<div class="copilot-youtube-banner"><a href="${escapeHTML(featuredVideo.url)}" target="_blank" rel="noopener noreferrer" class="copilot-youtube-link"><span class="copilot-youtube-icon">&#x25B6;&#xFE0F;</span><span class="copilot-youtube-text"><strong>D\xE9couvrir ce mod\xE8le en vid\xE9o</strong><small>${escapeHTML(channel)}${channel ? " \xB7 " : ""}${escapeHTML(title).substring(0, 50)}</small></span><span class="copilot-youtube-arrow">&rsaquo;</span></a></div>`;
+    return `<div class="okazcar-youtube-banner"><a href="${escapeHTML(featuredVideo.url)}" target="_blank" rel="noopener noreferrer" class="okazcar-youtube-link"><span class="okazcar-youtube-icon">&#x25B6;&#xFE0F;</span><span class="okazcar-youtube-text"><strong>D\xE9couvrir ce mod\xE8le en vid\xE9o</strong><small>${escapeHTML(channel)}${channel ? " \xB7 " : ""}${escapeHTML(title).substring(0, 50)}</small></span><span class="okazcar-youtube-arrow">&rsaquo;</span></a></div>`;
   }
   function buildAutovizaBanner(autovizaUrl) {
     if (!autovizaUrl) return "";
-    return `<div class="copilot-autoviza-banner"><a href="${escapeHTML(autovizaUrl)}" target="_blank" rel="noopener noreferrer" class="copilot-autoviza-link"><span class="copilot-autoviza-icon">&#x1F4CB;</span><span class="copilot-autoviza-text"><strong>Rapport d'historique gratuit</strong><small>Offert par LeBonCoin via Autoviza (valeur 25 \u20AC)</small></span><span class="copilot-autoviza-arrow">&rsaquo;</span></a></div>`;
+    return `<div class="okazcar-autoviza-banner"><a href="${escapeHTML(autovizaUrl)}" target="_blank" rel="noopener noreferrer" class="okazcar-autoviza-link"><span class="okazcar-autoviza-icon">&#x1F4CB;</span><span class="okazcar-autoviza-text"><strong>Rapport d'historique gratuit</strong><small>Offert par LeBonCoin via Autoviza (valeur 25 \u20AC)</small></span><span class="okazcar-autoviza-arrow">&rsaquo;</span></a></div>`;
   }
   function buildEmailBanner() {
-    return `<div class="copilot-email-banner" id="copilot-email-section"><button class="copilot-email-btn" id="copilot-email-btn">&#x2709; R\xE9diger un email au vendeur</button><div class="copilot-email-result" id="copilot-email-result" style="display:none;"><textarea class="copilot-email-textarea" id="copilot-email-text" rows="8" readonly></textarea><div class="copilot-email-actions"><button class="copilot-email-copy" id="copilot-email-copy">&#x1F4CB; Copier</button><span class="copilot-email-copied" id="copilot-email-copied" style="display:none;">Copi\xE9 !</span></div></div><div class="copilot-email-loading" id="copilot-email-loading" style="display:none;"><span class="copilot-mini-spinner"></span> G\xE9n\xE9ration en cours...</div><div class="copilot-email-error" id="copilot-email-error" style="display:none;"></div></div>`;
+    return `<div class="okazcar-email-banner" id="okazcar-email-section"><button class="okazcar-email-btn" id="okazcar-email-btn">&#x2709; R\xE9diger un email au vendeur</button><div class="okazcar-email-result" id="okazcar-email-result" style="display:none;"><textarea class="okazcar-email-textarea" id="okazcar-email-text" rows="8" readonly></textarea><div class="okazcar-email-actions"><button class="okazcar-email-copy" id="okazcar-email-copy">&#x1F4CB; Copier</button><span class="okazcar-email-copied" id="okazcar-email-copied" style="display:none;">Copi\xE9 !</span></div></div><div class="okazcar-email-loading" id="okazcar-email-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> G\xE9n\xE9ration en cours...</div><div class="okazcar-email-error" id="okazcar-email-error" style="display:none;"></div></div>`;
   }
 
   // extension/ui/popups.js
@@ -4583,9 +4583,9 @@
     if (vehicle && vehicle.price_original && vehicle.currency) {
       const fmtOrig = vehicle.price_original.toLocaleString("fr-FR");
       const fmtEur = vehicle.price.toLocaleString("fr-FR");
-      currencyBadge = `<span class="copilot-currency-badge">${escapeHTML(fmtOrig)} ${escapeHTML(vehicle.currency)} <span style="opacity:0.6">\u2248 ${escapeHTML(fmtEur)} \u20AC</span></span>`;
+      currencyBadge = `<span class="okazcar-currency-badge">${escapeHTML(fmtOrig)} ${escapeHTML(vehicle.currency)} <span style="opacity:0.6">\u2248 ${escapeHTML(fmtEur)} \u20AC</span></span>`;
     }
-    const partialBadge = is_partial ? `<span class="copilot-badge-partial">Analyse partielle</span>` : "";
+    const partialBadge = is_partial ? `<span class="okazcar-badge-partial">Analyse partielle</span>` : "";
     const l9 = (filters || []).find((f) => f.filter_id === "L9");
     const daysOnline = l9?.details?.days_online;
     const isRepublished = l9?.details?.republished;
@@ -4593,7 +4593,7 @@
     if (daysOnline != null) {
       const badgeColor = daysOnline <= 7 ? "#22c55e" : daysOnline <= 30 ? "#6b7280" : "#f59e0b";
       const label = isRepublished ? `&#x1F4C5; En vente depuis ${daysOnline}j (republi\xE9)` : `&#x1F4C5; ${daysOnline}j en ligne`;
-      daysOnlineBadge = `<span class="copilot-days-badge" style="color:${badgeColor}">${label}</span>`;
+      daysOnlineBadge = `<span class="okazcar-days-badge" style="color:${badgeColor}">${label}</span>`;
     }
     let bonusHTML = "";
     if (bonusSignals && bonusSignals.length > 0) {
@@ -4627,54 +4627,54 @@
       bonusHTML += "</div>";
     }
     return `
-    <div class="copilot-popup" id="copilot-popup">
-      <div class="copilot-popup-header">
-        <div class="copilot-popup-title-row">
-          <span class="copilot-popup-title">Co-Pilot</span>
-          <button class="copilot-popup-close" id="copilot-close">&times;</button>
+    <div class="okazcar-popup" id="okazcar-popup">
+      <div class="okazcar-popup-header">
+        <div class="okazcar-popup-title-row">
+          <span class="okazcar-popup-title">OKazCar</span>
+          <button class="okazcar-popup-close" id="okazcar-close">&times;</button>
         </div>
-        <p class="copilot-popup-vehicle">${escapeHTML(vehicleInfo)} ${daysOnlineBadge}</p>
-        ${currencyBadge ? `<p class="copilot-popup-currency">${currencyBadge}</p>` : ""}
+        <p class="okazcar-popup-vehicle">${escapeHTML(vehicleInfo)} ${daysOnlineBadge}</p>
+        ${currencyBadge ? `<p class="okazcar-popup-currency">${currencyBadge}</p>` : ""}
         ${partialBadge}
       </div>
-      <div class="copilot-radar-section">
+      <div class="okazcar-radar-section">
         ${buildRadarSVG(filters, score)}
-        <p class="copilot-verdict" style="color:${color}">
+        <p class="okazcar-verdict" style="color:${color}">
           ${score >= 70 ? "Annonce fiable" : score >= 40 ? "Points d'attention" : "Vigilance requise"}
         </p>
       </div>
-      <div class="copilot-popup-filters">
-        <h3 class="copilot-section-title">D\xE9tails de l'analyse</h3>
+      <div class="okazcar-popup-filters">
+        <h3 class="okazcar-section-title">D\xE9tails de l'analyse</h3>
         ${buildFiltersList(filters, vehicle)}
       </div>
       ${bonusHTML}
       ${buildPremiumSection()}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}
-      <div class="copilot-carvertical-banner">
+      <div class="okazcar-carvertical-banner">
         <a href="https://www.carvertical.com/fr" target="_blank" rel="noopener noreferrer"
-           class="copilot-carvertical-link" id="copilot-carvertical-btn">
-          <img class="copilot-carvertical-logo" src="${typeof chrome !== "undefined" && chrome.runtime ? chrome.runtime.getURL("carvertical_logo.png") : "carvertical_logo.png"}" alt="carVertical"/>
-          <span class="copilot-carvertical-text">
+           class="okazcar-carvertical-link" id="okazcar-carvertical-btn">
+          <img class="okazcar-carvertical-logo" src="${typeof chrome !== "undefined" && chrome.runtime ? chrome.runtime.getURL("carvertical_logo.png") : "carvertical_logo.png"}" alt="carVertical"/>
+          <span class="okazcar-carvertical-text">
             <strong>Historique du v\xE9hicule</strong>
             <small>V\xE9rifier sur carVertical</small>
           </span>
-          <span class="copilot-carvertical-arrow">&rsaquo;</span>
+          <span class="okazcar-carvertical-arrow">&rsaquo;</span>
         </a>
       </div>
       ${buildEmailBanner()}
-      <div class="copilot-popup-footer"><p>Co-Pilot v1.0 &middot; Analyse automatis\xE9e</p></div>
+      <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse automatis\xE9e</p></div>
     </div>
   `;
   }
   function buildErrorPopup(message) {
-    return `<div class="copilot-popup copilot-popup-error" id="copilot-popup"><div class="copilot-popup-header"><div class="copilot-popup-title-row"><span class="copilot-popup-title">Co-Pilot</span><button class="copilot-popup-close" id="copilot-close">&times;</button></div></div><div class="copilot-error-body"><div class="copilot-error-icon">&#x1F527;</div><p class="copilot-error-message">${escapeHTML(message)}</p><button class="copilot-btn copilot-btn-retry" id="copilot-retry">R\xE9essayer</button></div></div>`;
+    return `<div class="okazcar-popup okazcar-popup-error" id="okazcar-popup"><div class="okazcar-popup-header"><div class="okazcar-popup-title-row"><span class="okazcar-popup-title">OKazCar</span><button class="okazcar-popup-close" id="okazcar-close">&times;</button></div></div><div class="okazcar-error-body"><div class="okazcar-error-icon">&#x1F527;</div><p class="okazcar-error-message">${escapeHTML(message)}</p><button class="okazcar-btn okazcar-btn-retry" id="okazcar-retry">R\xE9essayer</button></div></div>`;
   }
   function buildNotAVehiclePopup(message, category) {
-    return `<div class="copilot-popup" id="copilot-popup"><div class="copilot-popup-header"><div class="copilot-popup-title-row"><span class="copilot-popup-title">Co-Pilot</span><button class="copilot-popup-close" id="copilot-close">&times;</button></div></div><div class="copilot-not-vehicle-body"><div class="copilot-not-vehicle-icon">&#x1F6AB;</div><h3 class="copilot-not-vehicle-title">${escapeHTML(message)}</h3><p class="copilot-not-vehicle-category">Cat&eacute;gorie d&eacute;tect&eacute;e : <strong>${escapeHTML(category || "inconnue")}</strong></p><p class="copilot-not-vehicle-hint">Co-Pilot analyse uniquement les annonces de v&eacute;hicules.</p></div></div>`;
+    return `<div class="okazcar-popup" id="okazcar-popup"><div class="okazcar-popup-header"><div class="okazcar-popup-title-row"><span class="okazcar-popup-title">OKazCar</span><button class="okazcar-popup-close" id="okazcar-close">&times;</button></div></div><div class="okazcar-not-vehicle-body"><div class="okazcar-not-vehicle-icon">&#x1F6AB;</div><h3 class="okazcar-not-vehicle-title">${escapeHTML(message)}</h3><p class="okazcar-not-vehicle-category">Cat&eacute;gorie d&eacute;tect&eacute;e : <strong>${escapeHTML(category || "inconnue")}</strong></p><p class="okazcar-not-vehicle-hint">OKazCar analyse uniquement les annonces de v&eacute;hicules.</p></div></div>`;
   }
   function buildNotSupportedPopup(message, category) {
-    return `<div class="copilot-popup" id="copilot-popup"><div class="copilot-popup-header"><div class="copilot-popup-title-row"><span class="copilot-popup-title">Co-Pilot</span><button class="copilot-popup-close" id="copilot-close">&times;</button></div></div><div class="copilot-not-vehicle-body"><div class="copilot-not-vehicle-icon">&#x1F3CD;</div><h3 class="copilot-not-vehicle-title">${escapeHTML(message)}</h3><p class="copilot-not-vehicle-category">Cat&eacute;gorie : <strong>${escapeHTML(category || "inconnue")}</strong></p><p class="copilot-not-vehicle-hint">On bosse dessus, promis. Restez branch&eacute; !</p></div></div>`;
+    return `<div class="okazcar-popup" id="okazcar-popup"><div class="okazcar-popup-header"><div class="okazcar-popup-title-row"><span class="okazcar-popup-title">OKazCar</span><button class="okazcar-popup-close" id="okazcar-close">&times;</button></div></div><div class="okazcar-not-vehicle-body"><div class="okazcar-not-vehicle-icon">&#x1F3CD;</div><h3 class="okazcar-not-vehicle-title">${escapeHTML(message)}</h3><p class="okazcar-not-vehicle-category">Cat&eacute;gorie : <strong>${escapeHTML(category || "inconnue")}</strong></p><p class="okazcar-not-vehicle-hint">On bosse dessus, promis. Restez branch&eacute; !</p></div></div>`;
   }
 
   // extension/ui/progress.js
@@ -4691,7 +4691,7 @@
     function stepIconHTML(status) {
       switch (status) {
         case "running":
-          return '<div class="copilot-mini-spinner"></div>';
+          return '<div class="okazcar-mini-spinner"></div>';
         case "done":
           return "\u2713";
         case "warning":
@@ -4705,42 +4705,42 @@
       }
     }
     function update(stepId, status, detail) {
-      const el = document.getElementById("copilot-step-" + stepId);
+      const el = document.getElementById("okazcar-step-" + stepId);
       if (!el) return;
       el.setAttribute("data-status", status);
-      const iconEl = el.querySelector(".copilot-step-icon");
+      const iconEl = el.querySelector(".okazcar-step-icon");
       if (iconEl) {
-        iconEl.className = "copilot-step-icon " + status;
+        iconEl.className = "okazcar-step-icon " + status;
         if (status === "running") {
-          iconEl.innerHTML = '<div class="copilot-mini-spinner"></div>';
+          iconEl.innerHTML = '<div class="okazcar-mini-spinner"></div>';
         } else {
           iconEl.textContent = stepIconHTML(status);
         }
       }
       if (detail !== void 0) {
-        let detailEl = el.querySelector(".copilot-step-detail");
+        let detailEl = el.querySelector(".okazcar-step-detail");
         if (!detailEl) {
           detailEl = document.createElement("div");
-          detailEl.className = "copilot-step-detail";
-          el.querySelector(".copilot-step-text").appendChild(detailEl);
+          detailEl.className = "okazcar-step-detail";
+          el.querySelector(".okazcar-step-text").appendChild(detailEl);
         }
         detailEl.textContent = detail;
       }
       el.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     function addSubStep(parentId, text, status, detail) {
-      const parentEl = document.getElementById("copilot-step-" + parentId);
+      const parentEl = document.getElementById("okazcar-step-" + parentId);
       if (!parentEl) return;
-      let container = parentEl.querySelector(".copilot-substeps");
+      let container = parentEl.querySelector(".okazcar-substeps");
       if (!container) {
         container = document.createElement("div");
-        container.className = "copilot-substeps";
+        container.className = "okazcar-substeps";
         parentEl.appendChild(container);
       }
       const subEl = document.createElement("div");
-      subEl.className = "copilot-substep";
+      subEl.className = "okazcar-substep";
       const iconSpan = document.createElement("span");
-      iconSpan.className = "copilot-substep-icon";
+      iconSpan.className = "okazcar-substep-icon";
       iconSpan.textContent = stepIconHTML(status);
       subEl.appendChild(iconSpan);
       const textSpan = document.createElement("span");
@@ -4752,7 +4752,7 @@
       subEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     function showFilters(filters) {
-      const container = document.getElementById("copilot-progress-filters");
+      const container = document.getElementById("okazcar-progress-filters");
       if (!container || !filters) return;
       filters.forEach(function(f) {
         const color = statusColor(f.status);
@@ -4760,28 +4760,28 @@
         const label = filterLabel(f.filter_id, f.status);
         const scoreText = f.status === "skip" ? "skip" : Math.round(f.score * 100) + "%";
         const filterDiv = document.createElement("div");
-        filterDiv.className = "copilot-progress-filter";
+        filterDiv.className = "okazcar-progress-filter";
         const iconSpan = document.createElement("span");
-        iconSpan.className = "copilot-progress-filter-icon";
+        iconSpan.className = "okazcar-progress-filter-icon";
         iconSpan.style.color = color;
         iconSpan.textContent = icon;
         filterDiv.appendChild(iconSpan);
         const idSpan = document.createElement("span");
-        idSpan.className = "copilot-progress-filter-id";
+        idSpan.className = "okazcar-progress-filter-id";
         idSpan.textContent = f.filter_id;
         filterDiv.appendChild(idSpan);
         const labelSpan = document.createElement("span");
-        labelSpan.className = "copilot-progress-filter-label";
+        labelSpan.className = "okazcar-progress-filter-label";
         labelSpan.textContent = label;
         filterDiv.appendChild(labelSpan);
         const scoreSpan = document.createElement("span");
-        scoreSpan.className = "copilot-progress-filter-score";
+        scoreSpan.className = "okazcar-progress-filter-score";
         scoreSpan.style.color = color;
         scoreSpan.textContent = scoreText;
         filterDiv.appendChild(scoreSpan);
         container.appendChild(filterDiv);
         const msgDiv = document.createElement("div");
-        msgDiv.className = "copilot-progress-filter-msg";
+        msgDiv.className = "okazcar-progress-filter-msg";
         msgDiv.textContent = f.message;
         container.appendChild(msgDiv);
         if (f.filter_id === "L4" && f.details) {
@@ -4813,26 +4813,26 @@
       }
       lines.forEach(function(line) {
         var div = document.createElement("div");
-        div.className = "copilot-cascade-detail";
+        div.className = "okazcar-cascade-detail";
         div.textContent = line;
         container.appendChild(div);
       });
     }
     function showScore(score, verdict) {
-      const container = document.getElementById("copilot-progress-score");
+      const container = document.getElementById("okazcar-progress-score");
       if (!container) return;
       const color = scoreColor(score);
       const labelDiv = document.createElement("div");
-      labelDiv.className = "copilot-progress-score-label";
+      labelDiv.className = "okazcar-progress-score-label";
       labelDiv.textContent = "Score global";
       container.appendChild(labelDiv);
       const valueDiv = document.createElement("div");
-      valueDiv.className = "copilot-progress-score-value";
+      valueDiv.className = "okazcar-progress-score-value";
       valueDiv.style.color = color;
       valueDiv.textContent = String(score);
       container.appendChild(valueDiv);
       const verdictDiv = document.createElement("div");
-      verdictDiv.className = "copilot-progress-score-verdict";
+      verdictDiv.className = "okazcar-progress-score-verdict";
       verdictDiv.style.color = color;
       verdictDiv.textContent = verdict;
       container.appendChild(verdictDiv);
@@ -4844,40 +4844,40 @@
   function showProgress() {
     removePopup();
     const html = [
-      '<div class="copilot-popup" id="copilot-popup">',
-      '  <div class="copilot-popup-header">',
-      '    <div class="copilot-popup-title-row">',
-      '      <span class="copilot-popup-title">Co-Pilot</span>',
-      '      <button class="copilot-popup-close" id="copilot-close">&times;</button>',
+      '<div class="okazcar-popup" id="okazcar-popup">',
+      '  <div class="okazcar-popup-header">',
+      '    <div class="okazcar-popup-title-row">',
+      '      <span class="okazcar-popup-title">OKazCar</span>',
+      '      <button class="okazcar-popup-close" id="okazcar-close">&times;</button>',
       "    </div>",
-      '    <p class="copilot-popup-vehicle" id="copilot-progress-vehicle">Analyse en cours...</p>',
+      '    <p class="okazcar-popup-vehicle" id="okazcar-progress-vehicle">Analyse en cours...</p>',
       "  </div>",
-      '  <div class="copilot-progress-body">',
-      '    <div class="copilot-progress-phase">',
-      '      <div class="copilot-progress-phase-title">1. Extraction</div>',
-      `      <div class="copilot-step" id="copilot-step-extract" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Extraction des donn\xE9es de l'annonce</div></div>`,
-      '      <div class="copilot-step" id="copilot-step-phone" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">R\xE9v\xE9lation du num\xE9ro de t\xE9l\xE9phone</div></div>',
+      '  <div class="okazcar-progress-body">',
+      '    <div class="okazcar-progress-phase">',
+      '      <div class="okazcar-progress-phase-title">1. Extraction</div>',
+      `      <div class="okazcar-step" id="okazcar-step-extract" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Extraction des donn\xE9es de l'annonce</div></div>`,
+      '      <div class="okazcar-step" id="okazcar-step-phone" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">R\xE9v\xE9lation du num\xE9ro de t\xE9l\xE9phone</div></div>',
       "    </div>",
-      '    <div class="copilot-progress-phase">',
-      '      <div class="copilot-progress-phase-title">2. Collecte prix march\xE9</div>',
-      '      <div class="copilot-step" id="copilot-step-job" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Demande au serveur : quel v\xE9hicule collecter ?</div></div>',
-      '      <div class="copilot-step" id="copilot-step-collect" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte des prix (cascade recherche)</div></div>',
-      '      <div class="copilot-step" id="copilot-step-submit" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Envoi des prix au serveur</div></div>',
-      '      <div class="copilot-step" id="copilot-step-bonus" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Collecte bonus multi-r\xE9gion</div></div>',
+      '    <div class="okazcar-progress-phase">',
+      '      <div class="okazcar-progress-phase-title">2. Collecte prix march\xE9</div>',
+      '      <div class="okazcar-step" id="okazcar-step-job" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Demande au serveur : quel v\xE9hicule collecter ?</div></div>',
+      '      <div class="okazcar-step" id="okazcar-step-collect" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Collecte des prix (cascade recherche)</div></div>',
+      '      <div class="okazcar-step" id="okazcar-step-submit" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Envoi des prix au serveur</div></div>',
+      '      <div class="okazcar-step" id="okazcar-step-bonus" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Collecte bonus multi-r\xE9gion</div></div>',
       "    </div>",
-      '    <div class="copilot-progress-phase">',
-      '      <div class="copilot-progress-phase-title">3. Analyse serveur</div>',
-      '      <div class="copilot-step" id="copilot-step-analyze" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">Analyse des 10 filtres (L1 \u2013 L10)</div></div>',
-      '      <div id="copilot-progress-filters" class="copilot-progress-filters"></div>',
-      '      <div class="copilot-step" id="copilot-step-autoviza" data-status="pending"><span class="copilot-step-icon pending">\u25CB</span><div class="copilot-step-text">D\xE9tection rapport Autoviza</div></div>',
+      '    <div class="okazcar-progress-phase">',
+      '      <div class="okazcar-progress-phase-title">3. Analyse serveur</div>',
+      '      <div class="okazcar-step" id="okazcar-step-analyze" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Analyse des 10 filtres (L1 \u2013 L10)</div></div>',
+      '      <div id="okazcar-progress-filters" class="okazcar-progress-filters"></div>',
+      '      <div class="okazcar-step" id="okazcar-step-autoviza" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">D\xE9tection rapport Autoviza</div></div>',
       "    </div>",
-      '    <hr class="copilot-progress-separator">',
-      '    <div id="copilot-progress-score" class="copilot-progress-score" style="display:none"></div>',
+      '    <hr class="okazcar-progress-separator">',
+      '    <div id="okazcar-progress-score" class="okazcar-progress-score" style="display:none"></div>',
       '    <div style="text-align:center; padding: 12px 0;">',
-      `      <button class="copilot-btn copilot-btn-retry" id="copilot-progress-details-btn" style="display:none">Voir l'analyse compl\xE8te</button>`,
+      `      <button class="okazcar-btn okazcar-btn-retry" id="okazcar-progress-details-btn" style="display:none">Voir l'analyse compl\xE8te</button>`,
       "    </div>",
       "  </div>",
-      '  <div class="copilot-popup-footer"><p>Co-Pilot v1.0 &middot; Analyse en temps r\xE9el</p></div>',
+      '  <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse en temps r\xE9el</p></div>',
       "</div>"
     ].join("\n");
     showPopup(html);
@@ -4907,7 +4907,7 @@
     progress.update("extract", "running");
     const payload = await extractor.extract();
     if (!payload) {
-      console.warn("[CoPilot] extract() \u2192 null");
+      console.warn("[OKazCar] extract() \u2192 null");
       progress.update("extract", "error", "Impossible de lire les donn\xE9es");
       showPopup(buildErrorPopup("Impossible de lire les donn\xE9es de cette page."));
       return;
@@ -4915,7 +4915,7 @@
     const adId = payload.next_data?.props?.pageProps?.ad?.list_id || "";
     progress.update("extract", "done", adId ? "ID annonce : " + adId : "Donn\xE9es extraites");
     const summary = extractor.getVehicleSummary();
-    const vehicleLabel = document.getElementById("copilot-progress-vehicle");
+    const vehicleLabel = document.getElementById("okazcar-progress-vehicle");
     if (vehicleLabel && summary?.make) {
       vehicleLabel.textContent = [summary.make, summary.model, summary.year].filter(Boolean).join(" ");
     }
@@ -4938,11 +4938,11 @@
     try {
       collectInfo = await extractor.collectMarketPrices(progress);
     } catch (err) {
-      console.error("[CoPilot] collectMarketPrices erreur:", err);
+      console.error("[OKazCar] collectMarketPrices erreur:", err);
       progress.update("job", "error", "Erreur collecte");
     }
     if (!collectInfo.submitted) {
-      const jobEl = document.getElementById("copilot-step-job");
+      const jobEl = document.getElementById("okazcar-step-job");
       if (jobEl && jobEl.getAttribute("data-status") === "pending") {
         progress.update("job", "skip", "Collecte non disponible");
         progress.update("collect", "skip");
@@ -5001,7 +5001,7 @@
       const freeReportUrl = await extractor.detectFreeReport();
       progress.update("autoviza", freeReportUrl ? "done" : "skip", freeReportUrl ? "Rapport gratuit trouv\xE9" : "Aucun rapport disponible");
       const bonusSignals = extractor.getBonusSignals();
-      const detailsBtn = document.getElementById("copilot-progress-details-btn");
+      const detailsBtn = document.getElementById("okazcar-progress-details-btn");
       if (detailsBtn) {
         detailsBtn.style.display = "inline-block";
         detailsBtn.addEventListener("click", function() {
@@ -5020,13 +5020,13 @@
     const extractor = getExtractor(window.location.href);
     if (!extractor || !extractor.isAdPage(window.location.href)) return;
     removePopup();
-    if (window.__copilotRunning) return;
-    window.__copilotRunning = true;
+    if (window.__okazcarRunning) return;
+    window.__okazcarRunning = true;
     initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
     initDom({ runAnalysis, apiUrl: API_URL, getLastScanId: () => lastScanId });
     extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
     runAnalysis(extractor).finally(() => {
-      window.__copilotRunning = false;
+      window.__okazcarRunning = false;
     });
   }
   init();

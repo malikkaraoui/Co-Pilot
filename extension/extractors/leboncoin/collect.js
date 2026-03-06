@@ -23,10 +23,10 @@ export async function reportJobDone(jobDoneUrl, jobId, success) {
     });
   } catch (e) {
     if (isBenignRuntimeTeardownError(e)) {
-      console.debug("[CoPilot] job-done report skipped (extension reloaded/unloaded)");
+      console.debug("[OKazCar] job-done report skipped (extension reloaded/unloaded)");
       return;
     }
-    console.warn("[CoPilot] job-done report failed:", e);
+    console.warn("[OKazCar] job-done report failed:", e);
   }
 }
 
@@ -95,7 +95,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
 
       const locParam = LBC_REGIONS[job.region];
       if (!locParam) {
-        console.warn("[CoPilot] bonus job: region inconnue '%s', skip", job.region);
+        console.warn("[OKazCar] bonus job: region inconnue '%s', skip", job.region);
         await reportJobDone(jobDoneUrl, job.job_id, false);
         if (progress) progress.addSubStep("bonus", job.region, "skip", "Région inconnue");
         continue;
@@ -107,7 +107,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
       if (yearMeta.regdate) searchUrl += `&regdate=${yearMeta.regdate}`;
 
       const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
-      console.log("[CoPilot] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
+      console.log("[OKazCar] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
 
       if (progress) {
         const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
@@ -177,7 +177,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(bonusPayload),
           });
-          console.log("[CoPilot] bonus job POST %s: %s", job.region, bResp.ok ? "OK" : "FAIL");
+          console.log("[OKazCar] bonus job POST %s: %s", job.region, bResp.ok ? "OK" : "FAIL");
           await reportJobDone(jobDoneUrl, job.job_id, bResp.ok);
         } else {
           await reportJobDone(jobDoneUrl, job.job_id, false);
@@ -187,13 +187,13 @@ export async function executeBonusJobs(bonusJobs, progress) {
       }
     } catch (err) {
       if (isBenignRuntimeTeardownError(err)) {
-        console.info("[CoPilot] bonus jobs interrompus: extension rechargée/déchargée");
+        console.info("[OKazCar] bonus jobs interrompus: extension rechargée/déchargée");
         if (progress) {
           progress.update("bonus", "warning", "Extension rechargée, jobs bonus interrompus");
         }
         break;
       }
-      console.warn("[CoPilot] bonus job %s failed:", job.region, err);
+      console.warn("[OKazCar] bonus job %s failed:", job.region, err);
       await reportJobDone(jobDoneUrl, job.job_id, false);
     }
   }
@@ -210,7 +210,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
   const urlCategory = urlMatch ? urlMatch[1] : null;
   if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) {
-    console.log("[CoPilot] collecte ignoree: categorie exclue", urlCategory);
+    console.log("[OKazCar] collecte ignoree: categorie exclue", urlCategory);
     if (progress) {
       progress.update("job", "skip", "Catégorie exclue : " + urlCategory);
       progress.update("collect", "skip");
@@ -224,7 +224,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const location = extractLocationFromNextData(nextData);
   const region = location?.region || "";
   if (!region) {
-    console.warn("[CoPilot] collecte ignoree: pas de region dans nextData");
+    console.warn("[OKazCar] collecte ignoree: pas de region dans nextData");
     if (progress) {
       progress.update("job", "skip", "Région non disponible");
       progress.update("collect", "skip");
@@ -233,7 +233,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     }
     return { submitted: false };
   }
-  console.log("[CoPilot] collecte: region=%s, location=%o, km=%d", region, location, mileageKm);
+  console.log("[OKazCar] collecte: region=%s, location=%o, km=%d", region, location, mileageKm);
 
   // 2. Demander au serveur quel vehicule collecter
   if (progress) progress.update("job", "running");
@@ -249,11 +249,11 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
 
   let jobResp;
   try {
-    console.log("[CoPilot] next-job →", jobUrl);
+    console.log("[OKazCar] next-job →", jobUrl);
     jobResp = await lbcDeps.backendFetch(jobUrl).then((r) => r.json());
-    console.log("[CoPilot] next-job ←", JSON.stringify(jobResp));
+    console.log("[OKazCar] next-job ←", JSON.stringify(jobResp));
   } catch (err) {
-    console.warn("[CoPilot] next-job erreur:", err);
+    console.warn("[OKazCar] next-job erreur:", err);
     if (progress) {
       progress.update("job", "error", "Serveur injoignable");
       progress.update("collect", "skip");
@@ -265,7 +265,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   if (!jobResp?.data?.collect) {
     const queuedJobs = jobResp?.data?.bonus_jobs || [];
     if (queuedJobs.length === 0) {
-      console.log("[CoPilot] next-job: collect=false, aucun bonus en queue");
+      console.log("[OKazCar] next-job: collect=false, aucun bonus en queue");
       if (progress) {
         progress.update("job", "done", "Données déjà à jour, pas de collecte nécessaire");
         progress.update("collect", "skip", "Non nécessaire");
@@ -274,7 +274,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       }
       return { submitted: false };
     }
-    console.log("[CoPilot] next-job: collect=false, %d bonus jobs en queue", queuedJobs.length);
+    console.log("[OKazCar] next-job: collect=false, %d bonus jobs en queue", queuedJobs.length);
     if (progress) {
       progress.update("job", "done", "Véhicule à jour — " + queuedJobs.length + " jobs en attente");
       progress.update("collect", "skip", "Véhicule déjà à jour");
@@ -289,7 +289,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const targetRegion = jobResp.data.region;
   const isRedirect = !!jobResp.data.redirect;
   const bonusJobs = jobResp.data.bonus_jobs || [];
-  console.log("[CoPilot] next-job: %d bonus jobs", bonusJobs.length);
+  console.log("[OKazCar] next-job: %d bonus jobs", bonusJobs.length);
 
   // 3. Cooldown 24h -- uniquement pour les collectes d'AUTRES vehicules
   const isCurrentVehicle =
@@ -298,7 +298,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
 
   if (!isCurrentVehicle) {
     if (shouldSkipCollection()) {
-      console.log("[CoPilot] cooldown actif pour autre vehicule, skip collecte redirect — bonus jobs toujours executes");
+      console.log("[OKazCar] cooldown actif pour autre vehicule, skip collecte redirect — bonus jobs toujours executes");
       if (progress) {
         progress.update("job", "done", "Cooldown actif (autre véhicule collecté récemment)");
         progress.update("collect", "skip", "Cooldown 24h");
@@ -316,7 +316,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   if (progress) {
     progress.update("job", "done", targetLabel + (isCurrentVehicle ? " (véhicule courant)" : " (autre véhicule du référentiel)"));
   }
-  console.log("[CoPilot] collecte cible: %s %s %d (isCurrentVehicle=%s, redirect=%s)", target.make, target.model, target.year, isCurrentVehicle, isRedirect);
+  console.log("[OKazCar] collecte cible: %s %s %d (isCurrentVehicle=%s, redirect=%s)", target.make, target.model, target.year, isCurrentVehicle, isRedirect);
 
   // 4. Construire l'URL de recherche LeBonCoin
   const targetYear = parseInt(target.year, 10) || 0;
@@ -394,10 +394,10 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     });
   }
 
-  console.log("[CoPilot] fuel=%s → fuelCode=%s | gearbox=%s → gearboxCode=%s | hp=%d → hpRange=%s | km=%d",
+  console.log("[OKazCar] fuel=%s → fuelCode=%s | gearbox=%s → gearboxCode=%s | hp=%d → hpRange=%s | km=%d",
     targetFuel, fuelCode, (gearbox || "").toLowerCase(), gearboxCode, hp, hpRange, mileageKm);
-  console.log("[CoPilot] coreUrl:", coreUrl);
-  console.log("[CoPilot] %d strategies, geoParam=%s, regionParam=%s", strategies.length, geoParam || "(vide)", regionParam || "(vide)");
+  console.log("[OKazCar] coreUrl:", coreUrl);
+  console.log("[OKazCar] %d strategies, geoParam=%s, regionParam=%s", strategies.length, geoParam || "(vide)", regionParam || "(vide)");
 
   let submitted = false;
   let prices = [];
@@ -440,7 +440,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       const strategy = strategies[i];
 
       if (strategy.isTextFallback && prices.length >= MIN_PRICES_FOR_ARGUS) {
-        console.log("[CoPilot] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
+        console.log("[OKazCar] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
         searchLog.push({
           step: i + 1, precision: strategy.precision, location_type: "national",
           year_spread: strategy.yearSpread,
@@ -480,7 +480,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       prices = [...prices, ...unique];
 
       const enoughPrices = prices.length >= MIN_PRICES_FOR_ARGUS;
-      console.log("[CoPilot] strategie %d (precision=%d): %d nouveaux prix (%d uniques), total=%d | %s",
+      console.log("[OKazCar] strategie %d (precision=%d): %d nouveaux prix (%d uniques), total=%d | %s",
         i + 1, strategy.precision, newPrices.length, unique.length, prices.length, searchUrl.substring(0, 150));
 
       if (progress) {
@@ -522,11 +522,11 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
 
       if (enoughPrices && collectedPrecision === null) {
         collectedPrecision = strategy.precision;
-        console.log("[CoPilot] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
+        console.log("[OKazCar] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
       }
 
       if (prices.length >= MAX_PRICES_CAP) {
-        console.log("[CoPilot] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
+        console.log("[OKazCar] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
         break;
       }
     }
@@ -534,7 +534,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     // Dual-brand strategies
     const secondaryBrand = DUAL_BRAND_ALIASES[brandUpper];
     if (secondaryBrand && !modelIsGeneric && prices.length < MAX_PRICES_CAP) {
-      console.log("[CoPilot] dual-brand: %s → secondary brand %s", brandUpper, secondaryBrand);
+      console.log("[OKazCar] dual-brand: %s → secondary brand %s", brandUpper, secondaryBrand);
       const dualQuery = `${target.make} ${target.model}`;
       const dualCoreUrl = `https://www.leboncoin.fr/recherche?category=2`
         + `&u_car_brand=${encodeURIComponent(secondaryBrand)}`
@@ -573,7 +573,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
         prices = [...prices, ...unique];
 
-        console.log("[CoPilot] dual-brand strategie %d: %d nouveaux (%d uniques), total=%d | %s",
+        console.log("[OKazCar] dual-brand strategie %d: %d nouveaux (%d uniques), total=%d | %s",
           strategies.length + d + 1, newPrices.length, unique.length, prices.length, searchUrl.substring(0, 150));
 
         if (progress) {
@@ -619,9 +619,9 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       const priceDetails = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
       const priceInts = priceDetails.map((p) => p.price);
       if (priceInts.length < MIN_PRICES_FOR_ARGUS) {
-        console.warn("[CoPilot] apres filtrage >500: %d prix valides (< %d requis)", priceInts.length, MIN_PRICES_FOR_ARGUS);
+        console.warn("[OKazCar] apres filtrage >500: %d prix valides (< %d requis)", priceInts.length, MIN_PRICES_FOR_ARGUS);
         if (priceInts.length >= 5) {
-           console.log("[CoPilot] envoi degradé avec %d prix (min 5)", priceInts.length);
+           console.log("[OKazCar] envoi degradé avec %d prix (min 5)", priceInts.length);
         } else {
            if (progress) {
              progress.update("submit", "warning", "Trop de prix invalides après filtrage");
@@ -646,7 +646,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         site_brand_token: isCurrentVehicle ? vehicle.site_brand_token : null,
         site_model_token: isCurrentVehicle ? vehicle.site_model_token : null,
       };
-      console.log("[CoPilot] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
+      console.log("[OKazCar] POST /api/market-prices:", target.make, target.model, target.year, targetRegion, "fuel=", payload.fuel, "n=", priceInts.length);
       const marketResp = await lbcDeps.backendFetch(marketUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -655,10 +655,10 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       submitted = marketResp.ok;
       if (!marketResp.ok) {
         const errBody = await marketResp.json().catch(() => null);
-        console.warn("[CoPilot] POST /api/market-prices FAILED:", marketResp.status, errBody);
+        console.warn("[OKazCar] POST /api/market-prices FAILED:", marketResp.status, errBody);
         if (progress) progress.update("submit", "error", "Erreur serveur (" + marketResp.status + ")");
       } else {
-        console.log("[CoPilot] POST /api/market-prices OK, submitted=true");
+        console.log("[OKazCar] POST /api/market-prices OK, submitted=true");
         if (progress) progress.update("submit", "done", priceInts.length + " prix envoyés (" + targetRegion + ")");
 
         if (bonusJobs.length > 0) {
@@ -668,7 +668,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         }
       }
     } else {
-      console.log(`[CoPilot] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
+      console.log(`[OKazCar] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
       if (progress) {
         progress.update("collect", "warning", prices.length + " annonces trouvées (minimum " + MIN_PRICES_FOR_ARGUS + ")");
         progress.update("submit", "skip", "Pas assez de données");
@@ -695,13 +695,13 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
             site_model_token: isCurrentVehicle ? vehicle.site_model_token : null,
           }),
         });
-        console.log("[CoPilot] failed search reported to server");
+        console.log("[OKazCar] failed search reported to server");
       } catch (e) {
-        console.warn("[CoPilot] failed-search report error:", e);
+        console.warn("[OKazCar] failed-search report error:", e);
       }
     }
   } catch (err) {
-    console.error("[CoPilot] market collection failed:", err);
+    console.error("[OKazCar] market collection failed:", err);
     if (progress) {
       progress.update("collect", "error", "Erreur pendant la collecte");
       progress.update("submit", "skip");

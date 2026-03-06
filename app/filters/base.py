@@ -33,7 +33,7 @@ class FilterResult:
 
 
 class BaseFilter(ABC):
-    """Classe de base abstraite pour tous les filtres Co-Pilot.
+    """Classe de base abstraite pour tous les filtres OKazCar.
 
     Les sous-classes doivent implementer :
         - filter_id: attribut de classe identifiant le filtre (ex. "L1")

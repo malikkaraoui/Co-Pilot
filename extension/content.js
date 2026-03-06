@@ -1,5 +1,5 @@
 /**
- * Co-Pilot Content Script
+ * OKazCar Content Script
  *
  * Injecte on-demand (via le popup de l'extension) et affiche
  * les résultats d'analyse dans une popup contextuelle.
@@ -57,7 +57,7 @@ async function runAnalysis(injectedExtractor) {
   progress.update("extract", "running");
   const payload = await extractor.extract();
   if (!payload) {
-    console.warn("[CoPilot] extract() → null");
+    console.warn("[OKazCar] extract() → null");
     progress.update("extract", "error", "Impossible de lire les données");
     showPopup(buildErrorPopup("Impossible de lire les données de cette page."));
     return;
@@ -67,7 +67,7 @@ async function runAnalysis(injectedExtractor) {
 
   // Vehicle summary
   const summary = extractor.getVehicleSummary();
-  const vehicleLabel = document.getElementById("copilot-progress-vehicle");
+  const vehicleLabel = document.getElementById("okazcar-progress-vehicle");
   if (vehicleLabel && summary?.make) {
     vehicleLabel.textContent = [summary.make, summary.model, summary.year].filter(Boolean).join(" ");
   }
@@ -87,11 +87,11 @@ async function runAnalysis(injectedExtractor) {
   try {
     collectInfo = await extractor.collectMarketPrices(progress);
   } catch (err) {
-    console.error("[CoPilot] collectMarketPrices erreur:", err);
+    console.error("[OKazCar] collectMarketPrices erreur:", err);
     progress.update("job", "error", "Erreur collecte");
   }
   if (!collectInfo.submitted) {
-    const jobEl = document.getElementById("copilot-step-job");
+    const jobEl = document.getElementById("okazcar-step-job");
     if (jobEl && jobEl.getAttribute("data-status") === "pending") {
       progress.update("job", "skip", "Collecte non disponible");
       progress.update("collect", "skip");
@@ -147,7 +147,7 @@ async function runAnalysis(injectedExtractor) {
 
     const bonusSignals = extractor.getBonusSignals();
 
-    const detailsBtn = document.getElementById("copilot-progress-details-btn");
+    const detailsBtn = document.getElementById("okazcar-progress-details-btn");
     if (detailsBtn) {
       detailsBtn.style.display = "inline-block";
       detailsBtn.addEventListener("click", function () { showPopup(buildResultsPopup(result.data, { autovizaUrl: freeReportUrl, bonusSignals })); });
@@ -166,12 +166,12 @@ function init() {
   const extractor = getExtractor(window.location.href);
   if (!extractor || !extractor.isAdPage(window.location.href)) return;
   removePopup();
-  if (window.__copilotRunning) return;
-  window.__copilotRunning = true;
+  if (window.__okazcarRunning) return;
+  window.__okazcarRunning = true;
   initLbcDeps({ backendFetch, sleep, apiUrl: API_URL });
   initDom({ runAnalysis, apiUrl: API_URL, getLastScanId: () => lastScanId });
   extractor.initDeps({ fetch: backendFetch, apiUrl: API_URL });
-  runAnalysis(extractor).finally(() => { window.__copilotRunning = false; });
+  runAnalysis(extractor).finally(() => { window.__okazcarRunning = false; });
 }
 
 init();

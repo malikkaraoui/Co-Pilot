@@ -1,7 +1,7 @@
 ---
 stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-03-success', 'step-04-journeys', 'step-05-domain', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish', 'step-12-complete']
 workflow_completed: true
-inputDocuments: ['_bmad-output/planning-artifacts/product-brief-Co-Pilot-2026-02-09.md', '_bmad-output/brainstorming/brainstorming-session-2026-02-09.md']
+inputDocuments: ['_bmad-output/planning-artifacts/product-brief-OKazCar-2026-02-09.md', '_bmad-output/brainstorming/brainstorming-session-2026-02-09.md']
 workflowType: 'prd'
 documentCounts:
   briefs: 1
@@ -18,20 +18,20 @@ classification:
   existingCode: 'lbc_extract.py (extraction Leboncoin via __NEXT_DATA__ JSON)'
 ---
 
-# Product Requirements Document - Co-Pilot
+# Product Requirements Document - OKazCar
 
 **Author:** Malik
 **Date:** 2026-02-09
 
 ## Executive Summary
 
-**Co-Pilot** est une extension Chrome qui analyse les annonces de vehicules d'occasion sur Leboncoin et delivre un verdict de confiance instantane (score sur 100) -- sans que l'utilisateur ait besoin de connaissances automobiles.
+**OKazCar** est une extension Chrome qui analyse les annonces de vehicules d'occasion sur Leboncoin et delivre un verdict de confiance instantane (score sur 100) -- sans que l'utilisateur ait besoin de connaissances automobiles.
 
 **Probleme :** L'achat VO en C2C est un parcours anxiogene. Arnaques, imports trafiques, prix opaques, donnees eparpillees. Les outils existants (HistoVec, argus, forums) fournissent des donnees brutes que le non-expert ne peut pas interpreter.
 
 **Solution :** Un clic sur l'annonce Leboncoin. 10 secondes. Un score clair. Des red flags lisibles. L'utilisateur sait immediatement si l'annonce est fiable ou suspecte. Toute la complexite (9 filtres, referentiel vehicules, argus geolocalise, analyse des signaux) est cachee derriere une jauge circulaire.
 
-**Differenciateur :** "Verdict, pas donnees" -- Co-Pilot est le seul outil qui combine detection + education + verdict dans une interface zero-friction. Aucun concurrent direct sur ce positionnement.
+**Differenciateur :** "Verdict, pas donnees" -- OKazCar est le seul outil qui combine detection + education + verdict dans une interface zero-friction. Aucun concurrent direct sur ce positionnement.
 
 **Cible principale :** L'acheteur VO lambda qui achete une voiture tous les 5 ans, ne connait rien a la mecanique, et ne peut pas se permettre de se tromper.
 
@@ -82,15 +82,15 @@ classification:
 
 ## User Journeys
 
-### Journey 1 : Jean-Pierre decouvre Co-Pilot (Succes Path)
+### Journey 1 : Jean-Pierre decouvre OKazCar (Succes Path)
 
 **Scene d'ouverture :** Jean-Pierre, 58 ans, sa Megane de 2014 vient de rendre l'ame. Controle technique refuse. Il est a pied. Sa femme lui dit "faut qu'on rachete une voiture, mais pas n'importe quoi cette fois". C'est aussi l'argent de sa femme -- il ne peut pas se planter.
 
-**Rising Action :** Il va sur Leboncoin -- reflexe de francais. Il voit une Peugeot 3008 2019 a 18 500€. Ca a l'air bien, mais il ne sait pas si c'est le bon prix, si le vendeur est fiable, si l'hybride c'est fiable. Son gendre lui a parle d'une extension Chrome, "Co-Pilot". Il installe l'extension.
+**Rising Action :** Il va sur Leboncoin -- reflexe de francais. Il voit une Peugeot 3008 2019 a 18 500€. Ca a l'air bien, mais il ne sait pas si c'est le bon prix, si le vendeur est fiable, si l'hybride c'est fiable. Son gendre lui a parle d'une extension Chrome, "OKazCar". Il installe l'extension.
 
 **Climax :** Il retourne sur l'annonce. Un bouton apparait. Il clique. Ca mouline (animation). La jauge circulaire s'affiche : **67/100** entourant le chiffre. Il scrolle dans la fenetre contextuelle -- resultats detailles point par point. Deux warnings orange : "Prix 12% au-dessus de l'argus local", "Numero de telephone avec indicatif etranger". Un check vert : "Modele reconnu, coherence OK". En bas, le contenu se floute en effet liquid glass : "Analyse premium -- debloquer pour 9,90€". Jean-Pierre comprend immediatement le verdict sans etre expert.
 
-**Resolution :** Il passe a une autre annonce. Score 89/100. Tous checks verts. Il peut deplier la fenetre a droite pour plus de details. Prix en ligne avec l'argus. Il appelle le vendeur avec confiance. Il negocie 500€. Il achete sans mandataire, sans concession. Il economise ~2 000€. Message a son gendre : "Ton truc la, Co-Pilot, c'est top."
+**Resolution :** Il passe a une autre annonce. Score 89/100. Tous checks verts. Il peut deplier la fenetre a droite pour plus de details. Prix en ligne avec l'argus. Il appelle le vendeur avec confiance. Il negocie 500€. Il achete sans mandataire, sans concession. Il economise ~2 000€. Message a son gendre : "Ton truc la, OKazCar, c'est top."
 
 ---
 
@@ -98,11 +98,11 @@ classification:
 
 **Scene d'ouverture :** Sophie, 34 ans, en LOA depuis 3 ans sur un Captur. Le loyer la saigne : 350€/mois. Elle veut en sortir mais le marche de l'occasion lui fait peur.
 
-**Rising Action :** Elle voit une video YouTube de Terry Gollow qui teste Co-Pilot en live sur 5 annonces. Elle voit les avis Chrome Web Store : 4.6 etoiles. Elle installe l'extension.
+**Rising Action :** Elle voit une video YouTube de Terry Gollow qui teste OKazCar en live sur 5 annonces. Elle voit les avis Chrome Web Store : 4.6 etoiles. Elle installe l'extension.
 
 **Climax :** Elle scanne une Clio V de 2021 a 14 000€. Score 82/100. Warning : "Kilometrage eleve pour l'annee (45 000 km)". La fiche modele lui explique que la Clio V est fiable, que 45 000 km c'est beaucoup mais pas alarmant, et que le prix est correct vu le km. Elle scrolle -- les details premium sont floutes derriere le liquid glass. Elle paie 9,90€ pour le rapport complet. Elle comprend enfin ce qu'elle regarde.
 
-**Resolution :** Elle achete sa premiere voiture en C2C. Economise 4 000€ par rapport a la LOA. Elle recommande Co-Pilot a sa collegue.
+**Resolution :** Elle achete sa premiere voiture en C2C. Economise 4 000€ par rapport a la LOA. Elle recommande OKazCar a sa collegue.
 
 ---
 
@@ -110,7 +110,7 @@ classification:
 
 **Scene d'ouverture :** Kevin, 24 ans. Sa C3 Pluriel est un gouffre -- problemes electriques, faisceau cabriolet defaillant. Il a paye 5 500€ pour une voiture qui en vaut 2 000. Il a appris.
 
-**Rising Action :** Il cherche un remplacement. Il installe Co-Pilot "pour voir". Il scanne une Golf 7 TDI 2017 a 13 000€.
+**Rising Action :** Il cherche un remplacement. Il installe OKazCar "pour voir". Il scanne une Golf 7 TDI 2017 a 13 000€.
 
 **Climax :** Score 45/100. Red flag : "Vehicule potentiellement importe (historique incomplet)". Warning : "Prix 22% sous l'argus -- anomalie". La fiche modele mentionne "Attention compteur : modele frequemment concerne par le trafic kilometrique sur les imports". Kevin reconnait le piege dans lequel il serait tombe avant.
 
@@ -122,7 +122,7 @@ classification:
 
 **Scene d'ouverture :** Karim, 41 ans, petit revendeur VO. Il scanne 30-40 annonces par jour pour trouver les bonnes affaires a racheter et revendre avec marge.
 
-**Rising Action :** Sans Co-Pilot, chaque annonce lui prend 10-15 minutes d'analyse. Avec Co-Pilot : un clic, score instantane.
+**Rising Action :** Sans OKazCar, chaque annonce lui prend 10-15 minutes d'analyse. Avec OKazCar : un clic, score instantane.
 
 **Climax :** En 2 heures, il a scanne 40 annonces. 8 sont au-dessus de 85/100 avec un prix sous l'argus. Il contacte ces 8 vendeurs directement. Sa productivite a triple.
 
@@ -130,9 +130,9 @@ classification:
 
 ---
 
-### Journey 5 : Malik pilote Co-Pilot (Admin/Operateur)
+### Journey 5 : Malik pilote OKazCar (Admin/Operateur)
 
-**Scene d'ouverture :** Malik, createur de Co-Pilot. C'est le matin, il ouvre le dashboard Flask.
+**Scene d'ouverture :** Malik, createur de OKazCar. C'est le matin, il ouvre le dashboard Flask.
 
 **Rising Action :** Il voit les stats : 147 scans gratuits, 6 conversions premium, 23 echecs "modele non reconnu". Il clique sur les echecs : 15 tentatives sur Dacia Sandero, 5 sur Renault Scenic, 3 sur Tesla Model 3. Il sait que Dacia Sandero doit etre le prochain modele a ajouter.
 
@@ -146,7 +146,7 @@ classification:
 
 **Scene d'ouverture :** Un utilisateur scanne une annonce pour une MG ZS EV (marque chinoise, modele recent).
 
-**Rising Action :** Co-Pilot extrait les donnees normalement. Le filtre L2 cherche dans le referentiel : aucune correspondance.
+**Rising Action :** OKazCar extrait les donnees normalement. Le filtre L2 cherche dans le referentiel : aucune correspondance.
 
 **Climax :** Message convivial : "On ne connait pas encore ce modele -- on prepare le garage pour l'expertiser tres prochainement !" Les filtres universels tournent quand meme (telephone, SIRET, prix global). Score partiel affiche avec mention "analyse limitee".
 
@@ -201,9 +201,9 @@ classification:
 
 ### Detected Innovation Areas
 
-1. **"Verdict, pas donnees"** -- Inversion du paradigme existant. Tous les outils du marche (HistoVec, LaCentrale, forums) fournissent des donnees brutes. Co-Pilot interprete et delivre un verdict actionnable. L'utilisateur ne doit rien savoir pour comprendre.
+1. **"Verdict, pas donnees"** -- Inversion du paradigme existant. Tous les outils du marche (HistoVec, LaCentrale, forums) fournissent des donnees brutes. OKazCar interprete et delivre un verdict actionnable. L'utilisateur ne doit rien savoir pour comprendre.
 
-2. **"Pronostic, pas historique"** -- HistoVec regarde dans le retroviseur. Co-Pilot regarde la route : couts a prevoir, problemes connus, risques a anticiper. Personne ne fait ca aujourd'hui.
+2. **"Pronostic, pas historique"** -- HistoVec regarde dans le retroviseur. OKazCar regarde la route : couts a prevoir, problemes connus, risques a anticiper. Personne ne fait ca aujourd'hui.
 
 3. **Scoring par convergence de red flags** -- 10 filtres simples qui convergent valent mieux qu'1 algorithme sophistique. Du "bon sens systematise en Python". L'innovation est dans l'approche, pas dans la techno.
 
@@ -217,14 +217,14 @@ classification:
 
 - **Aucun concurrent direct** sur le positionnement "verdict instantane + education vehicule + protection acheteur" en un clic
 - Outils existants sont fragmentes (HistoVec, argus, forums) et passifs (l'utilisateur doit chercher)
-- Co-Pilot est le premier outil qui combine detection + education + verdict dans une interface zero-friction
+- OKazCar est le premier outil qui combine detection + education + verdict dans une interface zero-friction
 - Marche adressable : des millions de transactions VO/an en France
 
 ### Validation Approach
 
 - **Demo jury 16 mars** : validation technique et produit en live sur de vraies annonces
 - **Pertinence des filtres** : suite de tests automatises (annonces bonnes/mauvaises/fausses)
-- **Pertinence du score** : comparaison du verdict Co-Pilot vs analyse manuelle experte sur un panel d'annonces
+- **Pertinence du score** : comparaison du verdict OKazCar vs analyse manuelle experte sur un panel d'annonces
 - **Adoption** : 1 000+ installations post-lancement = signal de validation marche
 
 ### Risk Mitigation
@@ -242,7 +242,7 @@ classification:
 
 ### Vue d'ensemble du type projet
 
-Co-Pilot est un produit hybride a deux faces :
+OKazCar est un produit hybride a deux faces :
 
 1. **Extension Chrome** -- interface utilisateur finale, injectee dans les pages Leboncoin. C'est le produit visible par l'acheteur VO. Architecture la plus simple possible : content script qui detecte les pages Leboncoin + popup contextuelle pour afficher le score et les resultats.
 
@@ -264,7 +264,7 @@ Les deux faces communiquent via une **API REST** hebergee sur le meme backend Fl
 
 **Flux principal :**
 1. Content script detecte une page annonce Leboncoin
-2. Injecte un bouton "Analyser avec Co-Pilot"
+2. Injecte un bouton "Analyser avec OKazCar"
 3. Au clic : extrait le JSON `__NEXT_DATA__` du DOM
 4. Envoie les donnees au backend via REST API
 5. Recoit le score + resultats des filtres
@@ -348,7 +348,7 @@ Extension Chrome                    Backend Flask
 
 ### Alignement MVP - Grille d'evaluation jury
 
-| Critere jury | Composant Co-Pilot MVP | Priorite |
+| Critere jury | Composant OKazCar MVP | Priorite |
 |-------------|----------------------|----------|
 | 01 Conception | Documentation BMAD (brief, PRD, architecture) | Deja fait |
 | 02 Structure logique | Classes Python OOP (filtres, modeles, services), SQLite | Critique |

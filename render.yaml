@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: vehicore-api
+    name: okazcar-api
     runtime: docker
     plan: starter
     region: frankfurt

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class L2ReferentielFilter(BaseFilter):
-    """Verifie si la marque/modele du vehicule est connu dans la base de reference Co-Pilot."""
+    """Verifie si la marque/modele du vehicule est connu dans la base de reference OKazCar."""
 
     filter_id = "L2"
 
@@ -67,7 +67,7 @@ class L2ReferentielFilter(BaseFilter):
             status="warning",
             score=0.3,
             message=(
-                f"Vous êtes parmi les premiers à scanner un {make} {model} sur Vehicore ! "
+                f"Vous êtes parmi les premiers à scanner un {make} {model} sur OKazCar ! "
                 "Merci — grâce à vous, on enrichit notre base et on affine nos analyses. "
                 "Ce modèle sera bientôt couvert."
             ),
