@@ -60,9 +60,10 @@
   width: 400px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--okazcar-bg);
   border-radius: var(--okazcar-radius);
-  box-shadow: var(--okazcar-shadow);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05);
   color: var(--okazcar-text);
   animation: okazcar-slide-in 0.3s ease;
 }
@@ -86,8 +87,9 @@
 
 /* ── Header ───────────────────────────────────────────────── */
 .okazcar-popup-header {
-  padding: 20px 24px 12px;
-  border-bottom: 1px solid var(--okazcar-border);
+  padding: 16px 20px 12px;
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 50%, #2563eb 100%);
+  border-bottom: none;
 }
 
 .okazcar-popup-title-row {
@@ -97,16 +99,17 @@
 }
 
 .okazcar-popup-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--okazcar-primary);
+  color: #ffffff;
+  letter-spacing: -0.2px;
 }
 
 .okazcar-popup-close {
   background: none;
   border: none;
-  font-size: 24px;
-  color: var(--okazcar-text-secondary);
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.5);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
@@ -114,12 +117,12 @@
 }
 
 .okazcar-popup-close:hover {
-  color: var(--okazcar-text);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .okazcar-popup-vehicle {
-  font-size: 14px;
-  color: var(--okazcar-text-secondary);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
   margin: 4px 0 0;
 }
 
@@ -131,10 +134,10 @@
 .okazcar-currency-badge {
   display: inline-block;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.1);
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.15);
   border-radius: 12px;
 }
 
@@ -142,20 +145,21 @@
   display: inline-block;
   margin-top: 8px;
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--okazcar-orange);
-  background: rgba(245, 158, 11, 0.1);
+  color: #fcd34d;
+  background: rgba(252, 211, 77, 0.15);
   border-radius: 20px;
   letter-spacing: 0.3px;
 }
 
 /* Badge "Xj en ligne" a cote du nom vehicule */
 .okazcar-days-badge {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   margin-left: 6px;
   white-space: nowrap;
+  opacity: 0.75;
 }
 
 /* Badge estimation LBC (filtre L4 fallback) */
@@ -284,42 +288,67 @@
 
 /* ── Liste des filtres ────────────────────────────────────── */
 .okazcar-popup-filters {
-  padding: 0 24px 16px;
+  padding: 4px 20px 16px;
 }
 
 .okazcar-section-title {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
   color: var(--okazcar-text-secondary);
-  margin: 0 0 12px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--okazcar-border);
 }
 
 .okazcar-filter-item {
-  padding: 12px;
-  margin-bottom: 8px;
+  padding: 14px 14px;
+  margin-bottom: 6px;
   background: var(--okazcar-bg-secondary);
   border-radius: 10px;
-  border-left: 3px solid var(--okazcar-gray);
-  transition: border-color 0.2s;
+  transition: box-shadow 0.2s;
 }
 
 .okazcar-filter-item[data-status="pass"] {
-  border-left-color: var(--okazcar-green);
+  background: linear-gradient(135deg, #f0fdf4 0%, var(--okazcar-bg-secondary) 60%);
 }
 .okazcar-filter-item[data-status="warning"] {
-  border-left-color: var(--okazcar-orange);
+  background: linear-gradient(135deg, #fffbeb 0%, var(--okazcar-bg-secondary) 60%);
 }
 .okazcar-filter-item[data-status="fail"] {
-  border-left-color: var(--okazcar-red);
+  background: linear-gradient(135deg, #fef2f2 0%, var(--okazcar-bg-secondary) 60%);
 }
 .okazcar-filter-item[data-status="neutral"] {
-  border-left-color: var(--okazcar-gray);
   opacity: 0.7;
 }
-.okazcar-filter-item[data-status="skip"] {
-  border-left-color: var(--okazcar-gray);
+
+/* ── Collapse / Expand ──────────────────────────────────── */
+.okazcar-filter-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.okazcar-filter-body {
+  display: none;
+  overflow: hidden;
+}
+
+.okazcar-filter-item.expanded .okazcar-filter-body {
+  display: block;
+}
+
+.okazcar-filter-chevron {
+  font-size: 14px;
+  color: var(--okazcar-text-secondary);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 4px;
+  line-height: 1;
+}
+
+.okazcar-filter-item.expanded .okazcar-filter-chevron {
+  transform: rotate(180deg);
 }
 
 .okazcar-filter-header {
@@ -509,7 +538,7 @@
 }
 
 .okazcar-l3-km-year {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--okazcar-text);
 }
@@ -627,7 +656,7 @@
 }
 
 .okazcar-l10-days {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 800;
   line-height: 1;
 }
@@ -957,7 +986,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 0 0 30px;
+  margin: 6px 0 2px 30px;
   flex-wrap: wrap;
 }
 
@@ -995,7 +1024,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 0 0 30px;
+  margin: 6px 0 2px 30px;
   flex-wrap: wrap;
 }
 
@@ -1054,7 +1083,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 0 0 30px;
+  margin: 6px 0 2px 30px;
   flex-wrap: wrap;
 }
 

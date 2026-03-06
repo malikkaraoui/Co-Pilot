@@ -42,6 +42,13 @@ export function showPopup(safeHTML) {
   overlay.appendChild(popupNode);
   document.body.appendChild(overlay);
 
+  // Collapse/expand filter cards
+  popupNode.querySelectorAll('.okazcar-filter-header').forEach(header => {
+    header.addEventListener('click', () => {
+      header.closest('.okazcar-filter-item').classList.toggle('expanded');
+    });
+  });
+
   const closeBtn = document.getElementById("okazcar-close");
   if (closeBtn) closeBtn.addEventListener("click", removePopup);
   const retryBtn = document.getElementById("okazcar-retry");

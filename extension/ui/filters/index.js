@@ -67,8 +67,11 @@ export function buildFiltersList(filters, vehicle) {
             <span class="okazcar-filter-icon" style="color:${color}">${icon}</span>
             <span class="okazcar-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
             ${scoreBarHTML}
+            <span class="okazcar-filter-chevron">&#x25BE;</span>
           </div>
-          ${bodyHTML}
+          <div class="okazcar-filter-body">
+            ${bodyHTML}
+          </div>
         </div>
       `;
     })

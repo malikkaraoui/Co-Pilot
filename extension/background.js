@@ -6,6 +6,23 @@
  * et le proxy des appels backend (HTTP localhost depuis HTTPS).
  */
 
+// ── Icone adaptative dark/light mode ────────────────────────
+function updateIcon(isDark) {
+  const suffix = isDark ? "-light" : "";
+  chrome.action.setIcon({
+    path: {
+      16: `icons/icon16${suffix}.png`,
+      48: `icons/icon48${suffix}.png`,
+      128: `icons/icon128${suffix}.png`,
+    },
+  });
+}
+
+// Detection initiale + ecoute des changements
+const darkMQ = self.matchMedia("(prefers-color-scheme: dark)");
+updateIcon(darkMQ.matches);
+darkMQ.addEventListener("change", (e) => updateIcon(e.matches));
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Proxy backend API (content script → background → localhost) ─
   // Chrome MV3 : un content script sur une page HTTPS ne peut pas

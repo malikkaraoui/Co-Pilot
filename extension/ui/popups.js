@@ -4,7 +4,7 @@ import { escapeHTML } from '../utils/format.js';
 import { scoreColor } from '../utils/styles.js';
 import { buildRadarSVG } from './components.js';
 import { buildFiltersList, SIMULATED_FILTERS } from './filters/index.js';
-import { buildPremiumSection, buildAutovizaBanner, buildYouTubeBanner, buildEmailBanner } from './banners.js';
+import { buildAutovizaBanner, buildYouTubeBanner, buildEmailBanner } from './banners.js';
 
 export function buildResultsPopup(data, options = {}) {
   const { score, is_partial, filters, vehicle, featured_video } = data;
@@ -78,7 +78,6 @@ export function buildResultsPopup(data, options = {}) {
         ${buildFiltersList(filters, vehicle)}
       </div>
       ${bonusHTML}
-      ${buildPremiumSection()}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}
       <div class="okazcar-carvertical-banner">

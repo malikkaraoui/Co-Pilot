@@ -3733,6 +3733,11 @@
     const popupNode = template.content.firstElementChild;
     overlay.appendChild(popupNode);
     document.body.appendChild(overlay);
+    popupNode.querySelectorAll(".okazcar-filter-header").forEach((header) => {
+      header.addEventListener("click", () => {
+        header.closest(".okazcar-filter-item").classList.toggle("expanded");
+      });
+    });
     const closeBtn = document.getElementById("okazcar-close");
     if (closeBtn) closeBtn.addEventListener("click", removePopup);
     const retryBtn = document.getElementById("okazcar-retry");
@@ -4552,17 +4557,17 @@
             <span class="okazcar-filter-icon" style="color:${color}">${icon}</span>
             <span class="okazcar-filter-label">${escapeHTML(label)}${simulatedBadge}</span>
             ${scoreBarHTML}
+            <span class="okazcar-filter-chevron">&#x25BE;</span>
           </div>
-          ${bodyHTML}
+          <div class="okazcar-filter-body">
+            ${bodyHTML}
+          </div>
         </div>
       `;
     }).join("");
   }
 
   // extension/ui/banners.js
-  function buildPremiumSection() {
-    return `<div class="okazcar-premium-section"><div class="okazcar-premium-blur"><div class="okazcar-premium-fake"><p><strong>Rapport d\xE9taill\xE9 du v\xE9hicule</strong></p><p>Fiche fiabilit\xE9 compl\xE8te avec probl\xE8mes connus, co\xFBts d'entretien pr\xE9vus, historique des rappels constructeur et comparaison avec les alternatives du segment.</p><p>Estimation de la valeur r\xE9elle bas\xE9e sur 12 crit\xE8res r\xE9gionaux.</p><p>Recommandation d'achat personnalis\xE9e avec score de confiance.</p></div></div><div class="okazcar-premium-overlay"><div class="okazcar-premium-glass"><p class="okazcar-premium-title">Analyse compl\xE8te</p><p class="okazcar-premium-subtitle">D\xE9bloquez le rapport d\xE9taill\xE9 avec fiabilit\xE9, co\xFBts et recommandations.</p><button class="okazcar-premium-cta" id="okazcar-premium-btn">D\xE9bloquer \u2013 9,90 \u20AC</div></div></div>`;
-  }
   function buildYouTubeBanner(featuredVideo) {
     if (!featuredVideo || !featuredVideo.url) return "";
     const title = featuredVideo.title || "D\xE9couvrir ce mod\xE8le en vid\xE9o";
@@ -4652,7 +4657,6 @@
         ${buildFiltersList(filters, vehicle)}
       </div>
       ${bonusHTML}
-      ${buildPremiumSection()}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}
       <div class="okazcar-carvertical-banner">
@@ -4889,7 +4893,7 @@
   }
 
   // extension/content.js
-  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
+  var API_URL = true ? "https://co-pilot-o546.onrender.com" : "http://localhost:5001/api/analyze";
   var lastScanId = null;
   var ERROR_MESSAGES = [
     "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
