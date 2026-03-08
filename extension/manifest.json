@@ -10,6 +10,7 @@
   ],
   "host_permissions": [
     "https://*.leboncoin.fr/*",
+    "https://*.lacentrale.fr/*",
     "https://*.onrender.com/*",
     "https://*.autoscout24.ch/*",
     "https://*.autoscout24.de/*",
@@ -45,6 +46,7 @@
       "resources": ["carvertical_logo.png"],
       "matches": [
         "https://*.leboncoin.fr/*",
+        "https://*.lacentrale.fr/*",
         "https://*.autoscout24.ch/*",
         "https://*.autoscout24.de/*",
         "https://*.autoscout24.fr/*",

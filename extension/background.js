@@ -117,6 +117,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       target: { tabId },
       world: "MAIN",
       func: () => {
+        // LeBonCoin: __NEXT_DATA__
         let el = document.getElementById("__okazcar_next_data__");
         if (!el) {
           el = document.createElement("div");
@@ -125,6 +126,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           document.documentElement.appendChild(el);
         }
         el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
+
+        // La Centrale: CLASSIFIED_GALLERY + tc_vars
+        let lcEl = document.getElementById("__okazcar_lc_gallery__");
+        if (!lcEl) {
+          lcEl = document.createElement("div");
+          lcEl.id = "__okazcar_lc_gallery__";
+          lcEl.style.display = "none";
+          document.documentElement.appendChild(lcEl);
+        }
+        lcEl.textContent = JSON.stringify(window.CLASSIFIED_GALLERY || null);
+
+        let tcEl = document.getElementById("__okazcar_lc_tcvars__");
+        if (!tcEl) {
+          tcEl = document.createElement("div");
+          tcEl.id = "__okazcar_lc_tcvars__";
+          tcEl.style.display = "none";
+          document.documentElement.appendChild(tcEl);
+        }
+        tcEl.textContent = JSON.stringify(window.tc_vars || null);
       },
     })
     .then(() =>

@@ -18,6 +18,8 @@
     if (url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/")) return true;
     // AutoScout24 (tous TLDs, toutes langues de path)
     if (/autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i.test(url)) return true;
+    // La Centrale
+    if (/lacentrale\.fr\/auto-occasion-annonce-\d+\.html/.test(url)) return true;
     return false;
   }
 
