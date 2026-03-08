@@ -7,8 +7,9 @@
 
 import { LeBonCoinExtractor } from './leboncoin/index.js';
 import { AutoScout24Extractor } from './autoscout24/index.js';
+import { LaCentraleExtractor } from './lacentrale/index.js';
 
-const EXTRACTORS = [LeBonCoinExtractor, AutoScout24Extractor];
+const EXTRACTORS = [LeBonCoinExtractor, AutoScout24Extractor, LaCentraleExtractor];
 
 /**
  * Retourne une instance du bon extracteur pour l'URL donnee,

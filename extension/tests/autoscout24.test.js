@@ -377,8 +377,13 @@ describe('getExtractor', () => {
     expect(ext.constructor.SITE_ID).toBe('leboncoin');
   });
 
+  it('returns extractor for La Centrale URL', () => {
+    const ext = getExtractor('https://www.lacentrale.fr/auto-occasion-annonce-87103422544.html');
+    expect(ext).not.toBeNull();
+    expect(ext.constructor.SITE_ID).toBe('lacentrale');
+  });
+
   it('returns null for unknown URL', () => {
-    expect(getExtractor('https://www.lacentrale.fr/auto-occasion-123.html')).toBeNull();
     expect(getExtractor('https://www.google.com')).toBeNull();
     expect(getExtractor('')).toBeNull();
   });

@@ -239,6 +239,22 @@ describe('isAdPage', () => {
     });
     expect(isAdPage()).toBe(false);
   });
+
+  it('reconnait les URLs La Centrale', () => {
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.lacentrale.fr/auto-occasion-annonce-87103422544.html' },
+      writable: true,
+    });
+    expect(isAdPage()).toBe(true);
+  });
+
+  it('rejette les pages listing La Centrale', () => {
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.lacentrale.fr/listing?energies=dies' },
+      writable: true,
+    });
+    expect(isAdPage()).toBe(false);
+  });
 });
 
 
