@@ -66,10 +66,12 @@ class L9GlobalAssessmentFilter(BaseFilter):
             phone_login_hint = "Connectez-vous sur LeBonCoin pour révéler le numéro"
         # Pas de penalite si absent : presque toutes les annonces ont un tel cache
 
-        # Localisation disponible
+        # Localisation disponible (city, zipcode, ou department suffisent)
         location = data.get("location") or {}
         if location.get("city"):
             points_forts.append("Localisation précise")
+        elif location.get("zipcode") or location.get("department"):
+            pass  # neutral — localisation partielle (commune non precisee)
         else:
             points_faibles.append("Localisation non précisée")
 

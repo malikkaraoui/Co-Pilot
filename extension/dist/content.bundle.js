@@ -415,10 +415,6 @@
     }
     return null;
   }
-  function isAdPageLBC() {
-    const url = window.location.href;
-    return url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/");
-  }
 
   // extension/utils/fetch.js
   function isChromeRuntimeAvailable() {
@@ -3538,8 +3534,445 @@
     }
   };
 
+  // extension/extractors/lacentrale/constants.js
+  var LC_URL_PATTERNS = [
+    /lacentrale\.fr/
+  ];
+  var LC_AD_PAGE_PATTERN = /lacentrale\.fr\/auto-occasion-annonce-\d+\.html/;
+  var LC_FUEL_MAP = {
+    "DIESEL": "diesel",
+    "ESSENCE": "essence",
+    "ELECTRIQUE": "electric",
+    "HYBRIDE": "hybrid",
+    "HYBRIDE_RECHARGEABLE": "hybrid",
+    "GPL": "lpg",
+    "GNV": "cng"
+  };
+  var LC_GEARBOX_MAP = {
+    "MECANIQUE": "manual",
+    "MANUELLE": "manual",
+    "AUTOMATIQUE": "automatic",
+    "SEMI_AUTOMATIQUE": "semi-automatic",
+    "SEMI-AUTOMATIQUE": "semi-automatic"
+  };
+
+  // extension/extractors/lacentrale/parser.js
+  function extractGallery(win) {
+    const raw = win.CLASSIFIED_GALLERY;
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.data && typeof raw.data === "object") {
+      const d = raw.data;
+      if (d.classified || d.vehicle) {
+        return {
+          classified: d.classified || {},
+          vehicle: d.vehicle || {},
+          images: d.images || {},
+          config: raw.config || raw
+        };
+      }
+    }
+    if (raw.classified || raw.vehicle) {
+      return {
+        classified: raw.classified || {},
+        vehicle: raw.vehicle || {},
+        images: raw.images || {},
+        config: raw.config || {}
+      };
+    }
+    return null;
+  }
+  function extractTcVars(win) {
+    return win.tc_vars && typeof win.tc_vars === "object" ? win.tc_vars : {};
+  }
+  function extractCoteFromDom(doc) {
+    const link = doc.querySelector('a[href*="cote-auto"]');
+    if (!link) return { quotation: null, trustIndex: null };
+    try {
+      const url = new URL(link.href, "https://www.lacentrale.fr");
+      const quotation = parseInt(url.searchParams.get("quotation"), 10);
+      const trustIndex = parseInt(url.searchParams.get("trustIndex"), 10);
+      return {
+        quotation: Number.isFinite(quotation) ? quotation : null,
+        trustIndex: Number.isFinite(trustIndex) ? trustIndex : null
+      };
+    } catch {
+      return { quotation: null, trustIndex: null };
+    }
+  }
+  function extractJsonLd(doc) {
+    const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+    for (const s of scripts) {
+      try {
+        const data = JSON.parse(s.textContent);
+        if (data["@type"] === "Car" || data["@type"] === "Vehicle") return data;
+        if (Array.isArray(data["@graph"])) {
+          const car = data["@graph"].find((item) => item["@type"] === "Car" || item["@type"] === "Vehicle");
+          if (car) return car;
+        }
+      } catch {
+      }
+    }
+    return null;
+  }
+  function extractAutovizaUrl(doc) {
+    const link = doc.querySelector('a[href*="autoviza.fr"]');
+    return link ? link.href : null;
+  }
+
+  // extension/extractors/lacentrale/normalize.js
+  function normalizeToAdData2(gallery, tcVars, cote, jsonLd) {
+    const classified = gallery?.classified || {};
+    const vehicle = gallery?.vehicle || {};
+    const images = gallery?.images || {};
+    const tc = tcVars || {};
+    const ld = jsonLd || {};
+    const fuel = _normalizeFuel(vehicle.energy);
+    const gearbox = _normalizeGearbox(vehicle.gearbox);
+    const ownerType = _resolveOwnerType(classified, tc);
+    const year = _resolveYear(classified, vehicle, ld);
+    const imageCount = _resolveImageCount(images);
+    const description = _resolveDescription(classified, vehicle);
+    const department = classified.visitPlace || tc.department_list?.[0] || null;
+    const zipcode = classified.zipCode || tc.zip_code || null;
+    return {
+      title: classified.title || ld.name || null,
+      price_eur: classified.price ?? ld.offers?.price ?? null,
+      currency: "EUR",
+      make: vehicle.make || ld.brand || null,
+      model: vehicle.model || vehicle.commercialModel || ld.model || null,
+      year_model: year,
+      mileage_km: classified.mileage ?? ld.mileageFromOdometer?.value ?? null,
+      fuel,
+      gearbox,
+      doors: vehicle.nbOfDoors ?? ld.numberOfDoors ?? null,
+      seats: vehicle.seatingCapacity ?? null,
+      first_registration: vehicle.firstTrafficDate || ld.dateVehicleFirstRegistered || null,
+      color: vehicle.externalColor || ld.color || null,
+      power_fiscal_cv: vehicle.fiscalHorsePower ?? null,
+      power_din_hp: vehicle.powerDin ?? ld.vehicleEngine?.enginePower?.value ?? null,
+      country: "FR",
+      location: {
+        city: null,
+        zipcode,
+        department,
+        region: _departmentToRegion(department),
+        lat: null,
+        lng: null
+      },
+      phone: null,
+      description,
+      owner_type: ownerType,
+      owner_name: classified.sellerName || tc.dealer_name || null,
+      siret: null,
+      dealer_rating: tc.rating_satisfaction ?? null,
+      dealer_review_count: tc.rating_count ?? null,
+      raw_attributes: {},
+      image_count: imageCount,
+      has_phone: false,
+      has_urgent: false,
+      has_highlight: false,
+      has_boost: false,
+      publication_date: null,
+      days_online: _resolveDisplayedAge(classified),
+      index_date: null,
+      days_since_refresh: null,
+      republished: false,
+      lbc_estimation: null,
+      // La Centrale specifics (passed through ad_data for potential L4 use)
+      lc_quotation: cote?.quotation ?? null,
+      lc_trust_index: cote?.trustIndex ?? null,
+      lc_good_deal_badge: classified.goodDealBadge || null,
+      lc_mileage_badge: classified.mileageBadge || null,
+      lc_average_mileage: classified.averageMileage ?? null,
+      lc_nb_owners: vehicle.nbOfOwners ?? null,
+      lc_is_international: vehicle.international ?? null,
+      lc_price_variation: classified.priceVariation || null,
+      lc_first_hand: classified.firstHand ?? null,
+      lc_warranty_duration: tc.warranty_duration ?? null,
+      lc_badge_maintenance: tc.badge_maintenance ?? null,
+      lc_owner_sub_category: tc.owner_sub_category ?? null,
+      lc_critair: vehicle.critair?.critairLevel ?? null,
+      lc_euro_standard: vehicle.critair?.standardMet ?? null
+    };
+  }
+  function buildBonusSignals2(gallery, tcVars, cote) {
+    const signals = [];
+    const classified = gallery?.classified || {};
+    const vehicle = gallery?.vehicle || {};
+    const tc = tcVars || {};
+    if (classified.goodDealBadge) {
+      const badgeLabels = {
+        "VERY_GOOD_DEAL": "Tr\xE8s bonne affaire",
+        "GOOD_DEAL": "Bonne affaire",
+        "FAIR_PRICE": "Prix correct"
+      };
+      const label = badgeLabels[classified.goodDealBadge] || classified.goodDealBadge;
+      signals.push({
+        label: "Badge La Centrale",
+        value: label,
+        status: classified.goodDealBadge.includes("GOOD") ? "pass" : "info"
+      });
+    }
+    if (classified.mileageBadge) {
+      signals.push({
+        label: "Kilom\xE9trage",
+        value: classified.mileageBadge === "OVER_MILEAGE" ? "Au-dessus de la moyenne" : "En-dessous de la moyenne",
+        status: classified.mileageBadge === "OVER_MILEAGE" ? "warning" : "pass"
+      });
+    }
+    if (vehicle.nbOfOwners != null) {
+      signals.push({
+        label: "Propri\xE9taires",
+        value: String(vehicle.nbOfOwners),
+        status: vehicle.nbOfOwners <= 1 ? "pass" : vehicle.nbOfOwners <= 2 ? "info" : "warning"
+      });
+    }
+    if (cote?.quotation) {
+      signals.push({
+        label: "Cote La Centrale",
+        value: `${cote.quotation.toLocaleString("fr-FR")} \u20AC`,
+        status: "info"
+      });
+    }
+    if (classified.priceVariation?.prices?.isDropping) {
+      signals.push({
+        label: "Prix",
+        value: "En baisse",
+        status: "pass"
+      });
+    }
+    if (vehicle.international === true) {
+      signals.push({
+        label: "Import",
+        value: "V\xE9hicule import\xE9",
+        status: "warning"
+      });
+    }
+    if (tc.warranty_duration) {
+      signals.push({
+        label: "Garantie",
+        value: `${tc.warranty_duration} mois`,
+        status: "pass"
+      });
+    }
+    if (tc.badge_maintenance) {
+      const labels = Array.isArray(tc.badge_maintenance) ? tc.badge_maintenance : [tc.badge_maintenance];
+      for (const badge of labels) {
+        if (badge === "entretienAVerifier") {
+          signals.push({ label: "Entretien", value: "\xC0 v\xE9rifier", status: "warning" });
+        } else if (badge === "entretienOk") {
+          signals.push({ label: "Entretien", value: "OK", status: "pass" });
+        }
+      }
+    }
+    if (vehicle.critair?.critairLevel) {
+      signals.push({
+        label: "Crit'Air",
+        value: `${vehicle.critair.critairLevel} (${vehicle.critair.standardMet || "?"})`,
+        status: "info"
+      });
+    }
+    if (tc.rating_satisfaction && tc.rating_count) {
+      signals.push({
+        label: "Avis vendeur",
+        value: `${tc.rating_satisfaction}/5 (${tc.rating_count} avis)`,
+        status: "info"
+      });
+    }
+    return signals;
+  }
+  function _normalizeFuel(energy) {
+    if (!energy) return null;
+    return LC_FUEL_MAP[energy.toUpperCase()] || energy.toLowerCase();
+  }
+  function _normalizeGearbox(gearbox) {
+    if (!gearbox) return null;
+    return LC_GEARBOX_MAP[gearbox.toUpperCase()] || gearbox.toLowerCase();
+  }
+  function _resolveOwnerType(classified, tc) {
+    if (classified.customerType === "PRO") return "pro";
+    if (classified.customerType === "PART" || classified.customerType === "PARTICULIER") return "private";
+    if (tc.owner_category === "professionnel") return "pro";
+    if (tc.owner_category === "particulier") return "private";
+    return "private";
+  }
+  function _resolveYear(classified, vehicle, ld) {
+    if (classified.year) return String(classified.year);
+    if (vehicle.firstTrafficDate) {
+      const m = vehicle.firstTrafficDate.match(/^(\d{4})/);
+      if (m) return m[1];
+    }
+    if (ld.dateVehicleFirstRegistered) return String(ld.dateVehicleFirstRegistered);
+    return null;
+  }
+  function _resolveImageCount(images) {
+    const pics = images?.v1?.pictures || images?.pictures;
+    if (Array.isArray(pics)) return pics.length;
+    return 0;
+  }
+  function _resolveDescription(classified, vehicle) {
+    if (classified.description?.content) return classified.description.content;
+    if (typeof classified.description === "string" && classified.description.length > 0) return classified.description;
+    const parts = [];
+    if (vehicle?.make && vehicle?.model) parts.push(`${vehicle.make} ${vehicle.model}`);
+    if (vehicle?.energy) parts.push(vehicle.energy);
+    if (vehicle?.gearbox) parts.push(vehicle.gearbox);
+    if (vehicle?.powerDin) parts.push(`${vehicle.powerDin} ch`);
+    if (vehicle?.fiscalHorsePower) parts.push(`${vehicle.fiscalHorsePower} CV`);
+    if (vehicle?.externalColor) parts.push(vehicle.externalColor);
+    if (vehicle?.nbOfDoors) parts.push(`${vehicle.nbOfDoors} portes`);
+    if (classified.mileage) parts.push(`${classified.mileage.toLocaleString("fr-FR")} km`);
+    return parts.length > 0 ? parts.join(" \u2014 ") : null;
+  }
+  function _resolveDisplayedAge(classified) {
+    const age = classified.priceVariation?.displayedAge;
+    if (typeof age === "number" && age >= 0) return age;
+    return null;
+  }
+  function _departmentToRegion(dept) {
+    if (!dept) return null;
+    return dept;
+  }
+
+  // extension/extractors/lacentrale/extractor.js
+  function _readBridgedData(domId, win, propName) {
+    const fakeWin = {};
+    const el = document.getElementById(domId);
+    if (el && el.textContent) {
+      try {
+        fakeWin[propName] = JSON.parse(el.textContent);
+        return fakeWin;
+      } catch {
+      }
+    }
+    if (win[propName]) {
+      fakeWin[propName] = win[propName];
+    }
+    return fakeWin;
+  }
+  async function _revealPhoneLC() {
+    const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
+    for (const link of existingTelLinks) {
+      const phone = link.href.replace("tel:", "").trim();
+      if (phone && phone.length >= 10) return phone;
+    }
+    const candidates = document.querySelectorAll('button, a, [role="button"]');
+    let phoneBtn = null;
+    for (const el of candidates) {
+      const text = (el.textContent || "").toLowerCase().trim();
+      if (text.includes("voir le num\xE9ro") || text.includes("voir le numero") || text.includes("afficher le num\xE9ro") || text.includes("afficher le numero") || text.includes("n\xB0 t\xE9l\xE9phone") || text.includes("n\xB0 telephone") || text.includes("appeler")) {
+        phoneBtn = el;
+        break;
+      }
+    }
+    if (!phoneBtn) return null;
+    phoneBtn.click();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const telLinks = document.querySelectorAll('a[href^="tel:"]');
+      for (const link of telLinks) {
+        const phone = link.href.replace("tel:", "").trim();
+        if (phone && phone.length >= 10) return phone;
+      }
+      const container = phoneBtn.closest("div") || phoneBtn.parentElement;
+      if (container) {
+        const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+        if (match) return match[0].replace(/[\s.-]/g, "");
+      }
+    }
+    return null;
+  }
+  function _hasPhoneButtonLC() {
+    const candidates = document.querySelectorAll('button, a, [role="button"]');
+    for (const el of candidates) {
+      const text = (el.textContent || "").toLowerCase().trim();
+      if (text.includes("voir le num\xE9ro") || text.includes("voir le numero") || text.includes("afficher le num\xE9ro") || text.includes("afficher le numero") || text.includes("n\xB0 t\xE9l\xE9phone") || text.includes("n\xB0 telephone") || text.includes("appeler")) {
+        return true;
+      }
+    }
+    const telLinks = document.querySelectorAll('a[href^="tel:"]');
+    for (const link of telLinks) {
+      if (link.href.replace("tel:", "").trim().length >= 10) return true;
+    }
+    return false;
+  }
+  var LaCentraleExtractor = class extends SiteExtractor {
+    static SITE_ID = "lacentrale";
+    static URL_PATTERNS = LC_URL_PATTERNS;
+    /** @type {object|null} Cached gallery data */
+    _gallery = null;
+    /** @type {object} Cached tc_vars */
+    _tcVars = {};
+    /** @type {object} Cached cote data */
+    _cote = { quotation: null, trustIndex: null };
+    /** @type {object|null} Cached JSON-LD */
+    _jsonLd = null;
+    /** @type {object|null} Cached ad_data */
+    _adData = null;
+    isAdPage(url) {
+      return LC_AD_PAGE_PATTERN.test(url);
+    }
+    hasPhone() {
+      return _hasPhoneButtonLC();
+    }
+    isLoggedIn() {
+      return true;
+    }
+    async revealPhone() {
+      const phone = await _revealPhoneLC();
+      if (phone && this._adData) {
+        this._adData.phone = phone;
+        this._adData.has_phone = true;
+      }
+      return phone;
+    }
+    async extract() {
+      const galleryWin = _readBridgedData("__okazcar_lc_gallery__", window, "CLASSIFIED_GALLERY");
+      const tcVarsWin = _readBridgedData("__okazcar_lc_tcvars__", window, "tc_vars");
+      this._gallery = extractGallery(galleryWin);
+      this._tcVars = extractTcVars(tcVarsWin);
+      this._cote = extractCoteFromDom(document);
+      this._jsonLd = extractJsonLd(document);
+      if (!this._gallery && !this._jsonLd) {
+        console.warn("[OKazCar] La Centrale: no CLASSIFIED_GALLERY and no JSON-LD found");
+        return null;
+      }
+      this._adData = normalizeToAdData2(this._gallery, this._tcVars, this._cote, this._jsonLd);
+      if (!this._adData.make && !this._adData.model) {
+        console.warn("[OKazCar] La Centrale: no make/model extracted");
+        return null;
+      }
+      return {
+        type: "normalized",
+        source: "lacentrale",
+        ad_data: this._adData
+      };
+    }
+    getVehicleSummary() {
+      if (!this._adData) return null;
+      return {
+        make: this._adData.make || "",
+        model: this._adData.model || "",
+        year: String(this._adData.year_model || "")
+      };
+    }
+    getBonusSignals() {
+      return buildBonusSignals2(this._gallery, this._tcVars, this._cote);
+    }
+    async detectFreeReport() {
+      return extractAutovizaUrl(document);
+    }
+    /**
+     * Market price collection is explicitly disabled for La Centrale.
+     * The listing page format has not been validated yet.
+     */
+    async collectMarketPrices(_progress) {
+      return { submitted: false, isCurrentVehicle: false };
+    }
+  };
+
   // extension/extractors/index.js
-  var EXTRACTORS = [LeBonCoinExtractor, AutoScout24Extractor];
+  var EXTRACTORS = [LeBonCoinExtractor, AutoScout24Extractor, LaCentraleExtractor];
   function getExtractor(url) {
     for (const ExtractorClass of EXTRACTORS) {
       for (const pattern of ExtractorClass.URL_PATTERNS) {
@@ -4893,7 +5326,7 @@
   }
 
   // extension/content.js
-  var API_URL = true ? "https://co-pilot-o546.onrender.com" : "http://localhost:5001/api/analyze";
+  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
   var lastScanId = null;
   var ERROR_MESSAGES = [
     "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",
@@ -5022,7 +5455,8 @@
     }
   }
   function isAdPage() {
-    return isAdPageLBC();
+    const extractor = getExtractor(window.location.href);
+    return extractor ? extractor.isAdPage(window.location.href) : false;
   }
   function init() {
     const extractor = getExtractor(window.location.href);

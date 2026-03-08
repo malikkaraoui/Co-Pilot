@@ -117,34 +117,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       target: { tabId },
       world: "MAIN",
       func: () => {
-        // LeBonCoin: __NEXT_DATA__
-        let el = document.getElementById("__okazcar_next_data__");
-        if (!el) {
-          el = document.createElement("div");
-          el.id = "__okazcar_next_data__";
-          el.style.display = "none";
-          document.documentElement.appendChild(el);
-        }
-        el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
+        const host = window.location.hostname;
+        const isLBC = host.includes("leboncoin.fr");
+        const isLC = host.includes("lacentrale.fr");
 
-        // La Centrale: CLASSIFIED_GALLERY + tc_vars
-        let lcEl = document.getElementById("__okazcar_lc_gallery__");
-        if (!lcEl) {
-          lcEl = document.createElement("div");
-          lcEl.id = "__okazcar_lc_gallery__";
-          lcEl.style.display = "none";
-          document.documentElement.appendChild(lcEl);
+        // LeBonCoin: __NEXT_DATA__ (skip on other sites — can be huge)
+        if (isLBC) {
+          let el = document.getElementById("__okazcar_next_data__");
+          if (!el) {
+            el = document.createElement("div");
+            el.id = "__okazcar_next_data__";
+            el.style.display = "none";
+            document.documentElement.appendChild(el);
+          }
+          el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
         }
-        lcEl.textContent = JSON.stringify(window.CLASSIFIED_GALLERY || null);
 
-        let tcEl = document.getElementById("__okazcar_lc_tcvars__");
-        if (!tcEl) {
-          tcEl = document.createElement("div");
-          tcEl.id = "__okazcar_lc_tcvars__";
-          tcEl.style.display = "none";
-          document.documentElement.appendChild(tcEl);
+        // La Centrale: CLASSIFIED_GALLERY + tc_vars (skip on other sites)
+        if (isLC) {
+          let lcEl = document.getElementById("__okazcar_lc_gallery__");
+          if (!lcEl) {
+            lcEl = document.createElement("div");
+            lcEl.id = "__okazcar_lc_gallery__";
+            lcEl.style.display = "none";
+            document.documentElement.appendChild(lcEl);
+          }
+          lcEl.textContent = JSON.stringify(window.CLASSIFIED_GALLERY || null);
+
+          let tcEl = document.getElementById("__okazcar_lc_tcvars__");
+          if (!tcEl) {
+            tcEl = document.createElement("div");
+            tcEl.id = "__okazcar_lc_tcvars__";
+            tcEl.style.display = "none";
+            document.documentElement.appendChild(tcEl);
+          }
+          tcEl.textContent = JSON.stringify(window.tc_vars || null);
         }
-        tcEl.textContent = JSON.stringify(window.tc_vars || null);
       },
     })
     .then(() =>

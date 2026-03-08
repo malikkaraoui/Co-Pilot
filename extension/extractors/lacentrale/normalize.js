@@ -23,8 +23,9 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
   const ownerType = _resolveOwnerType(classified, tc);
   const year = _resolveYear(classified, vehicle, ld);
   const imageCount = _resolveImageCount(images);
-  const description = _resolveDescription(classified);
+  const description = _resolveDescription(classified, vehicle);
   const department = classified.visitPlace || tc.department_list?.[0] || null;
+  const zipcode = classified.zipCode || tc.zip_code || null;
 
   return {
     title: classified.title || ld.name || null,
@@ -45,7 +46,7 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
     country: 'FR',
     location: {
       city: null,
-      zipcode: tc.zip_code || null,
+      zipcode,
       department,
       region: _departmentToRegion(department),
       lat: null,
@@ -54,7 +55,7 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
     phone: null,
     description,
     owner_type: ownerType,
-    owner_name: null,
+    owner_name: classified.sellerName || tc.dealer_name || null,
     siret: null,
     dealer_rating: tc.rating_satisfaction ?? null,
     dealer_review_count: tc.rating_count ?? null,
@@ -238,10 +239,24 @@ function _resolveImageCount(images) {
   return 0;
 }
 
-function _resolveDescription(classified) {
+function _resolveDescription(classified, vehicle) {
+  // 1. Real text description if available
   if (classified.description?.content) return classified.description.content;
-  if (typeof classified.description === 'string') return classified.description;
-  return null;
+  if (typeof classified.description === 'string' && classified.description.length > 0) return classified.description;
+
+  // 2. Build a synthetic description from structured vehicle data
+  // LC often has no free-text description — characteristics are structured
+  const parts = [];
+  if (vehicle?.make && vehicle?.model) parts.push(`${vehicle.make} ${vehicle.model}`);
+  if (vehicle?.energy) parts.push(vehicle.energy);
+  if (vehicle?.gearbox) parts.push(vehicle.gearbox);
+  if (vehicle?.powerDin) parts.push(`${vehicle.powerDin} ch`);
+  if (vehicle?.fiscalHorsePower) parts.push(`${vehicle.fiscalHorsePower} CV`);
+  if (vehicle?.externalColor) parts.push(vehicle.externalColor);
+  if (vehicle?.nbOfDoors) parts.push(`${vehicle.nbOfDoors} portes`);
+  if (classified.mileage) parts.push(`${classified.mileage.toLocaleString('fr-FR')} km`);
+
+  return parts.length > 0 ? parts.join(' — ') : null;
 }
 
 function _resolveDisplayedAge(classified) {

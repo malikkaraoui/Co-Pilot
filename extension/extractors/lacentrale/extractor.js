@@ -32,6 +32,76 @@ function _readBridgedData(domId, win, propName) {
   return fakeWin;
 }
 
+/**
+ * Reveal the seller's phone number by clicking "Voir le numéro" on La Centrale.
+ * Same pattern as LeBonCoin — the phone is hidden behind a button click.
+ */
+async function _revealPhoneLC() {
+  // 1. Check if phone is already visible (tel: link)
+  const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
+  for (const link of existingTelLinks) {
+    const phone = link.href.replace("tel:", "").trim();
+    if (phone && phone.length >= 10) return phone;
+  }
+
+  // 2. Find the "Voir le numéro" button
+  const candidates = document.querySelectorAll('button, a, [role="button"]');
+  let phoneBtn = null;
+  for (const el of candidates) {
+    const text = (el.textContent || "").toLowerCase().trim();
+    if (text.includes("voir le numéro") || text.includes("voir le numero")
+        || text.includes("afficher le numéro") || text.includes("afficher le numero")
+        || text.includes("n° téléphone") || text.includes("n° telephone")
+        || text.includes("appeler")) {
+      phoneBtn = el;
+      break;
+    }
+  }
+  if (!phoneBtn) return null;
+
+  // 3. Click and wait for phone to appear
+  phoneBtn.click();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await new Promise((r) => setTimeout(r, 500));
+
+    const telLinks = document.querySelectorAll('a[href^="tel:"]');
+    for (const link of telLinks) {
+      const phone = link.href.replace("tel:", "").trim();
+      if (phone && phone.length >= 10) return phone;
+    }
+
+    // Fallback: regex match in button container
+    const container = phoneBtn.closest("div") || phoneBtn.parentElement;
+    if (container) {
+      const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+      if (match) return match[0].replace(/[\s.-]/g, "");
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect if a "Voir le numéro" button exists on the page.
+ */
+function _hasPhoneButtonLC() {
+  const candidates = document.querySelectorAll('button, a, [role="button"]');
+  for (const el of candidates) {
+    const text = (el.textContent || "").toLowerCase().trim();
+    if (text.includes("voir le numéro") || text.includes("voir le numero")
+        || text.includes("afficher le numéro") || text.includes("afficher le numero")
+        || text.includes("n° téléphone") || text.includes("n° telephone")
+        || text.includes("appeler")) {
+      return true;
+    }
+  }
+  // Also check if phone already revealed (tel: link)
+  const telLinks = document.querySelectorAll('a[href^="tel:"]');
+  for (const link of telLinks) {
+    if (link.href.replace("tel:", "").trim().length >= 10) return true;
+  }
+  return false;
+}
+
 export class LaCentraleExtractor extends SiteExtractor {
   static SITE_ID = 'lacentrale';
   static URL_PATTERNS = LC_URL_PATTERNS;
@@ -49,6 +119,24 @@ export class LaCentraleExtractor extends SiteExtractor {
 
   isAdPage(url) {
     return LC_AD_PAGE_PATTERN.test(url);
+  }
+
+  hasPhone() {
+    return _hasPhoneButtonLC();
+  }
+
+  isLoggedIn() {
+    // La Centrale shows phone without login requirement
+    return true;
+  }
+
+  async revealPhone() {
+    const phone = await _revealPhoneLC();
+    if (phone && this._adData) {
+      this._adData.phone = phone;
+      this._adData.has_phone = true;
+    }
+    return phone;
   }
 
   async extract() {
