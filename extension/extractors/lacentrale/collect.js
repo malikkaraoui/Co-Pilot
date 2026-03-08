@@ -177,7 +177,18 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
   let jobResp;
   try {
     console.log('[OKazCar] LC next-job ->', jobUrl);
-    jobResp = await backendFetch(jobUrl).then((r) => r.json());
+    const raw = await backendFetch(jobUrl);
+    if (!raw.ok) {
+      console.warn('[OKazCar] LC next-job HTTP %d', raw.status);
+      if (progress) {
+        progress.update('job', 'error', 'Erreur serveur (' + raw.status + ')');
+        progress.update('collect', 'skip');
+        progress.update('submit', 'skip');
+        progress.update('bonus', 'skip');
+      }
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    jobResp = await raw.json();
     console.log('[OKazCar] LC next-job <-', JSON.stringify(jobResp));
   } catch (err) {
     console.warn('[OKazCar] LC next-job error:', err);
