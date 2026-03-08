@@ -222,6 +222,23 @@ describe('isAdPage', () => {
     });
     expect(isAdPage()).toBe(false);
   });
+
+  // Multi-site coverage (Vague 0 — socle multi-site)
+  it('reconnait les URLs AutoScout24', () => {
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.autoscout24.fr/offres/peugeot-208-1-2-puretech-12345678' },
+      writable: true,
+    });
+    expect(isAdPage()).toBe(true);
+  });
+
+  it('rejette les pages listing AutoScout24', () => {
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.autoscout24.fr/lst?make=peugeot&model=208' },
+      writable: true,
+    });
+    expect(isAdPage()).toBe(false);
+  });
 });
 
 

@@ -160,7 +160,14 @@ async function runAnalysis(injectedExtractor) {
 
 // ── Point d'entree ─────────────────────────────────────────────
 
-function isAdPage() { return isAdPageLBC(); }
+/**
+ * Multi-site ad page detection via the extractor registry.
+ * Used by tests — the runtime init() uses extractor.isAdPage() directly.
+ */
+function isAdPage() {
+  const extractor = getExtractor(window.location.href);
+  return extractor ? extractor.isAdPage(window.location.href) : false;
+}
 
 function init() {
   const extractor = getExtractor(window.location.href);
