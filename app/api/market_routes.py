@@ -557,15 +557,18 @@ def next_market_job():
 
     latest_mp = (
         db.session.query(
-            func.lower(MarketPrice.make).label("mp_make"),
-            func.lower(MarketPrice.model).label("mp_model"),
+            func.vehicle_lookup_key(MarketPrice.make).label("mp_make_key"),
+            func.vehicle_lookup_key(MarketPrice.model).label("mp_model_key"),
             func.max(MarketPrice.collected_at).label("latest_at"),
         )
         .filter(
             market_text_key_expr(MarketPrice.region) == market_text_key(region),
             func.coalesce(MarketPrice.country, "FR") == country_upper,
         )
-        .group_by(func.lower(MarketPrice.make), func.lower(MarketPrice.model))
+        .group_by(
+            func.vehicle_lookup_key(MarketPrice.make),
+            func.vehicle_lookup_key(MarketPrice.model),
+        )
         .subquery()
     )
 
@@ -582,13 +585,13 @@ def next_market_job():
         .outerjoin(
             latest_mp,
             db.and_(
-                func.lower(Vehicle.brand) == latest_mp.c.mp_make,
-                func.lower(Vehicle.model) == latest_mp.c.mp_model,
+                Vehicle.brand_lookup_key == latest_mp.c.mp_make_key,
+                Vehicle.model_lookup_key == latest_mp.c.mp_model_key,
             ),
         )
         .filter(
             Vehicle.year_start.isnot(None),
-            ~func.lower(Vehicle.model).in_(list(_GENERIC_MODELS)),
+            ~Vehicle.model_lookup_key.in_(list(_GENERIC_MODELS)),
         )
         .order_by(
             # Priorite 1 : jamais collecte (NULL) d'abord

@@ -159,10 +159,12 @@ with app.app_context():
     db.session.commit()
 
     # Migration normalisation : aligner Vehicle.brand/model sur display_brand/display_model
-    from app.services.vehicle_lookup import display_brand, display_model
+    # + backfill des lookup keys persistées pour le matching robuste.
+    from app.services.vehicle_lookup import build_vehicle_lookup_keys, display_brand, display_model
     from app.models.vehicle import Vehicle
     updated_v = 0
     deleted_v = 0
+    updated_vehicle_keys = 0
     for v in Vehicle.query.all():
         new_brand = display_brand(v.brand)
         new_model = display_model(v.model)
@@ -180,12 +182,31 @@ with app.app_context():
                 v.brand = new_brand
                 v.model = new_model
                 updated_v += 1
+          brand_key, model_key = build_vehicle_lookup_keys(v.brand, v.model)
+          if v.brand_lookup_key != brand_key or v.model_lookup_key != model_key:
+            v.brand_lookup_key = brand_key
+            v.model_lookup_key = model_key
+            updated_vehicle_keys += 1
     if updated_v or deleted_v:
         db.session.commit()
         if updated_v:
             print(f'  ~ {updated_v} vehicule(s) normalise(s)')
         if deleted_v:
             print(f'  ~ {deleted_v} doublon(s) vehicule(s) supprime(s)')
+        if updated_vehicle_keys:
+          db.session.commit()
+          print(f'  ~ {updated_vehicle_keys} lookup key(s) vehicule(s) backfill(es)')
+
+        db.session.execute(text(
+          'CREATE INDEX IF NOT EXISTS ix_vehicle_lookup_keys ON vehicles (brand_lookup_key, model_lookup_key)'
+        ))
+        db.session.execute(text(
+          'CREATE INDEX IF NOT EXISTS ix_vehicles_brand_lookup_key ON vehicles (brand_lookup_key)'
+        ))
+        db.session.execute(text(
+          'CREATE INDEX IF NOT EXISTS ix_vehicles_model_lookup_key ON vehicles (model_lookup_key)'
+        ))
+        db.session.commit()
 
     # Migration normalisation accents : strip accents des MarketPrice (Île → Ile)
     # SQLite lower() ne gere que ASCII, donc les regions accentuees cassaient les lookups.

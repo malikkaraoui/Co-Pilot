@@ -422,13 +422,26 @@ def car():
         .all()
     )
 
-    # Marques dans le referentiel (en minuscules pour comparaison)
-    ref_brands = {v.brand.lower() for v in db.session.query(Vehicle.brand).distinct().all()}
+    # Marques dans le referentiel (lookup keys persistées)
+    ref_brands = {
+        row.brand_lookup_key
+        for row in db.session.query(Vehicle.brand_lookup_key).distinct().all()
+        if row.brand_lookup_key
+    }
 
     # Marques dans le marche (MarketPrice)
-    market_brands = {m.make.lower() for m in db.session.query(MarketPrice.make).distinct().all()}
+    from app.services.vehicle_lookup import (
+        BRAND_ALIASES,
+        brand_lookup_key,
+        is_generic_brand,
+        normalize_brand,
+    )
 
-    from app.services.vehicle_lookup import BRAND_ALIASES, is_generic_brand, normalize_brand
+    market_brands = {
+        brand_lookup_key(row.make)
+        for row in db.session.query(MarketPrice.make).distinct().all()
+        if row.make
+    }
 
     brand_coverage = []
     for row in scanned_brands_raw:
@@ -437,12 +450,13 @@ def car():
             continue
 
         brand_norm = normalize_brand(brand_raw)
-        in_referentiel = brand_norm in ref_brands
-        in_market = brand_norm in market_brands or brand_raw.lower() in market_brands
+        brand_key = brand_lookup_key(brand_raw)
+        in_referentiel = brand_key in ref_brands
+        in_market = brand_key in market_brands
 
         # Compter les modeles dans le referentiel pour cette marque
         models_in_ref = Vehicle.query.filter(
-            db.func.lower(Vehicle.brand) == brand_norm,
+            Vehicle.brand_lookup_key == brand_key,
         ).count()
 
         # Compter les modeles scannes (L2 warning = non reconnus)
@@ -513,19 +527,19 @@ def quick_add_vehicle():
 
     # Normalisation canonique (memes fonctions que l'extraction et find_vehicle)
     from app.services.vehicle_lookup import (
+        build_vehicle_lookup_keys,
         display_brand,
         display_model,
-        normalize_brand,
-        normalize_model,
     )
 
     brand_clean = display_brand(brand)
     model_clean = display_model(model_name)
+    brand_key, model_key = build_vehicle_lookup_keys(brand, model_name)
 
     # Verifier doublon (via normalisation canonique)
     existing = Vehicle.query.filter(
-        db.func.lower(Vehicle.brand) == normalize_brand(brand),
-        db.func.lower(Vehicle.model) == normalize_model(model_name),
+        Vehicle.brand_lookup_key == brand_key,
+        Vehicle.model_lookup_key == model_key,
     ).first()
 
     if existing:
@@ -554,6 +568,8 @@ def quick_add_vehicle():
     vehicle = Vehicle(
         brand=brand_clean,
         model=model_clean,
+        brand_lookup_key=brand_key,
+        model_lookup_key=model_key,
         year_start=year_start,
         year_end=year_end,
         enrichment_status="pending",

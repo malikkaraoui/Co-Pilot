@@ -130,19 +130,19 @@ def auto_create_vehicle(make: str, model: str, *, commit: bool = True) -> Vehicl
 
     # Normalisation canonique (memes fonctions que l'extraction et quick-add)
     from app.services.vehicle_lookup import (
+        build_vehicle_lookup_keys,
         display_brand,
         display_model,
-        normalize_brand,
-        normalize_model,
     )
 
     brand_clean = display_brand(make)
     model_clean = display_model(model)
+    brand_key, model_key = build_vehicle_lookup_keys(make, model)
 
     # Dedup check (race condition) -- via normalisation canonique
     existing = Vehicle.query.filter(
-        func.lower(Vehicle.brand) == normalize_brand(make),
-        func.lower(Vehicle.model) == normalize_model(model),
+        Vehicle.brand_lookup_key == brand_key,
+        Vehicle.model_lookup_key == model_key,
     ).first()
     if existing:
         logger.info("Auto-create skipped (dedup): %s %s already exists", brand_clean, model_clean)
@@ -162,6 +162,8 @@ def auto_create_vehicle(make: str, model: str, *, commit: bool = True) -> Vehicl
     vehicle = Vehicle(
         brand=brand_clean,
         model=model_clean,
+        brand_lookup_key=brand_key,
+        model_lookup_key=model_key,
         year_start=year_start,
         year_end=year_end,
         enrichment_status="partial",

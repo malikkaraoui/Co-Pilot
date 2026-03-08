@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+from sqlalchemy import event
+
 from app.extensions import db
 
 
@@ -9,11 +11,16 @@ class Vehicle(db.Model):
     """Vehicule connu dans la base de reference (144+ modeles, objectif 200+)."""
 
     __tablename__ = "vehicles"
-    __table_args__ = (db.UniqueConstraint("brand", "model", name="uq_vehicle_brand_model"),)
+    __table_args__ = (
+        db.UniqueConstraint("brand", "model", name="uq_vehicle_brand_model"),
+        db.Index("ix_vehicle_lookup_keys", "brand_lookup_key", "model_lookup_key"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     brand = db.Column(db.String(80), nullable=False, index=True)
     model = db.Column(db.String(120), nullable=False, index=True)
+    brand_lookup_key = db.Column(db.String(80), nullable=True, index=True)
+    model_lookup_key = db.Column(db.String(120), nullable=True, index=True)
     generation = db.Column(db.String(80))
     year_start = db.Column(db.Integer)
     year_end = db.Column(db.Integer)
@@ -34,6 +41,15 @@ class Vehicle(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     specs = db.relationship("VehicleSpec", backref="vehicle", lazy="select")
+
+    def sync_lookup_keys(self) -> None:
+        """Synchronise les lookup keys persistées à partir de la marque/modèle."""
+        from app.services.vehicle_lookup import build_vehicle_lookup_keys
+
+        self.brand_lookup_key, self.model_lookup_key = build_vehicle_lookup_keys(
+            self.brand or "",
+            self.model or "",
+        )
 
     def __repr__(self):
         return f"<Vehicle {self.brand} {self.model}>"
@@ -69,3 +85,10 @@ class VehicleSpec(db.Model):
 
     def __repr__(self):
         return f"<VehicleSpec {self.vehicle_id} {self.fuel_type}>"
+
+
+@event.listens_for(Vehicle, "before_insert")
+@event.listens_for(Vehicle, "before_update")
+def _sync_vehicle_lookup_keys(_mapper, _connection, target: Vehicle) -> None:
+    """Maintient les lookup keys persistées à jour."""
+    target.sync_lookup_keys()

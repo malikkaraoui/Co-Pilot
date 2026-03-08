@@ -11,6 +11,8 @@ from flask_wtf import CSRFProtect
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
+from app.services.vehicle_lookup_keys import lookup_compact_key
+
 db = SQLAlchemy()
 login_manager = LoginManager()
 cors = CORS()
@@ -32,8 +34,16 @@ def _sqlite_strip_accents(text: str | None) -> str | None:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _sqlite_vehicle_lookup_key(text: str | None) -> str | None:
+    """Fonction SQLite custom : produit une clé compacte de lookup véhicule."""
+    if text is None:
+        return None
+    return lookup_compact_key(text)
+
+
 @event.listens_for(Engine, "connect")
 def _register_sqlite_functions(dbapi_conn, _connection_record):
     """Enregistre les fonctions custom SQLite a chaque nouvelle connexion."""
     if hasattr(dbapi_conn, "create_function"):
         dbapi_conn.create_function("strip_accents", 1, _sqlite_strip_accents)
+        dbapi_conn.create_function("vehicle_lookup_key", 1, _sqlite_vehicle_lookup_key)

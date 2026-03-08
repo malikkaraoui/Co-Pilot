@@ -176,6 +176,8 @@ class TestAutoCreateVehicle:
             if vehicle:
                 assert vehicle.id is not None
                 assert vehicle.brand == "DS"
+                assert vehicle.brand_lookup_key == "ds"
+                assert vehicle.model_lookup_key == "3"
                 assert vehicle.enrichment_status in ("partial", "complete")
                 # Verifier en DB
                 found = db.session.get(Vehicle, vehicle.id)
@@ -190,6 +192,8 @@ class TestAutoCreateVehicle:
             if v1:
                 assert v2 is not None
                 assert v1.id == v2.id
+                count = Vehicle.query.filter_by(brand_lookup_key="ds", model_lookup_key="3").count()
+                assert count == 1
 
     @pytest.mark.usefixtures("_seed_scans", "_seed_market")
     def test_capitalisation(self, app):

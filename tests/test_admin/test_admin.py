@@ -275,6 +275,26 @@ class TestQuickAdd:
         assert resp.status_code == 200
         assert b"existe deja" in resp.data
 
+    def test_quick_add_duplicate_variant_rejected_via_lookup_keys(self, app, client, admin_user):
+        """Les variantes typographiques matchent le meme vehicule via lookup keys."""
+        from app.extensions import db
+
+        with app.app_context():
+            v = Vehicle.query.filter_by(brand="Toyota", model="C-HR").first()
+            if not v:
+                v = Vehicle(brand="Toyota", model="C-HR", year_start=2020)
+                db.session.add(v)
+                db.session.commit()
+
+        _login(client)
+        resp = client.post(
+            "/admin/vehicle/quick-add",
+            data={"brand": "toyota", "model": "C.HR"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"existe deja" in resp.data
+
     def test_quick_add_empty_brand_rejected(self, client, admin_user):
         """Le quick-add refuse une marque vide."""
         _login(client)
@@ -799,11 +819,11 @@ class TestQuickAddRaceCondition:
         assert resp2.status_code == 200
         assert b"existe deja" in resp2.data
 
-        # Verifier qu'un seul vehicule existe
+        # Verifier qu'un seul vehicule existe (quick-add normalise cx-5 → Cx 5)
         with app.app_context():
             count = Vehicle.query.filter(
                 db.func.lower(Vehicle.brand) == "mazda",
-                db.func.lower(Vehicle.model) == "cx-5",
+                db.func.lower(Vehicle.model).like("cx%5"),
             ).count()
             assert count == 1
 
@@ -982,6 +1002,11 @@ class TestQuickAddEdgeCases:
 
     def test_quick_add_model_with_hyphen(self, app, client, admin_user):
         """Le quick-add gere les tirets (e-2008, C-HR, etc.)."""
+        with app.app_context():
+            existed_before = (
+                Vehicle.query.filter_by(brand="Toyota", model="C-HR").first() is not None
+            )
+
         _login(client)
         resp = client.post(
             "/admin/vehicle/quick-add",
@@ -989,7 +1014,10 @@ class TestQuickAddEdgeCases:
             follow_redirects=True,
         )
         assert resp.status_code == 200
-        assert b"ajoute au referentiel" in resp.data
+        if existed_before:
+            assert b"existe deja" in resp.data
+        else:
+            assert b"ajoute au referentiel" in resp.data
 
         with app.app_context():
             v = Vehicle.query.filter_by(model="C-HR").first()
