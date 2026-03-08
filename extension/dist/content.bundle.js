@@ -670,18 +670,18 @@
     const MIN_BONUS_PRICES = 5;
     const marketUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices");
     const jobDoneUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/job-done");
-    function _yearMeta(yearRef, spread = 1) {
+    function _yearMeta2(yearRef, spread = 1) {
       const y = Number.parseInt(yearRef, 10);
       const s = Number.parseInt(spread, 10) || 1;
       if (!Number.isFinite(y) || y < 1990) return { year_from: null, year_to: null, regdate: null };
       return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
     }
-    function _urlVerdict(adsFound, uniqueAdded) {
+    function _urlVerdict2(adsFound, uniqueAdded) {
       if ((adsFound || 0) <= 0) return "empty";
       if ((uniqueAdded || 0) <= 0) return "duplicates_only";
       return "useful";
     }
-    function _criteriaSummary(make, model, brandToken, modelToken, fuelCode, gearboxCode, hpRange, yearMeta) {
+    function _criteriaSummary2(make, model, brandToken, modelToken, fuelCode, gearboxCode, hpRange, yearMeta) {
       const yearVal = yearMeta.year_from && yearMeta.year_to ? `${yearMeta.year_from}-${yearMeta.year_to}` : "?-?";
       return [
         `marque=${make} [${brandToken}]`,
@@ -728,13 +728,13 @@
         }
         let searchUrl = jobCoreUrl + filters + `&locations=${locParam}`;
         const jobYear = parseInt(job.year, 10);
-        const yearMeta = _yearMeta(jobYear, 1);
+        const yearMeta = _yearMeta2(jobYear, 1);
         if (yearMeta.regdate) searchUrl += `&regdate=${yearMeta.regdate}`;
         const bonusPrices = await fetchSearchPrices(searchUrl, jobYear, 1, job.make);
         console.log("[OKazCar] bonus job %s %s %d %s: %d prix", job.make, job.model, job.year, job.region, bonusPrices.length);
         if (progress) {
           const stepStatus = bonusPrices.length >= MIN_BONUS_PRICES ? "done" : "skip";
-          const criteriaSummary = _criteriaSummary(
+          const criteriaSummary = _criteriaSummary2(
             job.make,
             job.model,
             job.site_brand_token || brandUpper,
@@ -774,7 +774,7 @@
                 year_from: yearMeta.year_from,
                 year_to: yearMeta.year_to,
                 year_filter: yearMeta.regdate ? `regdate=${yearMeta.regdate}` : null,
-                criteria_summary: _criteriaSummary(
+                criteria_summary: _criteriaSummary2(
                   job.make,
                   job.model,
                   job.site_brand_token || brandUpper,
@@ -792,7 +792,7 @@
                 ads_found: bonusPrices.length,
                 url: searchUrl,
                 unique_added: bonusPrices.length,
-                url_verdict: _urlVerdict(bonusPrices.length, bonusPrices.length),
+                url_verdict: _urlVerdict2(bonusPrices.length, bonusPrices.length),
                 was_selected: true,
                 reason: `bonus job queue: ${bonusPrices.length} annonces`
               }]
@@ -1008,18 +1008,18 @@
     let collectedPrecision = null;
     const searchLog = [];
     const MAX_PRICES_CAP = 100;
-    function _yearMeta(yearRef, spread = 1) {
+    function _yearMeta2(yearRef, spread = 1) {
       const y = Number.parseInt(yearRef, 10);
       const s = Number.parseInt(spread, 10) || 1;
       if (!Number.isFinite(y) || y < 1990) return { year_from: null, year_to: null, regdate: null };
       return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
     }
-    function _urlVerdict(adsFound, uniqueAdded) {
+    function _urlVerdict2(adsFound, uniqueAdded) {
       if ((adsFound || 0) <= 0) return "empty";
       if ((uniqueAdded || 0) <= 0) return "duplicates_only";
       return "useful";
     }
-    function _criteriaSummary(strategy, yearMeta) {
+    function _criteriaSummary2(strategy, yearMeta) {
       const fuelVal = strategy.filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1] || null;
       const gearboxVal = strategy.filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1] || null;
       const hpVal = strategy.filters.match(/(?:\?|&)horse_power_din=([^&]+)/)?.[1] || null;
@@ -1065,8 +1065,8 @@
         const baseCoreUrl = strategy.coreUrl || coreUrl;
         let searchUrl = baseCoreUrl + strategy.filters;
         if (strategy.loc) searchUrl += `&locations=${strategy.loc}`;
-        const yearMeta = _yearMeta(targetYear, strategy.yearSpread);
-        const criteriaSummary = _criteriaSummary(strategy, yearMeta);
+        const yearMeta = _yearMeta2(targetYear, strategy.yearSpread);
+        const criteriaSummary = _criteriaSummary2(strategy, yearMeta);
         if (yearMeta.regdate) {
           searchUrl += `&regdate=${yearMeta.regdate}`;
         }
@@ -1109,7 +1109,7 @@
           ],
           ads_found: newPrices.length,
           unique_added: unique.length,
-          url_verdict: _urlVerdict(newPrices.length, unique.length),
+          url_verdict: _urlVerdict2(newPrices.length, unique.length),
           total_accumulated: prices.length,
           url: searchUrl,
           was_selected: enoughPrices,
@@ -1139,7 +1139,7 @@
           const ds = dualStrategies[d];
           let searchUrl = dualCoreUrl + ds.filters;
           if (ds.loc) searchUrl += `&locations=${ds.loc}`;
-          const dYearMeta = _yearMeta(targetYear, ds.yearSpread);
+          const dYearMeta = _yearMeta2(targetYear, ds.yearSpread);
           if (dYearMeta.regdate) {
             searchUrl += `&regdate=${dYearMeta.regdate}`;
           }
@@ -1186,7 +1186,7 @@
             filters_applied: ds.filters.includes("fuel=") ? ["fuel"] : [],
             ads_found: newPrices.length,
             unique_added: unique.length,
-            url_verdict: _urlVerdict(newPrices.length, unique.length),
+            url_verdict: _urlVerdict2(newPrices.length, unique.length),
             total_accumulated: prices.length,
             url: searchUrl,
             was_selected: prices.length >= MIN_PRICES_FOR_ARGUS,
@@ -3061,12 +3061,12 @@
           year_filter: `fregfrom=${y - s}&fregto=${y + s}`
         };
       }
-      function _urlVerdict(adsFound, uniqueAdded) {
+      function _urlVerdict2(adsFound, uniqueAdded) {
         if ((adsFound || 0) <= 0) return "empty";
         if ((uniqueAdded || 0) <= 0) return "duplicates_only";
         return "useful";
       }
-      function _criteriaSummary(opts, yearMeta) {
+      function _criteriaSummary2(opts, yearMeta) {
         const fuelVal = opts.fuel || "any";
         const gearVal = opts.gear || "any";
         const powerVal = opts.powerfrom || opts.powerto ? `${opts.powerfrom ?? "min"}-${opts.powerto ?? "max"}` : "any";
@@ -3086,7 +3086,7 @@
         const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
         const searchUrl = buildSearchUrl(targetMakeKey, targetModelKey, targetYear, tld, { ...searchOpts, lang });
         const yearMeta = _as24YearWindow(targetYear, searchOpts.yearSpread || 1);
-        const criteriaSummary = _criteriaSummary(searchOpts, yearMeta);
+        const criteriaSummary = _criteriaSummary2(searchOpts, yearMeta);
         const logBase = {
           step: i + 1,
           precision,
@@ -3126,7 +3126,7 @@
             ...logBase,
             ads_found: newPrices.length,
             unique_added: unique.length,
-            url_verdict: _urlVerdict(newPrices.length, unique.length),
+            url_verdict: _urlVerdict2(newPrices.length, unique.length),
             url: searchUrl,
             was_selected: enough && usedPrecision === null,
             reason: enough ? `total ${prices.length} >= ${MIN_PRICES}` : `total ${prices.length} < ${MIN_PRICES}`
@@ -3285,7 +3285,7 @@
           year_filter: `fregfrom=${y - s}&fregto=${y + s}`
         };
       }
-      function _urlVerdict(adsFound, uniqueAdded) {
+      function _urlVerdict2(adsFound, uniqueAdded) {
         if ((adsFound || 0) <= 0) return "empty";
         if ((uniqueAdded || 0) <= 0) return "duplicates_only";
         return "useful";
@@ -3434,7 +3434,7 @@
               filters_applied: _bonusFiltersApplied(strategy.opts),
               ads_found: prices.length,
               unique_added: prices.length,
-              url_verdict: _urlVerdict(prices.length, prices.length),
+              url_verdict: _urlVerdict2(prices.length, prices.length),
               url: searchUrl,
               was_selected: prices.length >= MIN_BONUS_PRICES,
               reason: prices.length >= MIN_BONUS_PRICES ? `total ${prices.length} >= ${MIN_BONUS_PRICES}` : `total ${prices.length} < ${MIN_BONUS_PRICES}`
@@ -3555,6 +3555,30 @@
     "SEMI_AUTOMATIQUE": "semi-automatic",
     "SEMI-AUTOMATIQUE": "semi-automatic"
   };
+  var LC_LISTING_BASE = "https://www.lacentrale.fr/listing";
+  var LC_SEARCH_FUEL_CODES = {
+    "diesel": "dies",
+    "essence": "ess",
+    "electric": "elec",
+    "electrique": "elec",
+    "\xE9lectrique": "elec",
+    "hybrid": "hyb",
+    "hybride": "hyb",
+    "hybrid rechargeable": "hybRech",
+    "hybride rechargeable": "hybRech",
+    "lpg": "gpl",
+    "gpl": "gpl",
+    "cng": "gnv",
+    "gnv": "gnv"
+  };
+  var LC_SEARCH_GEARBOX_CODES = {
+    "manual": "man",
+    "manuelle": "man",
+    "automatic": "auto",
+    "automatique": "auto"
+  };
+  var LC_MIN_PRICES = 20;
+  var LC_MAX_PRICES = 100;
 
   // extension/extractors/lacentrale/parser.js
   function extractGallery(win) {
@@ -3834,6 +3858,506 @@
     return dept;
   }
 
+  // extension/extractors/lacentrale/search.js
+  function buildLcSearchUrl(opts) {
+    const params = new URLSearchParams();
+    const make = (opts.make || "").toUpperCase();
+    if (make) {
+      const token = opts.model ? `${make}:${opts.model.toUpperCase()}` : make;
+      params.set("makesModelsCommercialNames", token);
+    }
+    if (opts.yearMin) params.set("yearMin", String(opts.yearMin));
+    if (opts.yearMax) params.set("yearMax", String(opts.yearMax));
+    if (opts.mileageMin != null) params.set("mileageMin", String(opts.mileageMin));
+    if (opts.mileageMax != null) params.set("mileageMax", String(opts.mileageMax));
+    if (opts.fuel) {
+      const code = LC_SEARCH_FUEL_CODES[(opts.fuel || "").toLowerCase()];
+      if (code) params.set("energies", code);
+    }
+    if (opts.gearbox) {
+      const code = LC_SEARCH_GEARBOX_CODES[(opts.gearbox || "").toLowerCase()];
+      if (code) params.set("gearbox", code);
+    }
+    return `${LC_LISTING_BASE}?${params.toString()}`;
+  }
+  function getLcMileageRange(km) {
+    if (!km || km <= 0) return null;
+    if (km <= 1e4) return { mileageMin: 0, mileageMax: 2e4 };
+    if (km <= 3e4) return { mileageMin: 0, mileageMax: 5e4 };
+    if (km <= 6e4) return { mileageMin: 2e4, mileageMax: 8e4 };
+    if (km <= 12e4) return { mileageMin: 5e4, mileageMax: 15e4 };
+    return { mileageMin: 1e5, mileageMax: 999999 };
+  }
+  async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
+    let html;
+    try {
+      const resp = await fetch(searchUrl, {
+        credentials: "omit",
+        headers: { "Accept": "text/html" }
+      });
+      if (!resp.ok) {
+        console.warn("[OKazCar] LC listing fetch HTTP %d for %s", resp.status, searchUrl.substring(0, 120));
+        return [];
+      }
+      html = await resp.text();
+    } catch (err) {
+      console.warn("[OKazCar] LC listing fetch error:", err.message);
+      return [];
+    }
+    let ads = _extractAdsFromNextData(html);
+    if (!ads || ads.length === 0) {
+      ads = _extractAdsFromInlineJson(html);
+    }
+    if (!ads || ads.length === 0) {
+      ads = _extractPricesFromHtml(html);
+    }
+    if (!ads || ads.length === 0) {
+      console.log("[OKazCar] LC listing: 0 ads extracted from %s", searchUrl.substring(0, 100));
+      return [];
+    }
+    return _filterAds(ads, targetYear, yearSpread);
+  }
+  function _extractAdsFromNextData(html) {
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!match) return null;
+    try {
+      const data = JSON.parse(match[1]);
+      const pp = data?.props?.pageProps || {};
+      const classifieds = pp?.searchData?.classifieds || pp?.classifieds || pp?.initialProps?.searchData?.classifieds || pp?.searchData?.listings || pp?.listings || null;
+      if (Array.isArray(classifieds) && classifieds.length > 0) {
+        return _mapLcClassifieds(classifieds);
+      }
+      const results = pp?.searchData?.results || pp?.results || [];
+      if (Array.isArray(results) && results.length > 0) {
+        return _mapLcClassifieds(results);
+      }
+      console.debug("[OKazCar] LC __NEXT_DATA__: no classifieds array found");
+      return null;
+    } catch (err) {
+      console.warn("[OKazCar] LC __NEXT_DATA__ parse error:", err.message);
+      return null;
+    }
+  }
+  function _extractAdsFromInlineJson(html) {
+    const patterns = [
+      /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/,
+      /window\.__DATA__\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (!match) continue;
+      try {
+        const data = JSON.parse(match[1]);
+        const classifieds = data?.search?.classifieds || data?.classifieds || data?.listings || [];
+        if (Array.isArray(classifieds) && classifieds.length > 0) {
+          return _mapLcClassifieds(classifieds);
+        }
+      } catch {
+      }
+    }
+    return null;
+  }
+  function _extractPricesFromHtml(html) {
+    const pricePattern = /(\d{1,3}(?:[\s\u00a0]\d{3})*)\s*\u20ac/g;
+    const prices = [];
+    let m;
+    while ((m = pricePattern.exec(html)) !== null) {
+      const raw = m[1].replace(/[\s\u00a0]/g, "");
+      const price = parseInt(raw, 10);
+      if (price >= 500 && price <= 2e5) {
+        prices.push({ price, year: null, km: null });
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    return prices.filter((p) => {
+      if (seen.has(p.price)) return false;
+      seen.add(p.price);
+      return true;
+    });
+  }
+  function _mapLcClassifieds(classifieds) {
+    return classifieds.map((c) => {
+      const price = c.price ?? c.priceListing ?? c.priceLabel ?? null;
+      const priceInt = typeof price === "number" ? price : typeof price === "string" ? parseInt(price.replace(/[^\d]/g, ""), 10) : null;
+      let year = c.year ?? c.vehicle?.year ?? null;
+      if (!year && c.vehicle?.firstTrafficDate) {
+        const ym = String(c.vehicle.firstTrafficDate).match(/^(\d{4})/);
+        if (ym) year = parseInt(ym[1], 10);
+      }
+      if (!year && c.firstTrafficDate) {
+        const ym = String(c.firstTrafficDate).match(/^(\d{4})/);
+        if (ym) year = parseInt(ym[1], 10);
+      }
+      const km = c.mileage ?? c.vehicle?.mileage ?? c.km ?? null;
+      return { price: priceInt, year, km };
+    }).filter((a) => a.price && Number.isFinite(a.price) && a.price >= 500);
+  }
+  function _filterAds(ads, targetYear, yearSpread) {
+    return ads.filter((a) => {
+      if (a.price < 500) return false;
+      if (targetYear >= 1990 && a.year) {
+        if (Math.abs(a.year - targetYear) > yearSpread) return false;
+      }
+      return true;
+    });
+  }
+
+  // extension/extractors/lacentrale/collect.js
+  function _yearMeta(yearRef, spread) {
+    const y = parseInt(yearRef, 10);
+    const s = parseInt(spread, 10) || 1;
+    if (!Number.isFinite(y) || y < 1990) return { yearMin: null, yearMax: null };
+    return { yearMin: y - s, yearMax: y + s };
+  }
+  function _urlVerdict(adsFound, uniqueAdded) {
+    if ((adsFound || 0) <= 0) return "empty";
+    if ((uniqueAdded || 0) <= 0) return "duplicates_only";
+    return "useful";
+  }
+  function _criteriaSummary(make, model, fuel, gearbox, yearMeta) {
+    const yearVal = yearMeta.yearMin && yearMeta.yearMax ? `${yearMeta.yearMin}-${yearMeta.yearMax}` : "?-?";
+    return [
+      `marque=${make}`,
+      `model=${model || "any"}`,
+      `fuel=${fuel || "any"}`,
+      `boite=${gearbox || "any"}`,
+      `annee=${yearVal}`
+    ].join(" \xB7 ");
+  }
+  async function _reportJobDone(backendFetch2, apiUrl, jobId, success) {
+    if (!jobId) return;
+    try {
+      const url = apiUrl.replace("/analyze", "/market-prices/job-done");
+      await backendFetch2(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId, success })
+      });
+    } catch (e) {
+      if (isBenignRuntimeTeardownError(e)) return;
+      console.warn("[OKazCar] LC job-done report failed:", e);
+    }
+  }
+  async function _executeBonusJobs(bonusJobs, backendFetch2, apiUrl, progress) {
+    const MIN_BONUS_PRICES = 5;
+    const marketUrl = apiUrl.replace("/analyze", "/market-prices");
+    if (progress) progress.update("bonus", "running", "Execution de " + bonusJobs.length + " jobs");
+    for (const job of bonusJobs) {
+      try {
+        await new Promise((r) => setTimeout(r, 1e3 + Math.random() * 1e3));
+        const jobYear = parseInt(job.year, 10);
+        const yearMeta = _yearMeta(jobYear, 1);
+        const searchUrl = buildLcSearchUrl({
+          make: job.make,
+          model: job.model,
+          yearMin: yearMeta.yearMin,
+          yearMax: yearMeta.yearMax,
+          fuel: job.fuel,
+          gearbox: job.gearbox
+        });
+        const prices = await fetchLcSearchPrices(searchUrl, jobYear, 1);
+        console.log("[OKazCar] LC bonus job %s %s %d: %d prix", job.make, job.model, job.year, prices.length);
+        if (progress) {
+          const status = prices.length >= MIN_BONUS_PRICES ? "done" : "skip";
+          const summary = _criteriaSummary(job.make, job.model, job.fuel, job.gearbox, yearMeta);
+          progress.addSubStep("bonus", job.make + " " + job.model, status, prices.length + " annonces \xB7 " + summary);
+        }
+        if (prices.length >= MIN_BONUS_PRICES) {
+          const validPrices = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
+          const priceInts = validPrices.map((p) => p.price);
+          if (priceInts.length >= MIN_BONUS_PRICES) {
+            const payload = {
+              make: job.make,
+              model: job.model,
+              year: jobYear,
+              region: job.region || "France",
+              prices: priceInts,
+              price_details: validPrices,
+              fuel: job.fuel || null,
+              precision: priceInts.length >= 20 ? 4 : 2,
+              search_log: [{
+                step: 1,
+                precision: 3,
+                location_type: "national",
+                year_spread: 1,
+                ads_found: prices.length,
+                url: searchUrl,
+                unique_added: prices.length,
+                url_verdict: _urlVerdict(prices.length, prices.length),
+                was_selected: true,
+                reason: `LC bonus job: ${prices.length} annonces`
+              }]
+            };
+            const resp = await backendFetch2(marketUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            console.log("[OKazCar] LC bonus job POST: %s", resp.ok ? "OK" : "FAIL");
+            await _reportJobDone(backendFetch2, apiUrl, job.job_id, resp.ok);
+          } else {
+            await _reportJobDone(backendFetch2, apiUrl, job.job_id, false);
+          }
+        } else {
+          await _reportJobDone(backendFetch2, apiUrl, job.job_id, false);
+        }
+      } catch (err) {
+        if (isBenignRuntimeTeardownError(err)) {
+          if (progress) progress.update("bonus", "warning", "Extension rechargee, jobs bonus interrompus");
+          break;
+        }
+        console.warn("[OKazCar] LC bonus job failed:", err);
+        await _reportJobDone(backendFetch2, apiUrl, job.job_id, false);
+      }
+    }
+    if (progress) progress.update("bonus", "done");
+  }
+  async function collectMarketPricesLC(adData, backendFetch2, apiUrl, progress) {
+    const make = adData?.make;
+    const model = adData?.model;
+    const year = adData?.year_model;
+    const fuel = adData?.fuel || null;
+    const gearbox = adData?.gearbox || null;
+    const mileageKm = adData?.mileage_km || 0;
+    if (!make || !model || !year) {
+      console.log("[OKazCar] LC collect: missing make/model/year, skip");
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    const targetYear = parseInt(year, 10) || 0;
+    if (progress) progress.update("job", "running");
+    const jobUrl = apiUrl.replace("/analyze", "/market-prices/next-job") + `?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&year=${encodeURIComponent(year)}&region=France&site=lacentrale` + (fuel ? `&fuel=${encodeURIComponent(fuel)}` : "") + (gearbox ? `&gearbox=${encodeURIComponent(gearbox)}` : "");
+    let jobResp;
+    try {
+      console.log("[OKazCar] LC next-job ->", jobUrl);
+      jobResp = await backendFetch2(jobUrl).then((r) => r.json());
+      console.log("[OKazCar] LC next-job <-", JSON.stringify(jobResp));
+    } catch (err) {
+      console.warn("[OKazCar] LC next-job error:", err);
+      if (progress) {
+        progress.update("job", "error", "Serveur injoignable");
+        progress.update("collect", "skip");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    if (!jobResp?.data?.collect) {
+      const bonusJobs2 = jobResp?.data?.bonus_jobs || [];
+      if (bonusJobs2.length === 0) {
+        if (progress) {
+          progress.update("job", "done", "Donnees deja a jour");
+          progress.update("collect", "skip", "Non necessaire");
+          progress.update("submit", "skip");
+          progress.update("bonus", "skip");
+        }
+        return { submitted: false, isCurrentVehicle: false };
+      }
+      if (progress) {
+        progress.update("job", "done", "Vehicule a jour \u2014 " + bonusJobs2.length + " jobs en attente");
+        progress.update("collect", "skip", "Vehicule deja a jour");
+        progress.update("submit", "skip");
+      }
+      await _executeBonusJobs(bonusJobs2, backendFetch2, apiUrl, progress);
+      markCollected();
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    const target = jobResp.data.vehicle;
+    const bonusJobs = jobResp.data.bonus_jobs || [];
+    const isCurrentVehicle = target.make.toLowerCase() === make.toLowerCase() && target.model.toLowerCase() === model.toLowerCase();
+    if (!isCurrentVehicle) {
+      if (shouldSkipCollection()) {
+        if (progress) {
+          progress.update("job", "done", "Cooldown actif (autre vehicule collecte recemment)");
+          progress.update("collect", "skip", "Cooldown 24h");
+          progress.update("submit", "skip");
+        }
+        if (bonusJobs.length > 0) {
+          await _executeBonusJobs(bonusJobs, backendFetch2, apiUrl, progress);
+        } else if (progress) {
+          progress.update("bonus", "skip");
+        }
+        return { submitted: false, isCurrentVehicle: false };
+      }
+    }
+    const tYear = parseInt(target.year, 10) || targetYear;
+    const targetLabel = target.make + " " + target.model + " " + target.year;
+    if (progress) {
+      progress.update("job", "done", targetLabel + (isCurrentVehicle ? " (vehicule courant)" : " (autre vehicule)"));
+    }
+    console.log("[OKazCar] LC collect target: %s (isCurrentVehicle=%s)", targetLabel, isCurrentVehicle);
+    const mileageRange = isCurrentVehicle ? getLcMileageRange(mileageKm) : null;
+    const targetFuel = isCurrentVehicle ? fuel : target.fuel || null;
+    const targetGearbox = isCurrentVehicle ? gearbox : target.gearbox || null;
+    const strategies = [
+      // S1: Full filters (model + fuel + gearbox + km) ±1 year
+      { model: target.model, fuel: targetFuel, gearbox: targetGearbox, mileage: mileageRange, yearSpread: 1, precision: 5 },
+      // S2: Model + fuel ±2 years (drop gearbox + km)
+      { model: target.model, fuel: targetFuel, gearbox: null, mileage: null, yearSpread: 2, precision: 4 },
+      // S3: Model only ±2 years (drop all sub-filters)
+      { model: target.model, fuel: null, gearbox: null, mileage: null, yearSpread: 2, precision: 3 },
+      // S4: Model only ±3 years
+      { model: target.model, fuel: null, gearbox: null, mileage: null, yearSpread: 3, precision: 2 },
+      // S5: Brand only ±2 years (last resort)
+      { model: null, fuel: targetFuel, gearbox: null, mileage: null, yearSpread: 2, precision: 1 }
+    ];
+    if (progress) progress.update("collect", "running");
+    let submitted = false;
+    let prices = [];
+    let collectedPrecision = null;
+    const searchLog = [];
+    try {
+      for (let i = 0; i < strategies.length; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+        const s = strategies[i];
+        const yearMeta = _yearMeta(tYear, s.yearSpread);
+        const searchUrl = buildLcSearchUrl({
+          make: target.make,
+          model: s.model,
+          yearMin: yearMeta.yearMin,
+          yearMax: yearMeta.yearMax,
+          mileageMin: s.mileage?.mileageMin,
+          mileageMax: s.mileage?.mileageMax,
+          fuel: s.fuel,
+          gearbox: s.gearbox
+        });
+        const critSummary = _criteriaSummary(target.make, s.model, s.fuel, s.gearbox, yearMeta);
+        const strategyLabel = "Strategie " + (i + 1) + " \xB7 \xB1" + s.yearSpread + "an";
+        const newPrices = await fetchLcSearchPrices(searchUrl, tYear, s.yearSpread);
+        const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
+        const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
+        prices = [...prices, ...unique];
+        const enoughPrices = prices.length >= LC_MIN_PRICES;
+        console.log(
+          "[OKazCar] LC strategie %d (precision=%d): %d nouveaux (%d uniques), total=%d | %s",
+          i + 1,
+          s.precision,
+          newPrices.length,
+          unique.length,
+          prices.length,
+          searchUrl.substring(0, 120)
+        );
+        if (progress) {
+          const stepStatus = unique.length > 0 ? "done" : "skip";
+          const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")" + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "") + " \xB7 " + critSummary;
+          progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
+        }
+        searchLog.push({
+          step: i + 1,
+          precision: s.precision,
+          location_type: "national",
+          year_spread: s.yearSpread,
+          year_from: yearMeta.yearMin,
+          year_to: yearMeta.yearMax,
+          criteria_summary: critSummary,
+          filters_applied: [
+            ...s.fuel ? ["fuel"] : [],
+            ...s.gearbox ? ["gearbox"] : [],
+            ...s.mileage ? ["km"] : []
+          ],
+          ads_found: newPrices.length,
+          unique_added: unique.length,
+          url_verdict: _urlVerdict(newPrices.length, unique.length),
+          total_accumulated: prices.length,
+          url: searchUrl,
+          was_selected: enoughPrices,
+          reason: enoughPrices ? `total ${prices.length} annonces >= ${LC_MIN_PRICES} minimum` : `total ${prices.length} annonces < ${LC_MIN_PRICES} minimum`
+        });
+        if (enoughPrices && collectedPrecision === null) {
+          collectedPrecision = s.precision;
+          console.log("[OKazCar] LC seuil atteint strategie %d (precision=%d)", i + 1, collectedPrecision);
+        }
+        if (prices.length >= LC_MAX_PRICES) {
+          console.log("[OKazCar] LC cap atteint (%d >= %d)", prices.length, LC_MAX_PRICES);
+          break;
+        }
+      }
+      if (prices.length >= LC_MIN_PRICES) {
+        if (progress) {
+          progress.update("collect", "done", prices.length + " prix collectes (precision " + (collectedPrecision || "?") + ")");
+          progress.update("submit", "running");
+        }
+        const validPrices = prices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
+        const priceInts = validPrices.map((p) => p.price);
+        if (priceInts.length < 5) {
+          if (progress) {
+            progress.update("submit", "warning", "Trop de prix invalides apres filtrage");
+            progress.update("bonus", "skip");
+          }
+          return { submitted: false, isCurrentVehicle };
+        }
+        const marketUrl = apiUrl.replace("/analyze", "/market-prices");
+        const payload = {
+          make: target.make,
+          model: target.model,
+          year: tYear,
+          region: "France",
+          prices: priceInts,
+          price_details: validPrices,
+          fuel: targetFuel || null,
+          precision: collectedPrecision,
+          search_log: searchLog
+        };
+        console.log("[OKazCar] LC POST /api/market-prices:", target.make, target.model, tYear, "n=", priceInts.length);
+        const marketResp = await backendFetch2(marketUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        submitted = marketResp.ok;
+        if (!marketResp.ok) {
+          const errBody = await marketResp.json().catch(() => null);
+          console.warn("[OKazCar] LC POST /api/market-prices FAILED:", marketResp.status, errBody);
+          if (progress) progress.update("submit", "error", "Erreur serveur (" + marketResp.status + ")");
+        } else {
+          console.log("[OKazCar] LC POST /api/market-prices OK");
+          if (progress) progress.update("submit", "done", priceInts.length + " prix envoyes");
+          if (bonusJobs.length > 0) {
+            await _executeBonusJobs(bonusJobs, backendFetch2, apiUrl, progress);
+          } else if (progress) {
+            progress.update("bonus", "skip", "Aucun job en attente");
+          }
+        }
+      } else {
+        console.log("[OKazCar] LC pas assez de prix: %d < %d", prices.length, LC_MIN_PRICES);
+        if (progress) {
+          progress.update("collect", "warning", prices.length + " annonces trouvees (minimum " + LC_MIN_PRICES + ")");
+          progress.update("submit", "skip", "Pas assez de donnees");
+          progress.update("bonus", "skip");
+        }
+        try {
+          const failedUrl = apiUrl.replace("/analyze", "/market-prices/failed-search");
+          await backendFetch2(failedUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              make: target.make,
+              model: target.model,
+              year: tYear,
+              region: "France",
+              fuel: targetFuel || null,
+              search_log: searchLog
+            })
+          });
+        } catch (e) {
+          console.warn("[OKazCar] LC failed-search report error:", e);
+        }
+      }
+    } catch (err) {
+      if (isBenignRuntimeTeardownError(err)) {
+        console.info("[OKazCar] LC collection interrompue: extension rechargee");
+      } else {
+        console.error("[OKazCar] LC market collection failed:", err);
+      }
+      if (progress) {
+        progress.update("collect", "error", "Erreur pendant la collecte");
+        progress.update("submit", "skip");
+        progress.update("bonus", "skip");
+      }
+    }
+    markCollected();
+    return { submitted, isCurrentVehicle };
+  }
+
   // extension/extractors/lacentrale/extractor.js
   function _readBridgedData(domId, win, propName) {
     const fakeWin = {};
@@ -3963,11 +4487,15 @@
       return extractAutovizaUrl(document);
     }
     /**
-     * Market price collection is explicitly disabled for La Centrale.
-     * The listing page format has not been validated yet.
+     * Market price collection for La Centrale.
+     * Builds search URLs from reverse-engineered listing params,
+     * fetches listing pages, extracts prices, submits to backend.
      */
-    async collectMarketPrices(_progress) {
-      return { submitted: false, isCurrentVehicle: false };
+    async collectMarketPrices(progress) {
+      if (!this._adData || !this._fetch || !this._apiUrl) {
+        return { submitted: false, isCurrentVehicle: false };
+      }
+      return collectMarketPricesLC(this._adData, this._fetch, this._apiUrl, progress);
     }
   };
 

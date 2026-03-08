@@ -4,6 +4,7 @@ import { SiteExtractor } from '../base.js';
 import { LC_URL_PATTERNS, LC_AD_PAGE_PATTERN } from './constants.js';
 import { extractGallery, extractTcVars, extractCoteFromDom, extractJsonLd, extractAutovizaUrl } from './parser.js';
 import { normalizeToAdData, buildBonusSignals } from './normalize.js';
+import { collectMarketPricesLC } from './collect.js';
 
 /**
  * Read data bridged from MAIN world via a hidden DOM element.
@@ -190,10 +191,14 @@ export class LaCentraleExtractor extends SiteExtractor {
   }
 
   /**
-   * Market price collection is explicitly disabled for La Centrale.
-   * The listing page format has not been validated yet.
+   * Market price collection for La Centrale.
+   * Builds search URLs from reverse-engineered listing params,
+   * fetches listing pages, extracts prices, submits to backend.
    */
-  async collectMarketPrices(_progress) {
-    return { submitted: false, isCurrentVehicle: false };
+  async collectMarketPrices(progress) {
+    if (!this._adData || !this._fetch || !this._apiUrl) {
+      return { submitted: false, isCurrentVehicle: false };
+    }
+    return collectMarketPricesLC(this._adData, this._fetch, this._apiUrl, progress);
   }
 }
