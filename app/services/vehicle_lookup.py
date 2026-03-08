@@ -7,10 +7,33 @@ Gere les variantes courantes de noms de marques et modeles
 import logging
 import re
 import unicodedata
+from functools import lru_cache
 
 from app.models.vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
+
+_DASH_TRANSLATION = str.maketrans(
+    {
+        "‐": "-",
+        "‑": "-",
+        "‒": "-",
+        "–": "-",
+        "—": "-",
+        "―": "-",
+    }
+)
+_APOSTROPHE_TRANSLATION = str.maketrans(
+    {
+        "’": "'",
+        "‘": "'",
+        "´": "'",
+        "`": "'",
+    }
+)
+_CANONICAL_SPACES_RE = re.compile(r"\s+")
+_LOOKUP_SEPARATOR_RE = re.compile(r"[\s\-_/.,+'()]+")
+_LOOKUP_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 # Modeles generiques LBC : le vendeur n'a pas precise le modele exact.
 # Ces valeurs ne correspondent pas a un vrai vehicule et doivent etre ignorees.
@@ -45,18 +68,10 @@ GENERIC_BRANDS: frozenset[str] = frozenset(
 # Sources verifiees : structure BMW (Serie = gamme), VW (Multivan/Caravelle/Combi = gamme T),
 # Mercedes (Benz = partie du nom de marque).
 INVALID_MODELS_BY_BRAND: dict[str, frozenset[str]] = {
-    "bmw": frozenset(
-        {
-            "serie 1",
-            "serie 2",
-            "serie 3",
-            "serie 4",
-            "serie 5",
-            "serie 6",
-            "serie 7",
-            "serie 8",
-        }
-    ),
+    # BMW: "Serie X" sont les noms officiels sur LBC et La Centrale.
+    # Ils existent dans le referentiel vehicule comme modeles valides.
+    # Pas de faux modeles connus pour BMW.
+    "bmw": frozenset(),
     "volkswagen": frozenset(
         {
             "multivan",  # gamme T (T5/T6/T7)
@@ -466,14 +481,92 @@ def _strip_accents(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _normalize_lookup_text(text: str) -> str:
+    """Produit une forme stable pour les clés de lookup.
+
+    Objectif : rendre le matching robuste aux variations d'accents,
+    dashes Unicode, ponctuation et espaces parasites.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    text = text.translate(_DASH_TRANSLATION)
+    text = text.translate(_APOSTROPHE_TRANSLATION)
+    text = _strip_accents(text.casefold())
+    text = _LOOKUP_SEPARATOR_RE.sub(" ", text)
+    return " ".join(text.split())
+
+
+def _normalize_canonical_text(text: str) -> str:
+    """Produit une forme canonique lisible, en conservant les séparateurs utiles.
+
+    Exemples:
+    - `CX‑5` -> `cx-5`
+    - `C.HR` -> `c.hr` (puis alias si une règle explicite existe)
+    """
+    text = unicodedata.normalize("NFKC", text)
+    text = text.translate(_DASH_TRANSLATION)
+    text = text.translate(_APOSTROPHE_TRANSLATION)
+    text = _strip_accents(text.casefold())
+    text = _CANONICAL_SPACES_RE.sub(" ", text).strip()
+    return text
+
+
+def _lookup_compact_key(text: str) -> str:
+    """Clé compacte pour matcher des variantes comme `C-HR`, `C HR`, `CHR`."""
+    normalized = _normalize_lookup_text(text)
+    return _LOOKUP_NON_ALNUM_RE.sub("", normalized)
+
+
+def _lookup_keys(text: str) -> tuple[str, ...]:
+    """Retourne les clés lookup utiles pour résoudre un alias ou comparer deux valeurs."""
+    normalized = _normalize_lookup_text(text)
+    compact = _lookup_compact_key(normalized)
+    if compact and compact != normalized:
+        return normalized, compact
+    return (normalized,)
+
+
+def _build_alias_lookup(aliases: dict[str, str]) -> dict[str, str]:
+    """Construit un index d'alias robuste aux variantes typographiques."""
+    lookup: dict[str, str] = {}
+    for raw_key, canonical in aliases.items():
+        for variant in (raw_key, canonical):
+            for key in _lookup_keys(variant):
+                lookup.setdefault(key, canonical)
+    return lookup
+
+
+def _resolve_alias(text: str, lookup: dict[str, str]) -> str | None:
+    """Résout un alias à partir des différentes clés lookup dérivées du texte."""
+    for key in _lookup_keys(text):
+        canonical = lookup.get(key)
+        if canonical:
+            return canonical
+    return None
+
+
+def _match_key(text: str) -> str:
+    """Clé de comparaison compacte, stable et accent-insensitive."""
+    return _lookup_compact_key(text)
+
+
+@lru_cache(maxsize=1)
+def _brand_alias_lookup() -> dict[str, str]:
+    return _build_alias_lookup(BRAND_ALIASES)
+
+
+@lru_cache(maxsize=1)
+def _model_alias_lookup() -> dict[str, str]:
+    return _build_alias_lookup(MODEL_ALIASES)
+
+
 def normalize_brand(brand: str) -> str:
     """Normalise le nom de marque : minuscule, sans accents, puis alias.
 
     C'est la forme canonique pour les COMPARAISONS (lowercase).
     Pour l'affichage, utiliser ``display_brand()``.
     """
-    cleaned = _strip_accents(brand.strip().lower())
-    return BRAND_ALIASES.get(cleaned, cleaned)
+    cleaned = _normalize_canonical_text(brand)
+    return _resolve_alias(brand, _brand_alias_lookup()) or cleaned
 
 
 # Compat : ancien nom prive, utilise dans les tests et admin/routes
@@ -486,8 +579,8 @@ def normalize_model(model: str) -> str:
     C'est la forme canonique pour les COMPARAISONS (lowercase).
     Pour l'affichage, utiliser ``display_model()``.
     """
-    cleaned = _strip_accents(model.strip().lower())
-    aliased = MODEL_ALIASES.get(cleaned)
+    cleaned = _normalize_canonical_text(model)
+    aliased = _resolve_alias(model, _model_alias_lookup())
     if aliased:
         return aliased
 
@@ -497,7 +590,7 @@ def normalize_model(model: str) -> str:
     if len(parts) >= 2 and re.fullmatch(r"[ivx]{1,5}", parts[-1]):
         candidate = " ".join(parts[:-1]).strip()
         if candidate:
-            return MODEL_ALIASES.get(candidate, candidate)
+            return _resolve_alias(candidate, _model_alias_lookup()) or candidate
 
     return cleaned
 
@@ -626,6 +719,22 @@ def find_vehicle(make: str, model: str) -> Vehicle | None:
     if vehicle:
         logger.debug("Found vehicle: %s %s (id=%d)", vehicle.brand, vehicle.model, vehicle.id)
     else:
+        brand_key = _match_key(brand_norm)
+        model_key = _match_key(model_norm)
+        for candidate in Vehicle.query.all():
+            if _match_key(normalize_brand(candidate.brand)) != brand_key:
+                continue
+            if _match_key(normalize_model(candidate.model)) != model_key:
+                continue
+
+            logger.debug(
+                "Found vehicle via resilient lookup: %s %s (id=%d)",
+                candidate.brand,
+                candidate.model,
+                candidate.id,
+            )
+            return candidate
+
         logger.debug(
             "Vehicle not found: %s %s (normalized: %s %s)", make, model, brand_norm, model_norm
         )

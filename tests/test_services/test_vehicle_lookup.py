@@ -48,8 +48,17 @@ class TestNormalization:
     def test_model_alias_chr(self):
         assert _normalize_model("CHR") == "c-hr"
 
+    def test_model_alias_serie_accent(self):
+        assert _normalize_model("Série 1") == "serie 1"
+
+    def test_model_alias_punctuation_variant(self):
+        assert _normalize_model("C.HR") == "c-hr"
+
     def test_model_passthrough(self):
         assert _normalize_model("3008") == "3008"
+
+    def test_model_passthrough_keeps_hyphen(self):
+        assert _normalize_model("CX‑5") == "cx-5"
 
     # Aliases nouvelles marques
     def test_brand_ds(self):
@@ -66,6 +75,9 @@ class TestNormalization:
 
     def test_brand_land_rover_space(self):
         assert _normalize_brand("Land Rover") == "land rover"
+
+    def test_brand_mercedes_unicode_dash(self):
+        assert _normalize_brand("Mercedes‑Benz") == "mercedes"
 
     def test_brand_honda(self):
         assert _normalize_brand("Honda") == "honda"
@@ -236,6 +248,30 @@ class TestFindVehicle:
             result = find_vehicle("Toyota", "CHR")
             assert result is not None
             assert result.model == "C-HR"
+
+    def test_accent_insensitive_fallback_on_stored_model(self, app):
+        """Un modele stocke avec accent reste trouvable sans accent."""
+        with app.app_context():
+            vehicle = Vehicle.query.filter_by(brand="BMW", model="Série 1").first()
+            if not vehicle:
+                db.session.add(Vehicle(brand="BMW", model="Série 1", generation="F40"))
+                db.session.commit()
+
+            result = find_vehicle("BMW", "Serie 1")
+            assert result is not None
+            assert result.model == "Série 1"
+
+    def test_accent_insensitive_fallback_on_stored_brand(self, app):
+        """Une marque stockee avec accent reste trouvable sans accent."""
+        with app.app_context():
+            vehicle = Vehicle.query.filter_by(brand="Citroën", model="C4").first()
+            if not vehicle:
+                db.session.add(Vehicle(brand="Citroën", model="C4", generation="III"))
+                db.session.commit()
+
+            result = find_vehicle("Citroen", "C4")
+            assert result is not None
+            assert result.brand == "Citroën"
 
     def test_not_found(self, app):
         """Un vehicule inexistant retourne None."""
