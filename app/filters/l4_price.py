@@ -161,6 +161,26 @@ class L4PriceFilter(BaseFilter):
                 cascade_tried.append("lbc_estimation")
                 details["cascade_lbc_estimation_result"] = "not_found"
 
+        # 4. Fallback La Centrale Cote (quotation extraite du DOM -- scoring attenue)
+        if ref_price is None:
+            lc_quotation = data.get("lc_quotation")
+            cascade_tried.append("lc_quotation")
+            if lc_quotation and isinstance(lc_quotation, (int, float)) and lc_quotation > 0:
+                ref_price = float(lc_quotation)
+                source = "cote_lacentrale"
+                details["lc_quotation"] = lc_quotation
+                details["lc_trust_index"] = data.get("lc_trust_index")
+                details["price_reference"] = ref_price
+                details["source"] = source
+                details["cascade_lc_quotation_result"] = "found"
+                logger.info(
+                    "L4 using La Centrale cote: quotation=%d trust_index=%s",
+                    lc_quotation,
+                    data.get("lc_trust_index"),
+                )
+            else:
+                details["cascade_lc_quotation_result"] = "not_found"
+
         details["cascade_tried"] = cascade_tried
 
         if ref_price is None:
@@ -195,8 +215,8 @@ class L4PriceFilter(BaseFilter):
         delta = price - ref_price
         delta_pct = (delta / ref_price) * 100
 
-        # Scoring attenue pour estimation LBC (fourchette large, moins fiable)
-        if source == "estimation_lbc":
+        # Scoring attenue pour estimation LBC / cote LC (fourchette large, moins fiable)
+        if source in ("estimation_lbc", "cote_lacentrale"):
             details["delta_pct_raw"] = round(delta_pct, 1)
             delta_pct = delta_pct * 0.5
             details["delta_pct_attenuated"] = True
@@ -208,6 +228,8 @@ class L4PriceFilter(BaseFilter):
         msg_prefix = ""
         if source == "estimation_lbc":
             msg_prefix = "Estimation LeBonCoin — "
+        elif source == "cote_lacentrale":
+            msg_prefix = "Cote La Centrale — "
 
         if abs(delta_pct) <= 10:
             status = "pass"
