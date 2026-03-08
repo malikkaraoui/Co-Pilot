@@ -87,6 +87,13 @@ class L6PhoneFilter(BaseFilter):
         owner_type = (data.get("owner_type") or "").lower()
 
         if not phone:
+            # La Centrale ne fournit pas le telephone dans les donnees structurees.
+            # Le vendeur est contactable via la messagerie du site.
+            source = (data.get("source") or "").lower()
+            if source == "lacentrale":
+                return self.neutral(
+                    "La Centrale ne fournit pas le téléphone — contact via messagerie du site"
+                )
             # LBC cache le tel derriere "Voir le numero" (API authentifiee)
             # Le numero existe, on ne peut juste pas le verifier sans connexion
             if data.get("has_phone"):
