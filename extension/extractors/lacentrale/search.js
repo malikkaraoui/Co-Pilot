@@ -101,7 +101,7 @@ export async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
   let html;
   try {
     const resp = await fetch(searchUrl, {
-      credentials: 'omit',
+      credentials: 'include',
       headers: { 'Accept': 'text/html' },
     });
     if (!resp.ok) {

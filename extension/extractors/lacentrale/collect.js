@@ -21,7 +21,8 @@ function _yearMeta(yearRef, spread) {
   const y = parseInt(yearRef, 10);
   const s = parseInt(spread, 10) || 1;
   if (!Number.isFinite(y) || y < 1990) return { yearMin: null, yearMax: null };
-  return { yearMin: y - s, yearMax: y + s };
+  const currentYear = new Date().getFullYear();
+  return { yearMin: y - s, yearMax: Math.min(y + s, currentYear) };
 }
 
 function _urlVerdict(adsFound, uniqueAdded) {
