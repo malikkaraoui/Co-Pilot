@@ -1974,12 +1974,14 @@ def youtube_synthesis_validate(synthesis_id: int):
 @admin_bp.route("/issues")
 @login_required
 def issues():
-    """File d'attente des collectes argus (CollectionJob queue) -- onglets LBC / AS24."""
+    """File d'attente des collectes argus (CollectionJob queue) -- onglets LBC / AS24 / La Centrale."""
     from app.models.collection_job import CollectionJobLBC
     from app.models.collection_job_as24 import CollectionJobAS24
+    from app.models.collection_job_lacentrale import CollectionJobLacentrale
 
     site = request.args.get("site", "lbc").strip().lower()
-    Model = CollectionJobAS24 if site == "as24" else CollectionJobLBC
+    site_models = {"as24": CollectionJobAS24, "lacentrale": CollectionJobLacentrale}
+    Model = site_models.get(site, CollectionJobLBC)
 
     status_filter = request.args.get("status", "").strip()
     make_filter = request.args.get("make", "").strip()
@@ -2037,9 +2039,11 @@ def purge_failed_jobs():
     """Reset all failed jobs back to pending."""
     from app.models.collection_job import CollectionJobLBC
     from app.models.collection_job_as24 import CollectionJobAS24
+    from app.models.collection_job_lacentrale import CollectionJobLacentrale
 
     site = request.form.get("site", "lbc").strip().lower()
-    Model = CollectionJobAS24 if site == "as24" else CollectionJobLBC
+    site_models = {"as24": CollectionJobAS24, "lacentrale": CollectionJobLacentrale}
+    Model = site_models.get(site, CollectionJobLBC)
 
     count = Model.query.filter_by(status="failed").update({"status": "pending", "attempts": 0})
     db.session.commit()

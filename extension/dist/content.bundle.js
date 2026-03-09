@@ -3926,17 +3926,25 @@
     return String(text || "").replace(/\s+/g, " ").trim();
   }
   function _parseLcPrice(text) {
-    const match = _normalizeText2(text).match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*€/i);
-    if (!match) return null;
-    const price = parseInt(match[1].replace(/[\s\u00a0]/g, ""), 10);
-    return Number.isFinite(price) && price >= 500 ? price : null;
+    const norm = _normalizeText2(text);
+    const withEuro = norm.match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*€/i);
+    if (withEuro) {
+      const price = parseInt(withEuro[1].replace(/[\s\u00a0]/g, ""), 10);
+      if (Number.isFinite(price) && price >= 500) return price;
+    }
+    const allNums = [...norm.matchAll(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})(?!\s*km\b)/gi)];
+    for (let i = allNums.length - 1; i >= 0; i--) {
+      const val = parseInt(allNums[i][1].replace(/[\s\u00a0]/g, ""), 10);
+      if (Number.isFinite(val) && val >= 500 && val <= 2e5) return val;
+    }
+    return null;
   }
   function _parseLcYear(text) {
-    const match = _normalizeText2(text).match(/\b(19\d{2}|20\d{2})\b/);
+    const match = _normalizeText2(text).match(/(?<!\d)((?:19|20)\d{2})(?!\d)/);
     return match ? parseInt(match[1], 10) : null;
   }
   function _parseLcKm(text) {
-    const match = _normalizeText2(text).match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*km\b/i);
+    const match = _normalizeText2(text).match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*km(?!\d)/i);
     if (!match) return null;
     const km = parseInt(match[1].replace(/[\s\u00a0]/g, ""), 10);
     return Number.isFinite(km) ? km : null;
@@ -3952,14 +3960,14 @@
   function _parseLcJsonLdYear(value) {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (!value) return null;
-    const match = String(value).match(/\b(19\d{2}|20\d{2})\b/);
+    const match = String(value).match(/(?<!\d)((?:19|20)\d{2})(?!\d)/);
     return match ? parseInt(match[1], 10) : null;
   }
   function _findLcAdCard(link) {
     let node = link;
     while (node && node !== node.ownerDocument?.body) {
       const text = _normalizeText2(node.textContent);
-      if (text && /€/.test(text) && /\b(19\d{2}|20\d{2})\b/.test(text)) {
+      if (text && text.length >= 20 && text.length < 2e3 && /(?<!\d)(?:19|20)\d{2}(?!\d)/.test(text) && (/€/.test(text) || /\d{4,6}/.test(text))) {
         return node;
       }
       node = node.parentElement;

@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 CSV_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "Car Dataset 1945-2020.csv"
 
-# Marques du marche francais a importer
+# Marques du marché français à importer
 TARGET_MAKES = {
     "Peugeot",
     "Renault",
