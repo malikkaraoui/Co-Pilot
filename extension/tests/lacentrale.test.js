@@ -744,18 +744,12 @@ describe('LaCentraleExtractor phone handling', () => {
     expect(ext._adData.has_phone).toBe(true);
   });
 
-  it('revealPhone clique puis lit le numéro depuis le texte du document', async () => {
+  it('revealPhone lit un numéro déjà visible dans le document sans cliquer', async () => {
     document.body.innerHTML = `
       <section>
-        <button id="show-phone">Voir le numéro</button>
-        <div id="target"></div>
+        <div id="target">Appelez le 01 98 76 54 32</div>
       </section>
     `;
-
-    const btn = document.getElementById('show-phone');
-    btn.addEventListener('click', () => {
-      document.getElementById('target').textContent = 'Appelez le 01 98 76 54 32';
-    });
 
     const ext = new LaCentraleExtractor();
     ext._adData = { phone: null, has_phone: false };
@@ -777,12 +771,23 @@ describe('LaCentraleExtractor phone handling', () => {
     await expect(ext.revealPhone()).resolves.toBeNull();
   });
 
-  it('priorise le vrai CTA téléphone devant un lien FAQ parasite', async () => {
+  it('clique uniquement le vrai bouton téléphone La Centrale', async () => {
     document.body.innerHTML = `
       <main>
-        <a href="https://www.lacentrale.fr/faq/comment-contacter-un-vendeur">Comment contacter un vendeur ?</a>
         <section>
-          <button id="show-phone">Voir le numéro</button>
+          <a href="https://www.lacentrale.fr/faq/comment-contacter-un-vendeur">Comment contacter un vendeur ?</a>
+          <div data-page-zone="zoneContact">
+            <button
+              id="show-phone"
+              type="button"
+              data-testid="button"
+              data-page-zone="telephone"
+              class="Button_Button_button Button_Button_primary ContactInformation_button ContactInformation_phone"
+            >
+              <span>N° téléphone</span>
+              <span>Appeler</span>
+            </button>
+          </div>
           <div id="target"></div>
         </section>
       </main>
@@ -796,6 +801,30 @@ describe('LaCentraleExtractor phone handling', () => {
     const ext = new LaCentraleExtractor();
     const phone = await ext.revealPhone();
 
+    expect(ext.hasPhone()).toBe(true);
     expect(phone).toBe('0612345678');
+    expect(document.getElementById('target').textContent).toBe('Téléphone : 06 12 34 56 78');
+  });
+
+  it('ignore un bouton générique sans marqueurs La Centrale téléphone', async () => {
+    document.body.innerHTML = `
+      <main>
+        <section>
+          <button id="generic-phone" type="button">Voir le numéro</button>
+          <div id="target"></div>
+        </section>
+      </main>
+    `;
+
+    document.getElementById('generic-phone').addEventListener('click', () => {
+      document.getElementById('target').textContent = 'Téléphone : 06 11 22 33 44';
+    });
+
+    const ext = new LaCentraleExtractor();
+    const phone = await ext.revealPhone();
+
+    expect(ext.hasPhone()).toBe(false);
+    expect(phone).toBeNull();
+    expect(document.getElementById('target').textContent).toBe('');
   });
 });
