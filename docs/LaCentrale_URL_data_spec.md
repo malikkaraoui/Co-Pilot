@@ -46,12 +46,16 @@ Format : `BRAND::MODEL` (double colon !)
 | Essence | `ess` |
 | Electrique | `elec` |
 | Hybride | `hyb` |
-| Hybride rechargeable | `hybRech` |
+| Hybride rechargeable | `hybRech,plug_hyb` |
 | GPL | `gpl` |
-| GNV | `gnv` |
+
+**Verifie manuellement 2026-03-09** : tous les codes ci-dessus sont confirmes fonctionnels.
+GNV (`gnv`) ne fonctionne PAS comme filtre sur LC — retire.
+Hybride rechargeable necessite les DEUX codes `hybRech` ET `plug_hyb` separes par virgule.
 
 ```
 ?energies=dies
+?energies=hybRech%2Cplug_hyb    # hybride rechargeable (deux codes)
 ```
 
 ### Boite de vitesse (`gearbox`)
@@ -87,16 +91,21 @@ Format ISO-like. Multiples separees par virgule.
 | Centre-Val de Loire | `FR-CVL` |
 | Corse | `FR-COR` |
 
+**Verifie manuellement 2026-03-09** : les 13 codes region ci-dessus sont confirmes fonctionnels.
+
 ```
 ?regions=FR-ARA                  # une region
 ?regions=FR-ARA%2CFR-BFC         # deux regions (virgule encodee)
 ```
 
-### Localisation par code postal (`dptCp`, `distance`)
+### Localisation par code postal ou departement (`dptCp`, `distance`)
+
+**Verifie manuellement 2026-03-09** : `dptCp` accepte un code postal complet OU un numero de departement seul.
 
 ```
 ?dptCp=74000&distance=2          # 20 km autour de 74000
 ?dptCp=74000&distance=4          # 100 km autour de 74000
+?dptCp=74                        # departement 74 (Haute-Savoie)
 ```
 
 Codes distance connus :
@@ -108,6 +117,14 @@ Codes distance connus :
 
 ```
 ?powerDINMin=100&powerDINMax=250   # entre 100 et 250 ch DIN
+```
+
+### Puissance fiscale (`ratedHorsePowerMin`, `ratedHorsePowerMax`)
+
+**Verifie manuellement 2026-03-09** : `taxHorsepowerMin`/`taxHorsepowerMax` ne fonctionnent PAS.
+
+```
+?ratedHorsePowerMin=5&ratedHorsePowerMax=10   # entre 5 et 10 CV fiscaux
 ```
 
 ## Exemples complets

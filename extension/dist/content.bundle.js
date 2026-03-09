@@ -3887,8 +3887,8 @@
   }
 
   // extension/extractors/lacentrale/search.js
-  var LC_IFRAME_LOAD_TIMEOUT_MS = 15e3;
-  var LC_IFRAME_RENDER_WAIT_MS = 12e3;
+  var LC_IFRAME_LOAD_TIMEOUT_MS = 5e3;
+  var LC_IFRAME_RENDER_WAIT_MS = 2e3;
   var LC_IFRAME_POLL_INTERVAL_MS = 500;
   function buildLcSearchUrl(opts) {
     const params = new URLSearchParams();
@@ -4372,7 +4372,7 @@
       await backendFetch2(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: jobId, success })
+        body: JSON.stringify({ job_id: jobId, success, site: "lacentrale" })
       });
     } catch (e) {
       if (isBenignRuntimeTeardownError(e)) return;

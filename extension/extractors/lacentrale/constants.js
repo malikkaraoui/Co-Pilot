@@ -22,7 +22,6 @@ export const LC_FUEL_MAP = {
   'HYBRIDE': 'hybrid',
   'HYBRIDE_RECHARGEABLE': 'hybrid',
   'GPL': 'lpg',
-  'GNV': 'cng',
 };
 
 // Gearbox normalization
@@ -40,6 +39,9 @@ export const LC_GEARBOX_MAP = {
 export const LC_LISTING_BASE = 'https://www.lacentrale.fr/listing';
 
 // Fuel codes for search URL ?energies= param
+// Verified 2026-03-09 on lacentrale.fr by user.
+// GNV removed: not a real filter on LC.
+// Hybride rechargeable: requires both hybRech AND plug_hyb codes.
 export const LC_SEARCH_FUEL_CODES = {
   'diesel': 'dies',
   'essence': 'ess',
@@ -48,12 +50,10 @@ export const LC_SEARCH_FUEL_CODES = {
   'électrique': 'elec',
   'hybrid': 'hyb',
   'hybride': 'hyb',
-  'hybrid rechargeable': 'hybRech',
-  'hybride rechargeable': 'hybRech',
+  'hybrid rechargeable': 'hybRech,plug_hyb',
+  'hybride rechargeable': 'hybRech,plug_hyb',
   'lpg': 'gpl',
   'gpl': 'gpl',
-  'cng': 'gnv',
-  'gnv': 'gnv',
 };
 
 // Gearbox codes for search URL ?gearbox= param
