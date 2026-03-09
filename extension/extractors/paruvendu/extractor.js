@@ -63,6 +63,10 @@ export class ParuVenduExtractor extends SiteExtractor {
     return buildBonusSignals(this._domData || {});
   }
 
+  getLocation() {
+    return this._adData?.location || null;
+  }
+
   async collectMarketPrices() {
     return { submitted: false, isCurrentVehicle: false };
   }

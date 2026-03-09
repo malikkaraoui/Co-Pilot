@@ -167,6 +167,10 @@ export class AutoScout24Extractor extends SiteExtractor {
     return buildBonusSignals(this._rsc, this._jsonLd);
   }
 
+  getLocation() {
+    return this._adData?.location || null;
+  }
+
   async collectMarketPrices(progress) {
     if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
       return { submitted: false, isCurrentVehicle: false };

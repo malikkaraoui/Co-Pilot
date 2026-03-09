@@ -16,6 +16,7 @@ import { scoreColor, statusColor, statusIcon, filterLabel } from './utils/styles
 import { initDom, removePopup, showPopup } from './ui/dom.js';
 import { buildResultsPopup, buildErrorPopup, buildNotAVehiclePopup, buildNotSupportedPopup } from './ui/popups.js';
 import { showProgress } from './ui/progress.js';
+import { getWinterTireSignals } from './utils/winter-tires.js';
 import { SIMULATED_FILTERS } from './ui/filters/index.js';
 import {
   initLbcDeps,
@@ -146,6 +147,8 @@ async function runAnalysis(injectedExtractor) {
     progress.update("autoviza", freeReportUrl ? "done" : "skip", freeReportUrl ? "Rapport gratuit trouvé" : "Aucun rapport disponible");
 
     const bonusSignals = extractor.getBonusSignals();
+    const tireSignals = getWinterTireSignals(extractor.getLocation());
+    bonusSignals.push(...tireSignals);
 
     const detailsBtn = document.getElementById("okazcar-progress-details-btn");
     if (detailsBtn) {

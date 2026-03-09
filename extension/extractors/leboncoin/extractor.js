@@ -35,6 +35,12 @@ export class LeBonCoinExtractor extends SiteExtractor {
   getExtractedVehicle() { return this._vehicle; }
   getNextData() { return this._nextData; }
 
+  getLocation() {
+    const loc = this._nextData?.props?.pageProps?.ad?.location;
+    if (!loc) return null;
+    return { city: loc.city || '', zipcode: loc.zipcode || '', department: '' };
+  }
+
   hasPhone() {
     return !!this._nextData?.props?.pageProps?.ad?.has_phone;
   }

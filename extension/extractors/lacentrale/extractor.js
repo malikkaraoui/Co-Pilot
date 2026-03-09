@@ -293,6 +293,10 @@ export class LaCentraleExtractor extends SiteExtractor {
     return buildBonusSignals(this._gallery, this._tcVars, this._cote);
   }
 
+  getLocation() {
+    return this._adData?.location || null;
+  }
+
   async detectFreeReport() {
     return extractAutovizaUrl(document);
   }

@@ -1389,6 +1389,13 @@
     getVehicleSummary() {
       return null;
     }
+    /**
+     * Retourne la localisation du vehicule.
+     * @returns {{zipcode?: string, department?: string, city?: string}|null}
+     */
+    getLocation() {
+      return null;
+    }
   };
 
   // extension/extractors/leboncoin/extractor.js
@@ -1419,6 +1426,11 @@
     }
     getNextData() {
       return this._nextData;
+    }
+    getLocation() {
+      const loc = this._nextData?.props?.pageProps?.ad?.location;
+      if (!loc) return null;
+      return { city: loc.city || "", zipcode: loc.zipcode || "", department: "" };
     }
     hasPhone() {
       return !!this._nextData?.props?.pageProps?.ad?.has_phone;
@@ -2881,6 +2893,9 @@
     getBonusSignals() {
       return buildBonusSignals(this._rsc, this._jsonLd);
     }
+    getLocation() {
+      return this._adData?.location || null;
+    }
     async collectMarketPrices(progress) {
       if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
         return { submitted: false, isCurrentVehicle: false };
@@ -3545,8 +3560,7 @@
     "ELECTRIQUE": "electric",
     "HYBRIDE": "hybrid",
     "HYBRIDE_RECHARGEABLE": "hybrid",
-    "GPL": "lpg",
-    "GNV": "cng"
+    "GPL": "lpg"
   };
   var LC_GEARBOX_MAP = {
     "MECANIQUE": "manual",
@@ -3564,18 +3578,31 @@
     "\xE9lectrique": "elec",
     "hybrid": "hyb",
     "hybride": "hyb",
-    "hybrid rechargeable": "hybRech",
-    "hybride rechargeable": "hybRech",
+    "hybrid rechargeable": "hybRech,plug_hyb",
+    "hybride rechargeable": "hybRech,plug_hyb",
     "lpg": "gpl",
-    "gpl": "gpl",
-    "cng": "gnv",
-    "gnv": "gnv"
+    "gpl": "gpl"
   };
   var LC_SEARCH_GEARBOX_CODES = {
-    "manual": "man",
-    "manuelle": "man",
-    "automatic": "auto",
-    "automatique": "auto"
+    "manual": "MANUAL",
+    "manuelle": "MANUAL",
+    "automatic": "AUTO",
+    "automatique": "AUTO"
+  };
+  var LC_SEARCH_REGION_CODES = {
+    "\xCEle-de-France": "FR-IDF",
+    "Auvergne-Rh\xF4ne-Alpes": "FR-ARA",
+    "Provence-Alpes-C\xF4te d'Azur": "FR-PAC",
+    "Occitanie": "FR-OCC",
+    "Nouvelle-Aquitaine": "FR-NAQ",
+    "Hauts-de-France": "FR-HDF",
+    "Grand Est": "FR-GES",
+    "Bretagne": "FR-BRE",
+    "Pays de la Loire": "FR-PDL",
+    "Normandie": "FR-NOR",
+    "Bourgogne-Franche-Comt\xE9": "FR-BFC",
+    "Centre-Val de Loire": "FR-CVL",
+    "Corse": "FR-COR"
   };
   var LC_MIN_PRICES = 20;
   var LC_MAX_PRICES = 100;
@@ -3894,11 +3921,14 @@
     const params = new URLSearchParams();
     const make = (opts.make || "").toUpperCase();
     if (make) {
-      const token = opts.model ? `${make}:${opts.model.toUpperCase()}` : make;
+      const token = opts.model ? `${make}::${opts.model.toUpperCase()}` : make;
       params.set("makesModelsCommercialNames", token);
     }
     if (opts.yearMin) params.set("yearMin", String(opts.yearMin));
-    if (opts.yearMax) params.set("yearMax", String(opts.yearMax));
+    const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+    if (opts.yearMax && opts.yearMax < currentYear) {
+      params.set("yearMax", String(opts.yearMax));
+    }
     if (opts.mileageMin != null) params.set("mileageMin", String(opts.mileageMin));
     if (opts.mileageMax != null) params.set("mileageMax", String(opts.mileageMax));
     if (opts.fuel) {
@@ -3908,6 +3938,10 @@
     if (opts.gearbox) {
       const code = LC_SEARCH_GEARBOX_CODES[(opts.gearbox || "").toLowerCase()];
       if (code) params.set("gearbox", code);
+    }
+    if (opts.regions && Array.isArray(opts.regions) && opts.regions.length > 0) {
+      const codes = opts.regions.map((r) => LC_SEARCH_REGION_CODES[r] || r).filter(Boolean);
+      if (codes.length > 0) params.set("regions", codes.join(","));
     }
     return `${LC_LISTING_BASE}?${params.toString()}`;
   }
@@ -4924,6 +4958,9 @@
     }
     getBonusSignals() {
       return buildBonusSignals2(this._gallery, this._tcVars, this._cote);
+    }
+    getLocation() {
+      return this._adData?.location || null;
     }
     async detectFreeReport() {
       return extractAutovizaUrl(document);
@@ -6295,6 +6332,116 @@
     return createProgressTracker();
   }
 
+  // extension/utils/winter-tires.js
+  var LOI_MONTAGNE_DEPTS = /* @__PURE__ */ new Set([
+    "01",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07",
+    "09",
+    "11",
+    "12",
+    "15",
+    "25",
+    "26",
+    "31",
+    "38",
+    "39",
+    "42",
+    "43",
+    "48",
+    "57",
+    "63",
+    "64",
+    "65",
+    "66",
+    "67",
+    "68",
+    "69",
+    "70",
+    "73",
+    "74",
+    "81",
+    "83",
+    "84",
+    "88",
+    "90"
+  ]);
+  var SOUTH_DEPTS = /* @__PURE__ */ new Set([
+    "04",
+    "05",
+    "06",
+    "11",
+    "12",
+    "13",
+    "30",
+    "31",
+    "34",
+    "48",
+    "64",
+    "65",
+    "66",
+    "81",
+    "83",
+    "84"
+  ]);
+  function extractDeptCode(zipcode, department) {
+    if (zipcode && /^\d{5}$/.test(String(zipcode))) {
+      return String(zipcode).slice(0, 2);
+    }
+    if (department && /^\d{1,3}$/.test(String(department))) {
+      return String(department).padStart(2, "0");
+    }
+    if (typeof department === "string") {
+      const m = department.match(/\d{2,3}/);
+      if (m) return m[0].slice(0, 2);
+    }
+    return null;
+  }
+  function getWinterTireSignals(location2, now) {
+    if (!location2) return [];
+    const dept = extractDeptCode(location2.zipcode, location2.department);
+    if (!dept) return [];
+    const today = now || /* @__PURE__ */ new Date();
+    const month = today.getMonth() + 1;
+    const day = today.getDate();
+    const inSeason = month >= 11 || month <= 3;
+    const nearBeforeSeason = month === 10;
+    const nearAfterSeason = month === 4;
+    const isLoiMontagneDept = LOI_MONTAGNE_DEPTS.has(dept);
+    const isSouth = SOUTH_DEPTS.has(dept);
+    const signals = [];
+    if (nearBeforeSeason && isLoiMontagneDept) {
+      signals.push({
+        label: "Pneus hiver (Loi Montagne)",
+        value: "Obligation d\xE8s le 1er nov. \u2014 verifier l'equipement ou negocier",
+        status: "warning"
+      });
+    } else if (inSeason && isLoiMontagneDept) {
+      signals.push({
+        label: "Pneus hiver (Loi Montagne)",
+        value: "Obligatoire jusqu'au 31 mars \u2014 verifier pneus hiver/4 saisons ou chaines",
+        status: "warning"
+      });
+    } else if (nearAfterSeason && isSouth) {
+      signals.push({
+        label: "Pneus hiver en fin de saison",
+        value: "Verifier que les pneus ne sont pas des pneus hiver (usure acceleree en \xE9t\xE9)",
+        status: "warning"
+      });
+    }
+    if (isLoiMontagneDept && (inSeason || nearBeforeSeason || nearAfterSeason)) {
+      signals.push({
+        label: "Dimensions pneus",
+        value: "Verifier la compatibilite des pneus avec la carte grise (expert sinistre)",
+        status: "info"
+      });
+    }
+    return signals;
+  }
+
   // extension/content.js
   var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
   var lastScanId = null;
@@ -6412,6 +6559,8 @@
       const freeReportUrl = await extractor.detectFreeReport();
       progress.update("autoviza", freeReportUrl ? "done" : "skip", freeReportUrl ? "Rapport gratuit trouv\xE9" : "Aucun rapport disponible");
       const bonusSignals = extractor.getBonusSignals();
+      const tireSignals = getWinterTireSignals(extractor.getLocation());
+      bonusSignals.push(...tireSignals);
       const detailsBtn = document.getElementById("okazcar-progress-details-btn");
       if (detailsBtn) {
         detailsBtn.style.display = "inline-block";

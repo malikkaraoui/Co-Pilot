@@ -109,4 +109,12 @@ export class SiteExtractor {
   getVehicleSummary() {
     return null;
   }
+
+  /**
+   * Retourne la localisation du vehicule.
+   * @returns {{zipcode?: string, department?: string, city?: string}|null}
+   */
+  getLocation() {
+    return null;
+  }
 }
