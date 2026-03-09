@@ -3932,10 +3932,13 @@
       const price = parseInt(withEuro[1].replace(/[\s\u00a0]/g, ""), 10);
       if (Number.isFinite(price) && price >= 500) return price;
     }
-    const allNums = [...norm.matchAll(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})(?!\s*km\b)/gi)];
+    const allNums = [...norm.matchAll(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})(?!\s*km(?!\d))/gi)];
     for (let i = allNums.length - 1; i >= 0; i--) {
-      const val = parseInt(allNums[i][1].replace(/[\s\u00a0]/g, ""), 10);
-      if (Number.isFinite(val) && val >= 500 && val <= 2e5) return val;
+      const raw = allNums[i][1].replace(/[\s\u00a0]/g, "");
+      const val = parseInt(raw, 10);
+      if (!Number.isFinite(val) || val < 500 || val > 2e5) continue;
+      if (val >= 1900 && val <= 2099 && raw.length === 4) continue;
+      return val;
     }
     return null;
   }

@@ -18,8 +18,8 @@ import {
   LC_LISTING_BASE, LC_SEARCH_FUEL_CODES, LC_SEARCH_GEARBOX_CODES,
 } from './constants.js';
 
-const LC_IFRAME_LOAD_TIMEOUT_MS = 15000;
-const LC_IFRAME_RENDER_WAIT_MS = 12000;
+const LC_IFRAME_LOAD_TIMEOUT_MS = 5000;
+const LC_IFRAME_RENDER_WAIT_MS = 2000;
 const LC_IFRAME_POLL_INTERVAL_MS = 500;
 
 // ── URL Builder ─────────────────────────────────────────────────

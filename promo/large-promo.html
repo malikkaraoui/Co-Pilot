@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>OKazCar Large Promo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1400px;
+  height: 560px;
+  font-family: 'DM Sans', sans-serif;
+  overflow: hidden;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #1e3a5f 60%, #1e40af 100%);
+  position: relative;
+}
+
+/* Subtle grid */
+body::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* Decorative orbs */
+.orb1 {
+  position: absolute;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(59,130,246,0.2) 0%, transparent 70%);
+  border-radius: 50%;
+  top: -120px; right: 200px;
+}
+.orb2 {
+  position: absolute;
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(251,191,36,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  bottom: -80px; left: 100px;
+}
+.orb3 {
+  position: absolute;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(34,197,94,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  top: 200px; right: -40px;
+}
+
+.layout {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 80px;
+  gap: 80px;
+}
+
+/* ── Left: Branding ── */
+.left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.logo-wheel { width: 60px; height: 60px; flex-shrink: 0; }
+.logo-name {
+  font-size: 42px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -1px;
+}
+.logo-name em { color: #fbbf24; font-style: normal; }
+
+.headline {
+  font-size: 26px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+  line-height: 1.35;
+  margin-bottom: 28px;
+  max-width: 480px;
+}
+.headline strong { color: #fbbf24; font-weight: 700; }
+
+.features-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  max-width: 440px;
+}
+.feat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+}
+.feat-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.feat-icon.green { background: rgba(34,197,94,0.15); color: #22c55e; }
+.feat-icon.blue { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.feat-icon.yellow { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.feat-icon.purple { background: rgba(168,85,247,0.15); color: #a855f7; }
+.feat-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+}
+.feat-sub {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.45);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.sites-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  align-items: center;
+}
+.site-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.7);
+}
+.site-dot { width: 8px; height: 8px; border-radius: 50%; }
+.site-dot.lbc { background: #f97316; }
+.site-dot.as24 { background: #0ea5e9; }
+
+/* ── Right: Mockup ── */
+.right {
+  flex-shrink: 0;
+  width: 460px;
+  position: relative;
+}
+
+/* Floating panel mockup */
+.mock-panel {
+  width: 340px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  overflow: hidden;
+  transform: perspective(1000px) rotateY(-5deg) rotateX(2deg);
+  position: relative;
+}
+.mock-header {
+  padding: 14px 16px 12px;
+  background: linear-gradient(135deg, #1e3a5f, #2563eb);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mock-header svg { width: 24px; height: 24px; }
+.mock-header-text { font-size: 15px; font-weight: 700; color: #fff; }
+.mock-header-text em { color: #fbbf24; font-style: normal; }
+
+.mock-score {
+  padding: 18px;
+  text-align: center;
+  border-bottom: 1px solid #f1f5f9;
+}
+.mock-ring {
+  width: 90px; height: 90px;
+  margin: 0 auto 8px;
+  position: relative;
+}
+.mock-ring svg { transform: rotate(-90deg); }
+.mock-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.mock-verdict {
+  display: inline-block;
+  padding: 4px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #166534;
+}
+
+.mock-filters { padding: 10px 14px; }
+.mock-f {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  background: #fafbfc;
+  border-radius: 8px;
+  border: 1px solid #f1f5f9;
+}
+.mock-f-icon { font-size: 14px; width: 18px; text-align: center; }
+.mock-f-label { flex: 1; font-size: 11px; font-weight: 600; color: #334155; }
+.mock-f-bar { width: 40px; height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.mock-f-bar-fill { height: 100%; border-radius: 3px; }
+
+/* Floating popup mockup */
+.mock-popup {
+  position: absolute;
+  top: -20px;
+  right: -70px;
+  width: 230px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 16px 60px rgba(0,0,0,0.35);
+  overflow: hidden;
+  transform: perspective(1000px) rotateY(5deg) rotateX(-2deg);
+  z-index: 2;
+}
+.mock-popup-header {
+  padding: 12px 14px 10px;
+  background: linear-gradient(135deg, #1e3a5f, #2563eb);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mock-popup-header svg { width: 20px; height: 20px; }
+.mock-popup-header-text { font-size: 13px; font-weight: 700; color: #fff; }
+.mock-popup-header-text em { color: #fbbf24; font-style: normal; }
+.mock-popup-body { padding: 12px; }
+.mock-popup-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.mock-popup-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+.mock-popup-status-text { font-size: 10px; font-weight: 500; color: #166534; }
+.mock-popup-btn {
+  width: 100%;
+  padding: 9px;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-shadow: 0 3px 10px rgba(37,99,235,0.3);
+}
+</style>
+</head>
+<body>
+<div class="orb1"></div>
+<div class="orb2"></div>
+<div class="orb3"></div>
+
+<div class="layout">
+  <!-- Left: branding -->
+  <div class="left">
+    <div class="logo-row">
+      <svg class="logo-wheel" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="64" cy="64" r="56" fill="none" stroke="#ffffff" stroke-width="12"/>
+        <circle cx="64" cy="64" r="12" fill="#ffffff"/>
+        <g stroke="#ffffff" stroke-width="8" stroke-linecap="round">
+          <line x1="64" y1="22" x2="64" y2="52"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(72 64 64)"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(144 64 64)"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(216 64 64)"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(288 64 64)"/>
+        </g>
+      </svg>
+      <div class="logo-name">OKaz<em>Car</em></div>
+    </div>
+
+    <div class="headline">
+      Analysez n'importe quelle annonce auto<br>
+      en <strong>1 clic</strong>. Score de fiabilite,<br>
+      comparaison de prix, detection d'anomalies.
+    </div>
+
+    <div class="features-grid">
+      <div class="feat">
+        <div class="feat-icon green">&#10003;</div>
+        <div>
+          <div class="feat-text">9 filtres d'analyse</div>
+          <div class="feat-sub">Coherence, prix, profil...</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon blue">&#128200;</div>
+        <div>
+          <div class="feat-text">Comparaison prix</div>
+          <div class="feat-sub">vs Argus & marche reel</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon yellow">&#9888;</div>
+        <div>
+          <div class="feat-text">Detection anomalies</div>
+          <div class="feat-sub">Signaux d'alerte</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon purple">&#128274;</div>
+        <div>
+          <div class="feat-text">100% gratuit</div>
+          <div class="feat-sub">Pas de compte requis</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sites-row">
+      <div class="site-badge"><span class="site-dot lbc"></span>leboncoin.fr</div>
+      <div class="site-badge"><span class="site-dot as24"></span>autoscout24</div>
+    </div>
+  </div>
+
+  <!-- Right: mockups -->
+  <div class="right">
+    <!-- Main analysis panel -->
+    <div class="mock-panel">
+      <div class="mock-header">
+        <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="64" cy="64" r="50" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="10"/>
+          <circle cx="64" cy="64" r="10" fill="rgba(255,255,255,0.85)"/>
+          <g stroke="rgba(255,255,255,0.85)" stroke-width="7" stroke-linecap="round">
+            <line x1="64" y1="24" x2="64" y2="54"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(72 64 64)"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(144 64 64)"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(216 64 64)"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(288 64 64)"/>
+          </g>
+        </svg>
+        <div class="mock-header-text">OKaz<em>Car</em></div>
+      </div>
+      <div class="mock-score">
+        <div class="mock-ring">
+          <svg viewBox="0 0 90 90" width="90" height="90">
+            <circle cx="45" cy="45" r="38" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+            <circle cx="45" cy="45" r="38" fill="none" stroke="#22c55e" stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="239" stroke-dashoffset="48"/>
+          </svg>
+          <div class="mock-ring-text">80%</div>
+        </div>
+        <div class="mock-verdict">&#10003; Annonce fiable</div>
+      </div>
+      <div class="mock-filters">
+        <div class="mock-f">
+          <span class="mock-f-icon" style="color:#22c55e">&#10003;</span>
+          <span class="mock-f-label">Coherence annonce</span>
+          <div class="mock-f-bar"><div class="mock-f-bar-fill" style="width:95%;background:#22c55e"></div></div>
+        </div>
+        <div class="mock-f">
+          <span class="mock-f-icon" style="color:#22c55e">&#10003;</span>
+          <span class="mock-f-label">Referentiel vehicule</span>
+          <div class="mock-f-bar"><div class="mock-f-bar-fill" style="width:100%;background:#22c55e"></div></div>
+        </div>
+        <div class="mock-f">
+          <span class="mock-f-icon" style="color:#eab308">&#9888;</span>
+          <span class="mock-f-label">Prix vs Argus</span>
+          <div class="mock-f-bar"><div class="mock-f-bar-fill" style="width:60%;background:#eab308"></div></div>
+        </div>
+        <div class="mock-f">
+          <span class="mock-f-icon" style="color:#22c55e">&#10003;</span>
+          <span class="mock-f-label">Prix vs Marche</span>
+          <div class="mock-f-bar"><div class="mock-f-bar-fill" style="width:80%;background:#22c55e"></div></div>
+        </div>
+        <div class="mock-f">
+          <span class="mock-f-icon" style="color:#22c55e">&#10003;</span>
+          <span class="mock-f-label">Telephone vendeur</span>
+          <div class="mock-f-bar"><div class="mock-f-bar-fill" style="width:90%;background:#22c55e"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Popup floating -->
+    <div class="mock-popup">
+      <div class="mock-popup-header">
+        <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="64" cy="64" r="50" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="10"/>
+          <circle cx="64" cy="64" r="10" fill="rgba(255,255,255,0.85)"/>
+          <g stroke="rgba(255,255,255,0.85)" stroke-width="7" stroke-linecap="round">
+            <line x1="64" y1="24" x2="64" y2="54"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(72 64 64)"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(144 64 64)"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(216 64 64)"/>
+            <line x1="64" y1="24" x2="64" y2="54" transform="rotate(288 64 64)"/>
+          </g>
+        </svg>
+        <div class="mock-popup-header-text">OKaz<em>Car</em></div>
+      </div>
+      <div class="mock-popup-body">
+        <div class="mock-popup-status">
+          <div class="mock-popup-dot"></div>
+          <span class="mock-popup-status-text">Extension active</span>
+        </div>
+        <div class="mock-popup-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Analyser cette annonce
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

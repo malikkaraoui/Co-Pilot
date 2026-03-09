@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, initial-scale=1">
+<title>OKazCar Screenshot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1280px; height: 800px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: #f1f5f9;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Fake browser chrome ── */
+.browser-bar {
+  height: 42px;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  border-bottom: 1px solid #cbd5e1;
+}
+.browser-dot { width: 12px; height: 12px; border-radius: 50%; }
+.browser-dot.r { background: #ef4444; }
+.browser-dot.y { background: #eab308; }
+.browser-dot.g { background: #22c55e; }
+.browser-url {
+  margin-left: 16px;
+  flex: 1;
+  height: 28px;
+  background: #fff;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 12px;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+.browser-url .lock { color: #22c55e; margin-right: 6px; font-size: 11px; }
+.browser-ext {
+  width: 28px; height: 28px;
+  background: #1e40af;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  box-shadow: 0 0 0 3px rgba(30,64,175,0.25);
+}
+.browser-ext svg { width: 16px; height: 16px; }
+
+/* ── Fake LBC page ── */
+.page-content {
+  display: flex;
+  height: calc(800px - 42px);
+}
+.lbc-main {
+  flex: 1;
+  padding: 24px 32px;
+  overflow: hidden;
+}
+.lbc-breadcrumb {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 16px;
+}
+.lbc-breadcrumb span { color: #f97316; }
+.lbc-gallery {
+  width: 100%;
+  height: 320px;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 80px;
+  position: relative;
+  overflow: hidden;
+}
+.lbc-gallery::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.3));
+}
+.car-silhouette {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  height: 160px;
+  opacity: 0.15;
+}
+.lbc-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-top: 20px;
+}
+.lbc-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.lbc-price {
+  font-size: 26px;
+  font-weight: 700;
+  color: #f97316;
+}
+.lbc-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+.lbc-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lbc-attrs {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.lbc-attr {
+  padding: 6px 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+}
+
+/* ── OKazCar Panel (right side) ── */
+.okazcar-panel {
+  width: 380px;
+  background: #ffffff;
+  border-left: 1px solid #e2e8f0;
+  overflow-y: auto;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.06);
+}
+.panel-header {
+  padding: 16px 18px 14px;
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 50%, #2563eb 100%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.panel-logo-icon { width: 30px; height: 30px; }
+.panel-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+}
+.panel-title em { color: #fbbf24; font-style: normal; }
+
+/* Score section */
+.score-section {
+  padding: 18px;
+  text-align: center;
+  border-bottom: 1px solid #f1f5f9;
+}
+.score-ring-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 10px;
+}
+.score-ring { width: 120px; height: 120px; transform: rotate(-90deg); }
+.score-bg { fill: none; stroke: #e2e8f0; stroke-width: 10; }
+.score-fill { fill: none; stroke: #22c55e; stroke-width: 10; stroke-linecap: round; stroke-dasharray: 326; stroke-dashoffset: 65; transition: stroke-dashoffset 1s; }
+.score-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.score-value { font-size: 32px; font-weight: 700; color: #1e293b; }
+.score-label { font-size: 11px; color: #64748b; font-weight: 500; }
+.score-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #166534;
+}
+
+/* Filter list */
+.filter-list { padding: 10px 14px; }
+.filter-item {
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: #fafbfc;
+  border: 1px solid #f1f5f9;
+}
+.filter-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter-icon { font-size: 16px; flex-shrink: 0; width: 22px; text-align: center; }
+.filter-label { flex: 1; font-size: 12.5px; font-weight: 600; color: #334155; }
+.filter-score-bar {
+  width: 48px; height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.filter-score-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+.fill-green { background: #22c55e; }
+.fill-yellow { background: #eab308; }
+.fill-red { background: #ef4444; }
+.filter-chevron { font-size: 12px; color: #94a3b8; }
+
+/* Expanded filter */
+.filter-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+/* Radar chart placeholder */
+.radar-section {
+  padding: 14px 18px 18px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.radar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.radar-svg { display: block; margin: 0 auto; }
+
+/* ── Overlay annotation ── */
+.annotation {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30,64,175,0.9);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  z-index: 10;
+}
+.annotation svg { width: 20px; height: 20px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<!-- Browser chrome -->
+<div class="browser-bar">
+  <div class="browser-dot r"></div>
+  <div class="browser-dot y"></div>
+  <div class="browser-dot g"></div>
+  <div class="browser-url">
+    <span class="lock">&#128274;</span>
+    leboncoin.fr/voitures/2847593012.htm
+  </div>
+  <div class="browser-ext">
+    <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="64" cy="64" r="50" fill="none" stroke="#fff" stroke-width="10"/>
+      <circle cx="64" cy="64" r="10" fill="#fff"/>
+      <g stroke="#fff" stroke-width="7" stroke-linecap="round">
+        <line x1="64" y1="24" x2="64" y2="54"/>
+        <line x1="64" y1="24" x2="64" y2="54" transform="rotate(72 64 64)"/>
+        <line x1="64" y1="24" x2="64" y2="54" transform="rotate(144 64 64)"/>
+        <line x1="64" y1="24" x2="64" y2="54" transform="rotate(216 64 64)"/>
+        <line x1="64" y1="24" x2="64" y2="54" transform="rotate(288 64 64)"/>
+      </g>
+    </svg>
+  </div>
+</div>
+
+<div class="page-content">
+  <!-- Fake LBC ad -->
+  <div class="lbc-main">
+    <div class="lbc-breadcrumb">Accueil &rsaquo; Vehicules &rsaquo; <span>Voitures</span></div>
+    <div class="lbc-gallery">
+      <svg class="car-silhouette" viewBox="0 0 400 160" fill="white">
+        <path d="M50,130 Q60,130 70,110 L120,60 Q140,40 180,40 L280,40 Q310,40 330,60 L360,100 Q370,120 380,130 L50,130 Z"/>
+        <circle cx="110" cy="130" r="22"/>
+        <circle cx="310" cy="130" r="22"/>
+      </svg>
+    </div>
+    <div class="lbc-title-row">
+      <div>
+        <div class="lbc-title">Peugeot 308 GT Line PureTech 130</div>
+        <div class="lbc-meta">
+          <span>&#128197; 2021</span>
+          <span>&#9981; 45 200 km</span>
+          <span>&#9981; Essence</span>
+          <span>&#128205; Lyon 69003</span>
+        </div>
+      </div>
+      <div class="lbc-price">18 490 &euro;</div>
+    </div>
+    <div class="lbc-attrs">
+      <div class="lbc-attr">Boite automatique</div>
+      <div class="lbc-attr">130 ch</div>
+      <div class="lbc-attr">Premiere main</div>
+      <div class="lbc-attr">Non fumeur</div>
+      <div class="lbc-attr">GPS</div>
+      <div class="lbc-attr">Camera recul</div>
+    </div>
+  </div>
+
+  <!-- OKazCar panel -->
+  <div class="okazcar-panel">
+    <div class="panel-header">
+      <svg class="panel-logo-icon" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="64" cy="64" r="56" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="12"/>
+        <circle cx="64" cy="64" r="12" fill="rgba(255,255,255,0.85)"/>
+        <g stroke="rgba(255,255,255,0.85)" stroke-width="8" stroke-linecap="round">
+          <line x1="64" y1="22" x2="64" y2="52"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(72 64 64)"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(144 64 64)"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(216 64 64)"/>
+          <line x1="64" y1="22" x2="64" y2="52" transform="rotate(288 64 64)"/>
+        </g>
+      </svg>
+      <div class="panel-title">OKaz<em>Car</em></div>
+    </div>
+
+    <!-- Score -->
+    <div class="score-section">
+      <div class="score-ring-container">
+        <svg class="score-ring" viewBox="0 0 120 120">
+          <circle class="score-bg" cx="60" cy="60" r="52"/>
+          <circle class="score-fill" cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="score-text">
+          <span class="score-value">80%</span>
+          <span class="score-label">Score global</span>
+        </div>
+      </div>
+      <div class="score-verdict">&#10003; Annonce fiable</div>
+    </div>
+
+    <!-- Radar -->
+    <div class="radar-section">
+      <div class="radar-title">Radar des filtres</div>
+      <svg class="radar-svg" viewBox="0 0 200 200" width="180" height="180">
+        <!-- Grid -->
+        <polygon points="100,20 168,52 168,148 100,180 32,148 32,52" fill="none" stroke="#e2e8f0" stroke-width="1"/>
+        <polygon points="100,40 152,62 152,138 100,160 48,138 48,62" fill="none" stroke="#f1f5f9" stroke-width="1"/>
+        <polygon points="100,60 136,74 136,126 100,140 64,126 64,74" fill="none" stroke="#f8fafc" stroke-width="1"/>
+        <!-- Data fill -->
+        <polygon points="100,28 162,58 155,142 100,170 45,138 38,60" fill="rgba(34,197,94,0.12)" stroke="#22c55e" stroke-width="2"/>
+        <!-- Data points -->
+        <circle cx="100" cy="28" r="4" fill="#22c55e"/>
+        <circle cx="162" cy="58" r="4" fill="#22c55e"/>
+        <circle cx="155" cy="142" r="4" fill="#eab308"/>
+        <circle cx="100" cy="170" r="4" fill="#22c55e"/>
+        <circle cx="45" cy="138" r="4" fill="#22c55e"/>
+        <circle cx="38" cy="60" r="4" fill="#22c55e"/>
+        <!-- Labels -->
+        <text x="100" y="14" text-anchor="middle" font-size="9" fill="#64748b" font-family="DM Sans">Coherence</text>
+        <text x="178" y="54" text-anchor="start" font-size="9" fill="#64748b" font-family="DM Sans">Referentiel</text>
+        <text x="178" y="150" text-anchor="start" font-size="9" fill="#64748b" font-family="DM Sans">Prix</text>
+        <text x="100" y="196" text-anchor="middle" font-size="9" fill="#64748b" font-family="DM Sans">Marche</text>
+        <text x="18" y="150" text-anchor="end" font-size="9" fill="#64748b" font-family="DM Sans">Telephone</text>
+        <text x="18" y="54" text-anchor="end" font-size="9" fill="#64748b" font-family="DM Sans">Profil</text>
+      </svg>
+    </div>
+
+    <!-- Filters list -->
+    <div class="filter-list">
+      <div class="filter-item">
+        <div class="filter-header">
+          <span class="filter-icon" style="color:#22c55e">&#10003;</span>
+          <span class="filter-label">L1 - Coherence annonce</span>
+          <div class="filter-score-bar"><div class="filter-score-fill fill-green" style="width:95%"></div></div>
+          <span class="filter-chevron">&#x25B4;</span>
+        </div>
+        <div class="filter-body">
+          Titre, description et attributs coherents. Aucune anomalie detectee dans les donnees de l'annonce.
+        </div>
+      </div>
+      <div class="filter-item">
+        <div class="filter-header">
+          <span class="filter-icon" style="color:#22c55e">&#10003;</span>
+          <span class="filter-label">L2 - Referentiel vehicule</span>
+          <div class="filter-score-bar"><div class="filter-score-fill fill-green" style="width:100%"></div></div>
+          <span class="filter-chevron">&#x25BE;</span>
+        </div>
+      </div>
+      <div class="filter-item">
+        <div class="filter-header">
+          <span class="filter-icon" style="color:#22c55e">&#10003;</span>
+          <span class="filter-label">L3 - Photos & contenu</span>
+          <div class="filter-score-bar"><div class="filter-score-fill fill-green" style="width:85%"></div></div>
+          <span class="filter-chevron">&#x25BE;</span>
+        </div>
+      </div>
+      <div class="filter-item">
+        <div class="filter-header">
+          <span class="filter-icon" style="color:#eab308">&#9888;</span>
+          <span class="filter-label">L4 - Prix vs Argus</span>
+          <div class="filter-score-bar"><div class="filter-score-fill fill-yellow" style="width:60%"></div></div>
+          <span class="filter-chevron">&#x25BE;</span>
+        </div>
+      </div>
+      <div class="filter-item">
+        <div class="filter-header">
+          <span class="filter-icon" style="color:#22c55e">&#10003;</span>
+          <span class="filter-label">L5 - Prix vs Marche</span>
+          <div class="filter-score-bar"><div class="filter-score-fill fill-green" style="width:80%"></div></div>
+          <span class="filter-chevron">&#x25BE;</span>
+        </div>
+      </div>
+      <div class="filter-item">
+        <div class="filter-header">
+          <span class="filter-icon" style="color:#22c55e">&#10003;</span>
+          <span class="filter-label">L6 - Telephone vendeur</span>
+          <div class="filter-score-bar"><div class="filter-score-fill fill-green" style="width:90%"></div></div>
+          <span class="filter-chevron">&#x25BE;</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Floating annotation -->
+<div class="annotation">
+  <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="64" cy="64" r="50" fill="none" stroke="#fff" stroke-width="10"/>
+    <circle cx="64" cy="64" r="10" fill="#fff"/>
+    <g stroke="#fff" stroke-width="7" stroke-linecap="round">
+      <line x1="64" y1="24" x2="64" y2="54"/>
+      <line x1="64" y1="24" x2="64" y2="54" transform="rotate(72 64 64)"/>
+      <line x1="64" y1="24" x2="64" y2="54" transform="rotate(144 64 64)"/>
+      <line x1="64" y1="24" x2="64" y2="54" transform="rotate(216 64 64)"/>
+      <line x1="64" y1="24" x2="64" y2="54" transform="rotate(288 64 64)"/>
+    </g>
+  </svg>
+  OKazCar analyse 9 criteres en 1 clic
+</div>
+
+</body>
+</html>
