@@ -16,6 +16,7 @@ import { isChromeRuntimeAvailable } from '../../utils/fetch.js';
 import {
   LC_AD_PAGE_PATTERN,
   LC_LISTING_BASE, LC_SEARCH_FUEL_CODES, LC_SEARCH_GEARBOX_CODES,
+  LC_SEARCH_REGION_CODES,
 } from './constants.js';
 
 const LC_IFRAME_LOAD_TIMEOUT_MS = 5000;
@@ -41,18 +42,23 @@ const LC_IFRAME_POLL_INTERVAL_MS = 500;
 export function buildLcSearchUrl(opts) {
   const params = new URLSearchParams();
 
-  // Brand + optional model: "PEUGEOT" or "PEUGEOT:308"
+  // Brand + optional model: "PEUGEOT" or "PEUGEOT::308" (double colon!)
+  // Verified 2026-03-09: LC uses BRAND::MODEL (not single colon).
   const make = (opts.make || '').toUpperCase();
   if (make) {
     const token = opts.model
-      ? `${make}:${opts.model.toUpperCase()}`
+      ? `${make}::${opts.model.toUpperCase()}`
       : make;
     params.set('makesModelsCommercialNames', token);
   }
 
   // Year range
+  // Verified 2026-03-09: omit yearMax when it equals current year (LC convention).
   if (opts.yearMin) params.set('yearMin', String(opts.yearMin));
-  if (opts.yearMax) params.set('yearMax', String(opts.yearMax));
+  const currentYear = new Date().getFullYear();
+  if (opts.yearMax && opts.yearMax < currentYear) {
+    params.set('yearMax', String(opts.yearMax));
+  }
 
   // Mileage range
   if (opts.mileageMin != null) params.set('mileageMin', String(opts.mileageMin));
@@ -68,6 +74,14 @@ export function buildLcSearchUrl(opts) {
   if (opts.gearbox) {
     const code = LC_SEARCH_GEARBOX_CODES[(opts.gearbox || '').toLowerCase()];
     if (code) params.set('gearbox', code);
+  }
+
+  // Regions (optional, comma-separated ISO codes)
+  if (opts.regions && Array.isArray(opts.regions) && opts.regions.length > 0) {
+    const codes = opts.regions
+      .map((r) => LC_SEARCH_REGION_CODES[r] || r)
+      .filter(Boolean);
+    if (codes.length > 0) params.set('regions', codes.join(','));
   }
 
   return `${LC_LISTING_BASE}?${params.toString()}`;

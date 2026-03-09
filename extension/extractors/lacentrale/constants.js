@@ -57,11 +57,32 @@ export const LC_SEARCH_FUEL_CODES = {
 };
 
 // Gearbox codes for search URL ?gearbox= param
+// Verified 2026-03-09: LC uses uppercase full words (MANUAL, AUTO), NOT abbreviations.
+// "man"/"auto" are silently ignored by the site = 0 results with gearbox filter.
 export const LC_SEARCH_GEARBOX_CODES = {
-  'manual': 'man',
-  'manuelle': 'man',
-  'automatic': 'auto',
-  'automatique': 'auto',
+  'manual': 'MANUAL',
+  'manuelle': 'MANUAL',
+  'automatic': 'AUTO',
+  'automatique': 'AUTO',
+};
+
+// Region codes for search URL ?regions= param
+// Verified 2026-03-09: LC supports regional filtering via ISO-like codes.
+// Multiple regions: comma-separated (e.g. "FR-ARA,FR-BFC").
+export const LC_SEARCH_REGION_CODES = {
+  'Île-de-France': 'FR-IDF',
+  'Auvergne-Rhône-Alpes': 'FR-ARA',
+  'Provence-Alpes-Côte d\'Azur': 'FR-PAC',
+  'Occitanie': 'FR-OCC',
+  'Nouvelle-Aquitaine': 'FR-NAQ',
+  'Hauts-de-France': 'FR-HDF',
+  'Grand Est': 'FR-GES',
+  'Bretagne': 'FR-BRE',
+  'Pays de la Loire': 'FR-PDL',
+  'Normandie': 'FR-NOR',
+  'Bourgogne-Franche-Comté': 'FR-BFC',
+  'Centre-Val de Loire': 'FR-CVL',
+  'Corse': 'FR-COR',
 };
 
 // Min prices to consider a collection successful
