@@ -763,4 +763,39 @@ describe('LaCentraleExtractor phone handling', () => {
 
     expect(phone).toBe('0198765432');
   });
+
+  it('ignore un lien FAQ/contact qui navigue hors de l’annonce', async () => {
+    document.body.innerHTML = `
+      <main>
+        <a href="https://www.lacentrale.fr/faq/comment-contacter-un-vendeur">Comment contacter un vendeur ?</a>
+      </main>
+    `;
+
+    const ext = new LaCentraleExtractor();
+
+    expect(ext.hasPhone()).toBe(false);
+    await expect(ext.revealPhone()).resolves.toBeNull();
+  });
+
+  it('priorise le vrai CTA téléphone devant un lien FAQ parasite', async () => {
+    document.body.innerHTML = `
+      <main>
+        <a href="https://www.lacentrale.fr/faq/comment-contacter-un-vendeur">Comment contacter un vendeur ?</a>
+        <section>
+          <button id="show-phone">Voir le numéro</button>
+          <div id="target"></div>
+        </section>
+      </main>
+    `;
+
+    const btn = document.getElementById('show-phone');
+    btn.addEventListener('click', () => {
+      document.getElementById('target').textContent = 'Téléphone : 06 12 34 56 78';
+    });
+
+    const ext = new LaCentraleExtractor();
+    const phone = await ext.revealPhone();
+
+    expect(phone).toBe('0612345678');
+  });
 });

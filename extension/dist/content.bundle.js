@@ -4778,21 +4778,50 @@
     if (phoneFromText) return phoneFromText;
     return null;
   }
+  function _isLikelyPhoneHref(href) {
+    if (!href) return true;
+    const raw = String(href).trim();
+    if (!raw || raw === "#") return true;
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("javascript:") || lower.startsWith("tel:")) return true;
+    try {
+      const resolved = new URL(raw, window.location.href);
+      return resolved.origin === window.location.origin && resolved.pathname === window.location.pathname && resolved.search === window.location.search;
+    } catch {
+      return false;
+    }
+  }
+  function _scorePhoneActionElement(el) {
+    const text = (el.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+    const title = (el.getAttribute("title") || "").trim().toLowerCase();
+    const testid = (el.getAttribute("data-testid") || "").trim().toLowerCase();
+    const href = (el.getAttribute("href") || "").trim();
+    const hrefLower = href.toLowerCase();
+    const haystack = [text, aria, title, testid, hrefLower].filter(Boolean).join(" ");
+    if (!_isLikelyPhoneHref(href)) return 0;
+    if (el.closest("header, nav, footer")) return 0;
+    let score = 0;
+    if (haystack.includes("voir le num\xE9ro") || haystack.includes("voir le numero")) score += 100;
+    if (haystack.includes("afficher le num\xE9ro") || haystack.includes("afficher le numero")) score += 95;
+    if (haystack.includes("num\xE9ro de t\xE9l\xE9phone") || haystack.includes("numero de telephone")) score += 90;
+    if (haystack.includes("n\xB0 t\xE9l\xE9phone") || haystack.includes("n\xB0 telephone")) score += 85;
+    if (haystack.includes("t\xE9l\xE9phone") || haystack.includes("telephone")) score += 50;
+    if (haystack.includes("appeler")) score += 45;
+    if (hrefLower.startsWith("tel:")) score += 120;
+    if (testid.includes("phone") || testid.includes("telephone") || testid.includes("contact-phone")) score += 60;
+    if (el.tagName === "BUTTON") score += 10;
+    if (el.getAttribute("role") === "button") score += 5;
+    return score;
+  }
   function _findPhoneActionElements() {
     const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [data-testid], [aria-label], [title]'));
-    return candidates.filter((el) => {
-      const haystack = [
-        el.textContent,
-        el.getAttribute("aria-label"),
-        el.getAttribute("title"),
-        el.getAttribute("data-testid"),
-        el.getAttribute("href")
-      ].filter(Boolean).join(" ").toLowerCase();
-      return haystack.includes("voir le num\xE9ro") || haystack.includes("voir le numero") || haystack.includes("afficher le num\xE9ro") || haystack.includes("afficher le numero") || haystack.includes("n\xB0 t\xE9l\xE9phone") || haystack.includes("n\xB0 telephone") || haystack.includes("t\xE9l\xE9phone") || haystack.includes("telephone") || haystack.includes("appeler") || haystack.includes("contact");
-    });
+    return candidates.map((el) => ({ el, score: _scorePhoneActionElement(el) })).filter(({ score }) => score > 0).sort((a, b) => b.score - a.score).map(({ el }) => el);
   }
   async function _clickPhoneActionElement(el) {
     if (!el) return;
+    const href = el.getAttribute?.("href");
+    if (!_isLikelyPhoneHref(href)) return;
     try {
       el.scrollIntoView({ block: "center", inline: "center" });
     } catch {
