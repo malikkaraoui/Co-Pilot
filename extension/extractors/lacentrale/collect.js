@@ -93,7 +93,7 @@ async function _reportJobDone(backendFetch, apiUrl, jobId, success) {
     await backendFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId, success }),
+      body: JSON.stringify({ job_id: jobId, success, site: 'lacentrale' }),
     });
   } catch (e) {
     if (isBenignRuntimeTeardownError(e)) return;

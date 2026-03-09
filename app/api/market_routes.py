@@ -81,6 +81,25 @@ def _pick_and_serialize_bonus(
             )
         return result
 
+    if site == "lacentrale":
+        from app.services.collection_job_lc_service import pick_bonus_jobs_lc
+
+        picked = pick_bonus_jobs_lc(max_jobs=max_jobs)
+        return [
+            {
+                "make": j.make,
+                "model": j.model,
+                "year": j.year,
+                "region": j.region,
+                "fuel": j.fuel,
+                "gearbox": j.gearbox,
+                "hp_range": j.hp_range,
+                "country": j.country or "FR",
+                "job_id": j.id,
+            }
+            for j in picked
+        ]
+
     # LBC (default) — filter by country to avoid serving CH jobs to FR extension
     picked = pick_bonus_jobs(max_jobs=max_jobs, country=country)
     result = []
@@ -398,6 +417,10 @@ def mark_job_complete():
     try:
         if site == "as24":
             mark_job_done_as24(job_id, success=success)
+        elif site == "lacentrale":
+            from app.services.collection_job_lc_service import mark_job_done_lc
+
+            mark_job_done_lc(job_id, success=success)
         else:
             try:
                 mark_job_done(job_id, success=success)
@@ -486,6 +509,17 @@ def next_market_job():
             tld=tld,
             slug_make=slug_make,
             slug_model=slug_model,
+        )
+    elif site == "lacentrale":
+        from app.services.collection_job_lc_service import expand_collection_jobs_lc
+
+        expand_collection_jobs_lc(
+            make=make,
+            model=model,
+            year=year,
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
         )
     else:
         expand_collection_jobs(
