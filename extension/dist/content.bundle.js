@@ -3658,6 +3658,7 @@
     const description = _resolveDescription(classified, vehicle);
     const department = classified.visitPlace || tc.department_list?.[0] || null;
     const zipcode = classified.zipCode || tc.zip_code || null;
+    const phone = _resolvePhone(classified, ld, tc);
     return {
       title: classified.title || ld.name || null,
       price_eur: classified.price ?? ld.offers?.price ?? null,
@@ -3683,7 +3684,7 @@
         lat: null,
         lng: null
       },
-      phone: null,
+      phone,
       description,
       owner_type: ownerType,
       owner_name: classified.sellerName || tc.dealer_name || null,
@@ -3692,7 +3693,7 @@
       dealer_review_count: tc.rating_count ?? null,
       raw_attributes: {},
       image_count: imageCount,
-      has_phone: false,
+      has_phone: Boolean(phone),
       has_urgent: false,
       has_highlight: false,
       has_boost: false,
@@ -3716,7 +3717,11 @@
       lc_badge_maintenance: tc.badge_maintenance ?? null,
       lc_owner_sub_category: tc.owner_sub_category ?? null,
       lc_critair: vehicle.critair?.critairLevel ?? null,
-      lc_euro_standard: vehicle.critair?.standardMet ?? null
+      lc_euro_standard: vehicle.critair?.standardMet ?? null,
+      lc_model_raw: vehicle.model || null,
+      lc_commercial_model: vehicle.commercialModel || null,
+      lc_family: vehicle.family || null,
+      lc_version: vehicle.version || null
     };
   }
   function buildBonusSignals2(gallery, tcVars, cote) {
@@ -3853,12 +3858,38 @@
     if (typeof age === "number" && age >= 0) return age;
     return null;
   }
+  function _cleanPhone(phone) {
+    if (!phone) return null;
+    const raw = String(phone).trim();
+    const compact = raw.replace(/[^\d+]/g, "");
+    if (/^\+33\d{9}$/.test(compact) || /^0\d{9}$/.test(compact)) return compact;
+    return null;
+  }
+  function _resolvePhone(classified, ld, tc) {
+    const candidates = [
+      classified?.contactPhone,
+      classified?.phone,
+      classified?.telephone,
+      Array.isArray(classified?.phones) ? classified.phones[0] : classified?.phones,
+      ld?.telephone,
+      tc?.phone,
+      tc?.telephone
+    ];
+    for (const candidate of candidates) {
+      const cleaned = _cleanPhone(candidate);
+      if (cleaned) return cleaned;
+    }
+    return null;
+  }
   function _departmentToRegion(dept) {
     if (!dept) return null;
     return dept;
   }
 
   // extension/extractors/lacentrale/search.js
+  var LC_IFRAME_LOAD_TIMEOUT_MS = 15e3;
+  var LC_IFRAME_RENDER_WAIT_MS = 12e3;
+  var LC_IFRAME_POLL_INTERVAL_MS = 500;
   function buildLcSearchUrl(opts) {
     const params = new URLSearchParams();
     const make = (opts.make || "").toUpperCase();
@@ -3888,8 +3919,255 @@
     if (km <= 12e4) return { mileageMin: 5e4, mileageMax: 15e4 };
     return { mileageMin: 1e5, mileageMax: 999999 };
   }
-  async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
-    let html;
+  function _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  function _normalizeText2(text) {
+    return String(text || "").replace(/\s+/g, " ").trim();
+  }
+  function _parseLcPrice(text) {
+    const match = _normalizeText2(text).match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*€/i);
+    if (!match) return null;
+    const price = parseInt(match[1].replace(/[\s\u00a0]/g, ""), 10);
+    return Number.isFinite(price) && price >= 500 ? price : null;
+  }
+  function _parseLcYear(text) {
+    const match = _normalizeText2(text).match(/\b(19\d{2}|20\d{2})\b/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+  function _parseLcKm(text) {
+    const match = _normalizeText2(text).match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*km\b/i);
+    if (!match) return null;
+    const km = parseInt(match[1].replace(/[\s\u00a0]/g, ""), 10);
+    return Number.isFinite(km) ? km : null;
+  }
+  function _parseLcMaybeNumber(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string") return null;
+    const match = value.match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,7})/);
+    if (!match) return null;
+    const num = parseInt(match[1].replace(/[\s\u00a0]/g, ""), 10);
+    return Number.isFinite(num) ? num : null;
+  }
+  function _parseLcJsonLdYear(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (!value) return null;
+    const match = String(value).match(/\b(19\d{2}|20\d{2})\b/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+  function _findLcAdCard(link) {
+    let node = link;
+    while (node && node !== node.ownerDocument?.body) {
+      const text = _normalizeText2(node.textContent);
+      if (text && /€/.test(text) && /\b(19\d{2}|20\d{2})\b/.test(text)) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return link;
+  }
+  function _collectLcInterestingResources(win) {
+    try {
+      return win.performance.getEntriesByType("resource").map((entry) => entry?.name).filter((name) => typeof name === "string").filter((name) => /lacentrale\.fr/i.test(name)).filter((name) => /api|graphql|search|listing|classified|annonce|vehicle/i.test(name)).slice(0, 30);
+    } catch {
+      return [];
+    }
+  }
+  function _dedupeAds(ads) {
+    const seen = /* @__PURE__ */ new Set();
+    return (ads || []).filter((ad) => {
+      if (!ad || !Number.isFinite(ad.price)) return false;
+      const key = `${ad.price}-${ad.year || "?"}-${ad.km || "?"}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  function _extractAdsFromJsonLdNode(node, out) {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach((item) => _extractAdsFromJsonLdNode(item, out));
+      return;
+    }
+    if (typeof node !== "object") return;
+    const price = _parseLcMaybeNumber(
+      node.offers?.price ?? node.price ?? node.priceSpecification?.price ?? node.offers?.priceSpecification?.price
+    );
+    const year = _parseLcJsonLdYear(
+      node.vehicleModelDate ?? node.productionDate ?? node.releaseDate ?? node.dateVehicleFirstRegistered ?? node.datePublished
+    );
+    const km = _parseLcMaybeNumber(
+      node.mileageFromOdometer?.value ?? node.mileageFromOdometer ?? node.mileage ?? node.vehicleConfiguration?.mileageFromOdometer?.value
+    );
+    const typeLabel = String(node["@type"] || "").toLowerCase();
+    const hasVehicleContext = Boolean(
+      year != null || km != null || node.brand || node.model || node.name || node.url || typeLabel.includes("car") || typeLabel.includes("vehicle") || typeLabel.includes("product") || typeLabel.includes("listitem")
+    );
+    if (price && price >= 500 && hasVehicleContext) {
+      out.push({ price, year, km });
+    }
+    if (node.itemListElement) _extractAdsFromJsonLdNode(node.itemListElement, out);
+    if (node.item) _extractAdsFromJsonLdNode(node.item, out);
+    Object.values(node).forEach((value) => {
+      if (value && typeof value === "object") {
+        _extractAdsFromJsonLdNode(value, out);
+      }
+    });
+  }
+  function _extractAdsFromJsonLdScripts(root) {
+    if (!root?.querySelectorAll) return [];
+    const ads = [];
+    const scripts = Array.from(root.querySelectorAll('script[type="application/ld+json"]'));
+    for (const script of scripts) {
+      const raw = script.textContent?.trim();
+      if (!raw) continue;
+      try {
+        const data = JSON.parse(raw);
+        _extractAdsFromJsonLdNode(data, ads);
+      } catch {
+      }
+    }
+    return _dedupeAds(ads);
+  }
+  function _createLcProbeIframe() {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.style.position = "fixed";
+    iframe.style.left = "-200vw";
+    iframe.style.top = "0";
+    iframe.style.width = "1440px";
+    iframe.style.height = "3200px";
+    iframe.style.opacity = "0.01";
+    iframe.style.pointerEvents = "none";
+    iframe.style.border = "0";
+    iframe.style.zIndex = "-2147483647";
+    return iframe;
+  }
+  function _canUseLcIframeProbe(searchUrl) {
+    if (typeof document === "undefined" || typeof window === "undefined") return false;
+    if (!document.body) return false;
+    try {
+      const pageUrl = new URL(window.location.href);
+      const targetUrl = new URL(searchUrl, window.location.href);
+      return /(^|\.)lacentrale\.fr$/i.test(pageUrl.hostname) && /(^|\.)lacentrale\.fr$/i.test(targetUrl.hostname) && pageUrl.origin === targetUrl.origin;
+    } catch {
+      return false;
+    }
+  }
+  function extractLcAdsFromRenderedDom(root) {
+    if (!root?.querySelectorAll) return [];
+    const links = Array.from(root.querySelectorAll('a[href*="auto-occasion-annonce-"]'));
+    const seenHrefs = /* @__PURE__ */ new Set();
+    return links.map((link) => {
+      const href = link.href || link.getAttribute("href") || "";
+      if (!href || seenHrefs.has(href)) return null;
+      seenHrefs.add(href);
+      const card = _findLcAdCard(link);
+      const text = _normalizeText2(card?.textContent || link.textContent || "");
+      if (!text || text.length < 20) return null;
+      const price = _parseLcPrice(text);
+      if (!price) return null;
+      return {
+        price,
+        year: _parseLcYear(text),
+        km: _parseLcKm(text),
+        href
+      };
+    }).filter((ad) => ad && Number.isFinite(ad.price)).map(({ href, ...ad }) => ad);
+  }
+  function _looksLikeAntiBotPage(html) {
+    return /captcha-delivery\.com|Please enable JS and disable any ad blocker|data-cfasync="false"/i.test(html || "");
+  }
+  async function _probeLcListingViaIframe(searchUrl) {
+    if (!_canUseLcIframeProbe(searchUrl)) return null;
+    const iframe = _createLcProbeIframe();
+    try {
+      const loadResult = await new Promise((resolve) => {
+        const timeoutId = window.setTimeout(() => {
+          cleanup();
+          resolve({ ok: false, reason: "timeout" });
+        }, LC_IFRAME_LOAD_TIMEOUT_MS);
+        const cleanup = () => {
+          iframe.onload = null;
+          iframe.onerror = null;
+          window.clearTimeout(timeoutId);
+        };
+        iframe.onload = () => {
+          cleanup();
+          resolve({ ok: true });
+        };
+        iframe.onerror = () => {
+          cleanup();
+          resolve({ ok: false, reason: "error" });
+        };
+        document.body.appendChild(iframe);
+        iframe.src = searchUrl;
+      });
+      if (!loadResult.ok) {
+        console.debug("[OKazCar] LC iframe probe failed: %s", loadResult.reason);
+        return null;
+      }
+      const frameWin = iframe.contentWindow;
+      const frameDoc = iframe.contentDocument;
+      if (!frameWin || !frameDoc?.documentElement) {
+        console.debug("[OKazCar] LC iframe probe: inaccessible document");
+        return null;
+      }
+      let ads = [];
+      let jsonLdAds = [];
+      let waited = 0;
+      while (waited < LC_IFRAME_RENDER_WAIT_MS) {
+        ads = extractLcAdsFromRenderedDom(frameDoc);
+        jsonLdAds = _extractAdsFromJsonLdScripts(frameDoc);
+        if (ads.length > 0 || jsonLdAds.length > 0) break;
+        try {
+          frameWin.scrollTo(0, Math.max(
+            frameDoc.documentElement?.scrollHeight || 0,
+            frameDoc.body?.scrollHeight || 0
+          ));
+        } catch {
+        }
+        await _sleep(LC_IFRAME_POLL_INTERVAL_MS);
+        waited += LC_IFRAME_POLL_INTERVAL_MS;
+      }
+      const html = frameDoc.documentElement.outerHTML || "";
+      const resources = _collectLcInterestingResources(frameWin);
+      const inlineAds = _extractAdsFromInlineJson(html) || _extractAdsFromNextData(html) || [];
+      const mergedAds = _dedupeAds([...ads, ...jsonLdAds, ...inlineAds]);
+      if (resources.length > 0) {
+        console.debug("[OKazCar] LC iframe resources: %o", resources);
+      }
+      return {
+        html,
+        ads: mergedAds,
+        title: frameDoc.title || "",
+        resources
+      };
+    } catch (err) {
+      console.debug("[OKazCar] LC iframe probe error:", err.message);
+      return null;
+    } finally {
+      iframe.remove();
+    }
+  }
+  async function _fetchLcListingHtml(searchUrl) {
+    if (isChromeRuntimeAvailable()) {
+      try {
+        const result = await chrome.runtime.sendMessage({
+          action: "lc_listing_fetch",
+          url: searchUrl
+        });
+        if (result?.ok && typeof result.body === "string") {
+          return result.body;
+        }
+        if (result && !result.ok) {
+          console.warn("[OKazCar] LC listing fetch (MAIN): %s", result.error || `HTTP ${result.status}`);
+        }
+      } catch (err) {
+        console.debug("[OKazCar] LC listing MAIN fetch indisponible:", err.message);
+      }
+    }
     try {
       const resp = await fetch(searchUrl, {
         credentials: "include",
@@ -3897,11 +4175,33 @@
       });
       if (!resp.ok) {
         console.warn("[OKazCar] LC listing fetch HTTP %d for %s", resp.status, searchUrl.substring(0, 120));
-        return [];
+        return null;
       }
-      html = await resp.text();
+      return await resp.text();
     } catch (err) {
       console.warn("[OKazCar] LC listing fetch error:", err.message);
+      return null;
+    }
+  }
+  async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
+    const iframeProbe = await _probeLcListingViaIframe(searchUrl);
+    if (iframeProbe?.html) {
+      if (_looksLikeAntiBotPage(iframeProbe.html)) {
+        console.warn("[OKazCar] LC listing blocked in iframe for %s", searchUrl.substring(0, 120));
+        return [];
+      }
+      if (iframeProbe.ads?.length > 0) {
+        console.log("[OKazCar] LC listing (rendered DOM): %d ads extracted from %s", iframeProbe.ads.length, searchUrl.substring(0, 100));
+        return _filterAds(iframeProbe.ads, targetYear, yearSpread);
+      }
+      console.debug("[OKazCar] LC iframe loaded but no ad cards found (%s)", iframeProbe.title || "no title");
+    }
+    const html = await _fetchLcListingHtml(searchUrl);
+    if (!html) {
+      return [];
+    }
+    if (_looksLikeAntiBotPage(html)) {
+      console.warn("[OKazCar] LC listing blocked by anti-bot for %s", searchUrl.substring(0, 120));
       return [];
     }
     let ads = _extractAdsFromNextData(html);
@@ -4024,6 +4324,34 @@
       `boite=${gearbox || "any"}`,
       `annee=${yearVal}`
     ].join(" \xB7 ");
+  }
+  function _cleanLcToken(value) {
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_/]+/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  }
+  function _pushLcVariant(list, value) {
+    const cleaned = _cleanLcToken(value);
+    if (!cleaned) return;
+    if (!list.includes(cleaned)) list.push(cleaned);
+  }
+  function _buildLcModelVariants(baseModel, adData) {
+    const variants = [];
+    const rawCandidates = [
+      baseModel,
+      adData?.lc_model_raw,
+      adData?.lc_commercial_model,
+      adData?.lc_family,
+      adData?.lc_version
+    ];
+    rawCandidates.forEach((candidate) => _pushLcVariant(variants, candidate));
+    for (const candidate of [...variants]) {
+      if (candidate.includes("+")) {
+        _pushLcVariant(variants, candidate.replace(/\+/g, ""));
+        _pushLcVariant(variants, candidate.replace(/\+/g, " PLUS"));
+      }
+      _pushLcVariant(variants, candidate.replace(/[-']/g, " "));
+      _pushLcVariant(variants, candidate.replace(/[^A-Z0-9+ ]/g, " "));
+    }
+    return variants.filter(Boolean).slice(0, 6);
   }
   async function _reportJobDone(backendFetch2, apiUrl, jobId, success) {
     if (!jobId) return;
@@ -4222,19 +4550,27 @@
         if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
         const s = strategies[i];
         const yearMeta = _yearMeta(tYear, s.yearSpread);
-        const searchUrl = buildLcSearchUrl({
-          make: target.make,
-          model: s.model,
-          yearMin: yearMeta.yearMin,
-          yearMax: yearMeta.yearMax,
-          mileageMin: s.mileage?.mileageMin,
-          mileageMax: s.mileage?.mileageMax,
-          fuel: s.fuel,
-          gearbox: s.gearbox
-        });
-        const critSummary = _criteriaSummary(target.make, s.model, s.fuel, s.gearbox, yearMeta);
+        const modelVariants = s.model ? _buildLcModelVariants(s.model, isCurrentVehicle ? adData : null) : [null];
+        const triedModels = [];
+        let searchUrl = null;
+        let newPrices = [];
+        for (const modelVariant of modelVariants) {
+          searchUrl = buildLcSearchUrl({
+            make: target.make,
+            model: modelVariant,
+            yearMin: yearMeta.yearMin,
+            yearMax: yearMeta.yearMax,
+            mileageMin: s.mileage?.mileageMin,
+            mileageMax: s.mileage?.mileageMax,
+            fuel: s.fuel,
+            gearbox: s.gearbox
+          });
+          triedModels.push(modelVariant || "(brand-only)");
+          newPrices = await fetchLcSearchPrices(searchUrl, tYear, s.yearSpread);
+          if (newPrices.length > 0) break;
+        }
+        const critSummary = _criteriaSummary(target.make, triedModels[0] || s.model, s.fuel, s.gearbox, yearMeta);
         const strategyLabel = "Strategie " + (i + 1) + " \xB7 \xB1" + s.yearSpread + "an";
-        const newPrices = await fetchLcSearchPrices(searchUrl, tYear, s.yearSpread);
         const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
         const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
         prices = [...prices, ...unique];
@@ -4250,7 +4586,7 @@
         );
         if (progress) {
           const stepStatus = unique.length > 0 ? "done" : "skip";
-          const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")" + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "") + " \xB7 " + critSummary;
+          const stepDetail = unique.length + " nouvelles annonces (total " + prices.length + ")" + (enoughPrices && collectedPrecision === null ? " \u2713 seuil atteint" : "") + " \xB7 " + critSummary + (triedModels.length > 1 ? ` \xB7 variantes=${triedModels.join(" | ")}` : "");
           progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
         }
         searchLog.push({
@@ -4271,6 +4607,7 @@
           url_verdict: _urlVerdict(newPrices.length, unique.length),
           total_accumulated: prices.length,
           url: searchUrl,
+          model_variants: triedModels,
           was_selected: enoughPrices,
           reason: enoughPrices ? `total ${prices.length} annonces >= ${LC_MIN_PRICES} minimum` : `total ${prices.length} annonces < ${LC_MIN_PRICES} minimum`
         });
@@ -4386,51 +4723,121 @@
     }
     return fakeWin;
   }
+  function _cleanPhone2(phone) {
+    if (!phone) return null;
+    const compact = String(phone).replace(/[^\d+]/g, "").trim();
+    if (/^\+33\d{9}$/.test(compact) || /^0\d{9}$/.test(compact)) return compact;
+    return null;
+  }
+  function _extractPhoneFromText(text) {
+    if (!text) return null;
+    const match = String(text).match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+    return match ? _cleanPhone2(match[0]) : null;
+  }
+  function _getStructuredPhone() {
+    const galleryWin = _readBridgedData("__okazcar_lc_gallery__", window, "CLASSIFIED_GALLERY");
+    const jsonLdCandidates = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+    let jsonLdPhone = null;
+    for (const script of jsonLdCandidates) {
+      try {
+        const data = JSON.parse(script.textContent || "{}");
+        if (data?.telephone) {
+          jsonLdPhone = data.telephone;
+          break;
+        }
+        const graphPhone = Array.isArray(data?.["@graph"]) ? data["@graph"].find((item) => item?.telephone)?.telephone : null;
+        if (graphPhone) {
+          jsonLdPhone = graphPhone;
+          break;
+        }
+      } catch {
+      }
+    }
+    const gallery = galleryWin.CLASSIFIED_GALLERY?.data || galleryWin.CLASSIFIED_GALLERY || {};
+    const classified = gallery.classified || {};
+    const candidates = [
+      classified.contactPhone,
+      classified.phone,
+      classified.telephone,
+      Array.isArray(classified.phones) ? classified.phones[0] : classified.phones,
+      jsonLdPhone
+    ];
+    for (const candidate of candidates) {
+      const cleaned = _cleanPhone2(candidate);
+      if (cleaned) return cleaned;
+    }
+    return null;
+  }
+  function _extractAnyPhoneFromDocument(root = document) {
+    const telLinks = root.querySelectorAll?.('a[href^="tel:"]') || [];
+    for (const link of telLinks) {
+      const phone = _cleanPhone2(link.href.replace(/^tel:/i, ""));
+      if (phone) return phone;
+    }
+    const phoneFromText = _extractPhoneFromText(root.body?.innerText || root.documentElement?.innerText || "");
+    if (phoneFromText) return phoneFromText;
+    return null;
+  }
+  function _findPhoneActionElements() {
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [data-testid], [aria-label], [title]'));
+    return candidates.filter((el) => {
+      const haystack = [
+        el.textContent,
+        el.getAttribute("aria-label"),
+        el.getAttribute("title"),
+        el.getAttribute("data-testid"),
+        el.getAttribute("href")
+      ].filter(Boolean).join(" ").toLowerCase();
+      return haystack.includes("voir le num\xE9ro") || haystack.includes("voir le numero") || haystack.includes("afficher le num\xE9ro") || haystack.includes("afficher le numero") || haystack.includes("n\xB0 t\xE9l\xE9phone") || haystack.includes("n\xB0 telephone") || haystack.includes("t\xE9l\xE9phone") || haystack.includes("telephone") || haystack.includes("appeler") || haystack.includes("contact");
+    });
+  }
+  async function _clickPhoneActionElement(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView({ block: "center", inline: "center" });
+    } catch {
+    }
+    const events = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+    for (const type of events) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      } catch {
+      }
+    }
+    try {
+      el.click();
+    } catch {
+    }
+    try {
+      el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+      el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
+    } catch {
+    }
+  }
   async function _revealPhoneLC() {
-    const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
-    for (const link of existingTelLinks) {
-      const phone = link.href.replace("tel:", "").trim();
-      if (phone && phone.length >= 10) return phone;
-    }
-    const candidates = document.querySelectorAll('button, a, [role="button"]');
-    let phoneBtn = null;
-    for (const el of candidates) {
-      const text = (el.textContent || "").toLowerCase().trim();
-      if (text.includes("voir le num\xE9ro") || text.includes("voir le numero") || text.includes("afficher le num\xE9ro") || text.includes("afficher le numero") || text.includes("n\xB0 t\xE9l\xE9phone") || text.includes("n\xB0 telephone") || text.includes("appeler")) {
-        phoneBtn = el;
-        break;
-      }
-    }
-    if (!phoneBtn) return null;
-    phoneBtn.click();
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await new Promise((r) => setTimeout(r, 500));
-      const telLinks = document.querySelectorAll('a[href^="tel:"]');
-      for (const link of telLinks) {
-        const phone = link.href.replace("tel:", "").trim();
-        if (phone && phone.length >= 10) return phone;
-      }
-      const container = phoneBtn.closest("div") || phoneBtn.parentElement;
-      if (container) {
-        const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
-        if (match) return match[0].replace(/[\s.-]/g, "");
+    const structuredPhone = _getStructuredPhone();
+    if (structuredPhone) return structuredPhone;
+    const visiblePhone = _extractAnyPhoneFromDocument(document);
+    if (visiblePhone) return visiblePhone;
+    const phoneButtons = _findPhoneActionElements();
+    if (phoneButtons.length === 0) return null;
+    for (const phoneBtn of phoneButtons) {
+      await _clickPhoneActionElement(phoneBtn);
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise((r) => setTimeout(r, 400));
+        const docPhone = _extractAnyPhoneFromDocument(document);
+        if (docPhone) return docPhone;
+        const container = phoneBtn.closest("section, article, div, aside") || phoneBtn.parentElement;
+        if (container) {
+          const localPhone = _extractPhoneFromText(container.textContent || "");
+          if (localPhone) return localPhone;
+        }
       }
     }
     return null;
   }
   function _hasPhoneButtonLC() {
-    const candidates = document.querySelectorAll('button, a, [role="button"]');
-    for (const el of candidates) {
-      const text = (el.textContent || "").toLowerCase().trim();
-      if (text.includes("voir le num\xE9ro") || text.includes("voir le numero") || text.includes("afficher le num\xE9ro") || text.includes("afficher le numero") || text.includes("n\xB0 t\xE9l\xE9phone") || text.includes("n\xB0 telephone") || text.includes("appeler")) {
-        return true;
-      }
-    }
-    const telLinks = document.querySelectorAll('a[href^="tel:"]');
-    for (const link of telLinks) {
-      if (link.href.replace("tel:", "").trim().length >= 10) return true;
-    }
-    return false;
+    return Boolean(_getStructuredPhone() || _extractAnyPhoneFromDocument(document) || _findPhoneActionElements().length > 0);
   }
   var LaCentraleExtractor = class extends SiteExtractor {
     static SITE_ID = "lacentrale";

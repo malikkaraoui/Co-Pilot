@@ -33,51 +33,155 @@ function _readBridgedData(domId, win, propName) {
   return fakeWin;
 }
 
+function _cleanPhone(phone) {
+  if (!phone) return null;
+  const compact = String(phone).replace(/[^\d+]/g, '').trim();
+  if (/^\+33\d{9}$/.test(compact) || /^0\d{9}$/.test(compact)) return compact;
+  return null;
+}
+
+function _extractPhoneFromText(text) {
+  if (!text) return null;
+  const match = String(text).match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
+  return match ? _cleanPhone(match[0]) : null;
+}
+
+function _getStructuredPhone() {
+  const galleryWin = _readBridgedData('__okazcar_lc_gallery__', window, 'CLASSIFIED_GALLERY');
+  const jsonLdCandidates = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+  let jsonLdPhone = null;
+
+  for (const script of jsonLdCandidates) {
+    try {
+      const data = JSON.parse(script.textContent || '{}');
+      if (data?.telephone) {
+        jsonLdPhone = data.telephone;
+        break;
+      }
+      const graphPhone = Array.isArray(data?.['@graph'])
+        ? data['@graph'].find((item) => item?.telephone)?.telephone
+        : null;
+      if (graphPhone) {
+        jsonLdPhone = graphPhone;
+        break;
+      }
+    } catch {
+      // ignore malformed JSON-LD
+    }
+  }
+
+  const gallery = galleryWin.CLASSIFIED_GALLERY?.data || galleryWin.CLASSIFIED_GALLERY || {};
+  const classified = gallery.classified || {};
+  const candidates = [
+    classified.contactPhone,
+    classified.phone,
+    classified.telephone,
+    Array.isArray(classified.phones) ? classified.phones[0] : classified.phones,
+    jsonLdPhone,
+  ];
+
+  for (const candidate of candidates) {
+    const cleaned = _cleanPhone(candidate);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function _extractAnyPhoneFromDocument(root = document) {
+  const telLinks = root.querySelectorAll?.('a[href^="tel:"]') || [];
+  for (const link of telLinks) {
+    const phone = _cleanPhone(link.href.replace(/^tel:/i, ''));
+    if (phone) return phone;
+  }
+
+  const phoneFromText = _extractPhoneFromText(root.body?.innerText || root.documentElement?.innerText || '');
+  if (phoneFromText) return phoneFromText;
+
+  return null;
+}
+
+function _findPhoneActionElements() {
+  const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [data-testid], [aria-label], [title]'));
+  return candidates.filter((el) => {
+    const haystack = [
+      el.textContent,
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.getAttribute('data-testid'),
+      el.getAttribute('href'),
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return haystack.includes('voir le numéro')
+      || haystack.includes('voir le numero')
+      || haystack.includes('afficher le numéro')
+      || haystack.includes('afficher le numero')
+      || haystack.includes('n° téléphone')
+      || haystack.includes('n° telephone')
+      || haystack.includes('téléphone')
+      || haystack.includes('telephone')
+      || haystack.includes('appeler')
+      || haystack.includes('contact');
+  });
+}
+
+async function _clickPhoneActionElement(el) {
+  if (!el) return;
+  try {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+  } catch {
+    // ignore scroll failures
+  }
+
+  const events = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  for (const type of events) {
+    try {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    } catch {
+      // ignore event failures
+    }
+  }
+
+  try { el.click(); } catch { /* ignore */ }
+
+  try {
+    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+  } catch {
+    // ignore keyboard event failures
+  }
+}
+
 /**
  * Reveal the seller's phone number by clicking "Voir le numéro" on La Centrale.
  * Same pattern as LeBonCoin — the phone is hidden behind a button click.
  */
 async function _revealPhoneLC() {
-  // 1. Check if phone is already visible (tel: link)
-  const existingTelLinks = document.querySelectorAll('a[href^="tel:"]');
-  for (const link of existingTelLinks) {
-    const phone = link.href.replace("tel:", "").trim();
-    if (phone && phone.length >= 10) return phone;
-  }
+  const structuredPhone = _getStructuredPhone();
+  if (structuredPhone) return structuredPhone;
 
-  // 2. Find the "Voir le numéro" button
-  const candidates = document.querySelectorAll('button, a, [role="button"]');
-  let phoneBtn = null;
-  for (const el of candidates) {
-    const text = (el.textContent || "").toLowerCase().trim();
-    if (text.includes("voir le numéro") || text.includes("voir le numero")
-        || text.includes("afficher le numéro") || text.includes("afficher le numero")
-        || text.includes("n° téléphone") || text.includes("n° telephone")
-        || text.includes("appeler")) {
-      phoneBtn = el;
-      break;
+  const visiblePhone = _extractAnyPhoneFromDocument(document);
+  if (visiblePhone) return visiblePhone;
+
+  const phoneButtons = _findPhoneActionElements();
+  if (phoneButtons.length === 0) return null;
+
+  for (const phoneBtn of phoneButtons) {
+    await _clickPhoneActionElement(phoneBtn);
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await new Promise((r) => setTimeout(r, 400));
+
+      const docPhone = _extractAnyPhoneFromDocument(document);
+      if (docPhone) return docPhone;
+
+      const container = phoneBtn.closest('section, article, div, aside') || phoneBtn.parentElement;
+      if (container) {
+        const localPhone = _extractPhoneFromText(container.textContent || '');
+        if (localPhone) return localPhone;
+      }
     }
   }
-  if (!phoneBtn) return null;
 
-  // 3. Click and wait for phone to appear
-  phoneBtn.click();
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await new Promise((r) => setTimeout(r, 500));
-
-    const telLinks = document.querySelectorAll('a[href^="tel:"]');
-    for (const link of telLinks) {
-      const phone = link.href.replace("tel:", "").trim();
-      if (phone && phone.length >= 10) return phone;
-    }
-
-    // Fallback: regex match in button container
-    const container = phoneBtn.closest("div") || phoneBtn.parentElement;
-    if (container) {
-      const match = container.textContent.match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
-      if (match) return match[0].replace(/[\s.-]/g, "");
-    }
-  }
   return null;
 }
 
@@ -85,22 +189,7 @@ async function _revealPhoneLC() {
  * Detect if a "Voir le numéro" button exists on the page.
  */
 function _hasPhoneButtonLC() {
-  const candidates = document.querySelectorAll('button, a, [role="button"]');
-  for (const el of candidates) {
-    const text = (el.textContent || "").toLowerCase().trim();
-    if (text.includes("voir le numéro") || text.includes("voir le numero")
-        || text.includes("afficher le numéro") || text.includes("afficher le numero")
-        || text.includes("n° téléphone") || text.includes("n° telephone")
-        || text.includes("appeler")) {
-      return true;
-    }
-  }
-  // Also check if phone already revealed (tel: link)
-  const telLinks = document.querySelectorAll('a[href^="tel:"]');
-  for (const link of telLinks) {
-    if (link.href.replace("tel:", "").trim().length >= 10) return true;
-  }
-  return false;
+  return Boolean(_getStructuredPhone() || _extractAnyPhoneFromDocument(document) || _findPhoneActionElements().length > 0);
 }
 
 export class LaCentraleExtractor extends SiteExtractor {

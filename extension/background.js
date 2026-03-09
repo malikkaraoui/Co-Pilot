@@ -105,6 +105,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // ── Fetch HTML La Centrale depuis le MAIN world ──────────────
+  // Le fetch direct depuis le content script peut perdre le contexte
+  // anti-bot / cookies de premiere partie. On execute donc la requete
+  // dans le monde de la page, comme pour Leboncoin.
+  if (message.action === "lc_listing_fetch") {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "no tab id" });
+      return true;
+    }
+
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: async (url) => {
+          try {
+            const resp = await fetch(url, {
+              credentials: "include",
+              headers: { Accept: "text/html" },
+            });
+            const body = await resp.text();
+            return { ok: resp.ok, status: resp.status, body };
+          } catch (e) {
+            return { ok: false, error: e.message };
+          }
+        },
+        args: [message.url],
+      })
+      .then((results) => {
+        const result = results?.[0]?.result;
+        sendResponse(result || { ok: false, error: "no result from MAIN world" });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, error: err.message });
+      });
+
+    return true;
+  }
+
   // ── Injection content script (popup → background) ────────────
   if (message.action !== "inject_and_analyze") return false;
 

@@ -1,6 +1,6 @@
 "use strict";
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   LC_AD_PAGE_PATTERN, LC_FUEL_MAP, LC_GEARBOX_MAP,
 } from '../extractors/lacentrale/constants.js';
@@ -10,8 +10,15 @@ import {
 import {
   normalizeToAdData, buildBonusSignals,
 } from '../extractors/lacentrale/normalize.js';
+import { fetchLcSearchPrices, extractLcAdsFromRenderedDom } from '../extractors/lacentrale/search.js';
 import { LaCentraleExtractor } from '../extractors/lacentrale/extractor.js';
 import { getExtractor } from '../extractors/index.js';
+
+afterEach(() => {
+  delete global.fetch;
+  delete global.chrome;
+  vi.restoreAllMocks();
+});
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -468,5 +475,292 @@ describe('buildBonusSignals', () => {
 
   it('returns empty array with null inputs', () => {
     expect(buildBonusSignals(null, null, null)).toEqual([]);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 10. Listing search — fetchLcSearchPrices
+// ═══════════════════════════════════════════════════════════════════
+
+describe('fetchLcSearchPrices', () => {
+  const searchUrl = 'https://www.lacentrale.fr/listing?makesModelsCommercialNames=ALFA+ROMEO%3AMITO&yearMin=2014&yearMax=2018&energies=ess';
+
+  it('utilise chrome.runtime.sendMessage en priorite pour le HTML listing', async () => {
+    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      props: {
+        pageProps: {
+          searchData: {
+            classifieds: [
+              { price: 10990, year: 2016, mileage: 98000 },
+              { price: 11990, year: 2017, mileage: 87000 },
+            ],
+          },
+        },
+      },
+    })}</script></html>`;
+
+    global.chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          body: html,
+        }),
+      },
+    };
+    global.fetch = vi.fn();
+
+    const result = await fetchLcSearchPrices(searchUrl, 2016, 2);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ price: 10990, year: 2016, km: 98000 });
+    expect(result[1]).toEqual({ price: 11990, year: 2017, km: 87000 });
+    expect(global.chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      action: 'lc_listing_fetch',
+      url: searchUrl,
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('retourne [] sur page anti-bot DataDome', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve('<html><body><p>Please enable JS and disable any ad blocker</p><script src="https://ct.captcha-delivery.com/c.js"></script></body></html>'),
+    });
+
+    const result = await fetchLcSearchPrices(searchUrl, 2016, 2);
+
+    expect(result).toEqual([]);
+  });
+
+  it('fallback sur fetch direct si le runtime extension echoue', async () => {
+    const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+      props: {
+        pageProps: {
+          classifieds: [
+            { price: 9990, year: 2015, mileage: 101000 },
+          ],
+        },
+      },
+    })}</script></html>`;
+
+    global.chrome = {
+      runtime: {
+        sendMessage: vi.fn().mockRejectedValueOnce(new Error('extension context invalidated')),
+      },
+    };
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(html),
+    });
+
+    const result = await fetchLcSearchPrices(searchUrl, 2016, 2);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ price: 9990, year: 2015, km: 101000 });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 11. Rendered listing DOM — extractLcAdsFromRenderedDom
+// ═══════════════════════════════════════════════════════════════════
+
+describe('extractLcAdsFromRenderedDom', () => {
+  it('extrait prix année et kilométrage depuis des cartes DOM rendues', () => {
+    document.body.innerHTML = `
+      <section>
+        <article>
+          <a href="https://www.lacentrale.fr/auto-occasion-annonce-11111111111.html">
+            <div>ALFA ROMEO GIULIA 2.2 JTD 180</div>
+            <div>27 490 €</div>
+            <div>2017</div>
+            <div>82 000 km</div>
+          </a>
+        </article>
+        <article>
+          <a href="https://www.lacentrale.fr/auto-occasion-annonce-22222222222.html">
+            <div>ALFA ROMEO GIULIA SUPER</div>
+            <div>29 990 €</div>
+            <div>2018</div>
+            <div>61 500 km</div>
+          </a>
+        </article>
+      </section>
+    `;
+
+    const result = extractLcAdsFromRenderedDom(document);
+
+    expect(result).toEqual([
+      { price: 27490, year: 2017, km: 82000 },
+      { price: 29990, year: 2018, km: 61500 },
+    ]);
+  });
+
+  it('dedupe les liens d’annonces répétés', () => {
+    document.body.innerHTML = `
+      <div>
+        <a href="https://www.lacentrale.fr/auto-occasion-annonce-33333333333.html">
+          <span>17 490 €</span>
+          <span>2016</span>
+          <span>99 000 km</span>
+        </a>
+        <a href="https://www.lacentrale.fr/auto-occasion-annonce-33333333333.html">
+          <span>17 490 €</span>
+          <span>2016</span>
+          <span>99 000 km</span>
+        </a>
+      </div>
+    `;
+
+    const result = extractLcAdsFromRenderedDom(document);
+
+    expect(result).toEqual([
+      { price: 17490, year: 2016, km: 99000 },
+    ]);
+  });
+
+  it('ignore les blocs sans prix exploitable', () => {
+    document.body.innerHTML = `
+      <section>
+        <a href="https://www.lacentrale.fr/auto-occasion-annonce-44444444444.html">
+          <div>ALFA ROMEO GIULIA</div>
+          <div>Prix sur demande</div>
+          <div>2019</div>
+        </a>
+      </section>
+    `;
+
+    const result = extractLcAdsFromRenderedDom(document);
+
+    expect(result).toEqual([]);
+  });
+
+  it('peut s’appuyer sur un JSON-LD de listing via fetchLcSearchPrices sans fetch réseau', async () => {
+    const originalBody = document.body;
+    const originalCreateElement = document.createElement.bind(document);
+    const originalLocation = window.location;
+    const frameDoc = document.implementation.createHTMLDocument('Listing Alfa Romeo');
+    frameDoc.body.innerHTML = `
+      <script type="application/ld+json">${JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            item: {
+              '@type': 'Car',
+              offers: { price: 27490 },
+              vehicleModelDate: '2019',
+              mileageFromOdometer: { value: 61000 },
+            },
+          },
+          {
+            '@type': 'ListItem',
+            item: {
+              '@type': 'Car',
+              offers: { price: 28990 },
+              vehicleModelDate: '2020',
+              mileageFromOdometer: { value: 48000 },
+            },
+          },
+        ],
+      })}</script>
+    `;
+
+    const fakeIframe = {
+      style: {},
+      setAttribute: vi.fn(),
+      remove: vi.fn(),
+      contentWindow: {
+        scrollTo: vi.fn(),
+        performance: { getEntriesByType: vi.fn().mockReturnValue([]) },
+      },
+      contentDocument: frameDoc,
+      onload: null,
+      onerror: null,
+      tabIndex: -1,
+      set src(_value) {
+        queueMicrotask(() => this.onload && this.onload());
+      },
+    };
+
+    vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
+      if (String(tagName).toLowerCase() === 'iframe') return fakeIframe;
+      return originalCreateElement(tagName, options);
+    });
+
+    vi.spyOn(originalBody, 'appendChild').mockImplementation((node) => node);
+    global.fetch = vi.fn();
+    global.chrome = undefined;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: new URL('https://www.lacentrale.fr/auto-occasion-annonce-87103412856.html'),
+    });
+
+    const result = await fetchLcSearchPrices(
+      'https://www.lacentrale.fr/listing?makesModelsCommercialNames=ALFA+ROMEO%3AGIULIA',
+      2020,
+      2,
+    );
+
+    expect(result).toEqual([
+      { price: 27490, year: 2019, km: 61000 },
+      { price: 28990, year: 2020, km: 48000 },
+    ]);
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 12. LaCentraleExtractor phone handling
+// ═══════════════════════════════════════════════════════════════════
+
+describe('LaCentraleExtractor phone handling', () => {
+  it('hasPhone retourne true si un numéro structuré est déjà présent dans le bridge', () => {
+    document.body.innerHTML = '<div id="__okazcar_lc_gallery__">{"data":{"classified":{"contactPhone":"01 23 45 67 89"}}}</div>';
+    const ext = new LaCentraleExtractor();
+
+    expect(ext.hasPhone()).toBe(true);
+  });
+
+  it('revealPhone récupère un numéro déjà présent dans les données structurées', async () => {
+    document.body.innerHTML = '<div id="__okazcar_lc_gallery__">{"data":{"classified":{"contactPhone":"01 23 45 67 89"}}}</div>';
+    const ext = new LaCentraleExtractor();
+    ext._adData = { phone: null, has_phone: false };
+
+    const phone = await ext.revealPhone();
+
+    expect(phone).toBe('0123456789');
+    expect(ext._adData.phone).toBe('0123456789');
+    expect(ext._adData.has_phone).toBe(true);
+  });
+
+  it('revealPhone clique puis lit le numéro depuis le texte du document', async () => {
+    document.body.innerHTML = `
+      <section>
+        <button id="show-phone">Voir le numéro</button>
+        <div id="target"></div>
+      </section>
+    `;
+
+    const btn = document.getElementById('show-phone');
+    btn.addEventListener('click', () => {
+      document.getElementById('target').textContent = 'Appelez le 01 98 76 54 32';
+    });
+
+    const ext = new LaCentraleExtractor();
+    ext._adData = { phone: null, has_phone: false };
+    const phone = await ext.revealPhone();
+
+    expect(phone).toBe('0198765432');
   });
 });

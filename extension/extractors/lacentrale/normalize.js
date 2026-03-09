@@ -26,6 +26,7 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
   const description = _resolveDescription(classified, vehicle);
   const department = classified.visitPlace || tc.department_list?.[0] || null;
   const zipcode = classified.zipCode || tc.zip_code || null;
+  const phone = _resolvePhone(classified, ld, tc);
 
   return {
     title: classified.title || ld.name || null,
@@ -52,7 +53,7 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
       lat: null,
       lng: null,
     },
-    phone: null,
+    phone,
     description,
     owner_type: ownerType,
     owner_name: classified.sellerName || tc.dealer_name || null,
@@ -61,7 +62,7 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
     dealer_review_count: tc.rating_count ?? null,
     raw_attributes: {},
     image_count: imageCount,
-    has_phone: false,
+    has_phone: Boolean(phone),
     has_urgent: false,
     has_highlight: false,
     has_boost: false,
@@ -87,6 +88,10 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
     lc_owner_sub_category: tc.owner_sub_category ?? null,
     lc_critair: vehicle.critair?.critairLevel ?? null,
     lc_euro_standard: vehicle.critair?.standardMet ?? null,
+    lc_model_raw: vehicle.model || null,
+    lc_commercial_model: vehicle.commercialModel || null,
+    lc_family: vehicle.family || null,
+    lc_version: vehicle.version || null,
   };
 }
 
@@ -263,6 +268,32 @@ function _resolveDisplayedAge(classified) {
   // priceVariation.displayedAge = days online on La Centrale
   const age = classified.priceVariation?.displayedAge;
   if (typeof age === 'number' && age >= 0) return age;
+  return null;
+}
+
+function _cleanPhone(phone) {
+  if (!phone) return null;
+  const raw = String(phone).trim();
+  const compact = raw.replace(/[^\d+]/g, '');
+  if (/^\+33\d{9}$/.test(compact) || /^0\d{9}$/.test(compact)) return compact;
+  return null;
+}
+
+function _resolvePhone(classified, ld, tc) {
+  const candidates = [
+    classified?.contactPhone,
+    classified?.phone,
+    classified?.telephone,
+    Array.isArray(classified?.phones) ? classified.phones[0] : classified?.phones,
+    ld?.telephone,
+    tc?.phone,
+    tc?.telephone,
+  ];
+
+  for (const candidate of candidates) {
+    const cleaned = _cleanPhone(candidate);
+    if (cleaned) return cleaned;
+  }
   return null;
 }
 

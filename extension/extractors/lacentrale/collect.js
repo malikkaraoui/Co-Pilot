@@ -44,6 +44,46 @@ function _criteriaSummary(make, model, fuel, gearbox, yearMeta) {
   ].join(' \u00b7 ');
 }
 
+function _cleanLcToken(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function _pushLcVariant(list, value) {
+  const cleaned = _cleanLcToken(value);
+  if (!cleaned) return;
+  if (!list.includes(cleaned)) list.push(cleaned);
+}
+
+function _buildLcModelVariants(baseModel, adData) {
+  const variants = [];
+  const rawCandidates = [
+    baseModel,
+    adData?.lc_model_raw,
+    adData?.lc_commercial_model,
+    adData?.lc_family,
+    adData?.lc_version,
+  ];
+
+  rawCandidates.forEach((candidate) => _pushLcVariant(variants, candidate));
+
+  for (const candidate of [...variants]) {
+    if (candidate.includes('+')) {
+      _pushLcVariant(variants, candidate.replace(/\+/g, ''));
+      _pushLcVariant(variants, candidate.replace(/\+/g, ' PLUS'));
+    }
+    _pushLcVariant(variants, candidate.replace(/[-']/g, ' '));
+    _pushLcVariant(variants, candidate.replace(/[^A-Z0-9+ ]/g, ' '));
+  }
+
+  return variants.filter(Boolean).slice(0, 6);
+}
+
 // ── Bonus Jobs ──────────────────────────────────────────────────
 
 async function _reportJobDone(backendFetch, apiUrl, jobId, success) {
@@ -288,21 +328,30 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
       const s = strategies[i];
       const yearMeta = _yearMeta(tYear, s.yearSpread);
 
-      const searchUrl = buildLcSearchUrl({
-        make: target.make,
-        model: s.model,
-        yearMin: yearMeta.yearMin,
-        yearMax: yearMeta.yearMax,
-        mileageMin: s.mileage?.mileageMin,
-        mileageMax: s.mileage?.mileageMax,
-        fuel: s.fuel,
-        gearbox: s.gearbox,
-      });
+      const modelVariants = s.model ? _buildLcModelVariants(s.model, isCurrentVehicle ? adData : null) : [null];
+      const triedModels = [];
+      let searchUrl = null;
+      let newPrices = [];
 
-      const critSummary = _criteriaSummary(target.make, s.model, s.fuel, s.gearbox, yearMeta);
+      for (const modelVariant of modelVariants) {
+        searchUrl = buildLcSearchUrl({
+          make: target.make,
+          model: modelVariant,
+          yearMin: yearMeta.yearMin,
+          yearMax: yearMeta.yearMax,
+          mileageMin: s.mileage?.mileageMin,
+          mileageMax: s.mileage?.mileageMax,
+          fuel: s.fuel,
+          gearbox: s.gearbox,
+        });
+
+        triedModels.push(modelVariant || '(brand-only)');
+        newPrices = await fetchLcSearchPrices(searchUrl, tYear, s.yearSpread);
+        if (newPrices.length > 0) break;
+      }
+
+      const critSummary = _criteriaSummary(target.make, triedModels[0] || s.model, s.fuel, s.gearbox, yearMeta);
       const strategyLabel = 'Strategie ' + (i + 1) + ' \u00b7 \u00b1' + s.yearSpread + 'an';
-
-      const newPrices = await fetchLcSearchPrices(searchUrl, tYear, s.yearSpread);
 
       // Deduplicate against accumulated prices
       const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
@@ -317,7 +366,8 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
         const stepStatus = unique.length > 0 ? 'done' : 'skip';
         const stepDetail = unique.length + ' nouvelles annonces (total ' + prices.length + ')'
           + (enoughPrices && collectedPrecision === null ? ' \u2713 seuil atteint' : '')
-          + ' \u00b7 ' + critSummary;
+          + ' \u00b7 ' + critSummary
+          + (triedModels.length > 1 ? ` \u00b7 variantes=${triedModels.join(' | ')}` : '');
         progress.addSubStep('collect', strategyLabel, stepStatus, stepDetail);
       }
 
@@ -339,6 +389,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
         url_verdict: _urlVerdict(newPrices.length, unique.length),
         total_accumulated: prices.length,
         url: searchUrl,
+        model_variants: triedModels,
         was_selected: enoughPrices,
         reason: enoughPrices
           ? `total ${prices.length} annonces >= ${LC_MIN_PRICES} minimum`
