@@ -14,6 +14,7 @@
 
 import { isChromeRuntimeAvailable } from '../../utils/fetch.js';
 import {
+  LC_AD_PAGE_PATTERN,
   LC_LISTING_BASE, LC_SEARCH_FUEL_CODES, LC_SEARCH_GEARBOX_CODES,
 } from './constants.js';
 
@@ -279,13 +280,14 @@ function _canUseLcIframeProbe(searchUrl) {
 export function extractLcAdsFromRenderedDom(root) {
   if (!root?.querySelectorAll) return [];
 
-  const links = Array.from(root.querySelectorAll('a[href*="auto-occasion-annonce-"]'));
+  const links = Array.from(root.querySelectorAll('a[href*="occasion-annonce-"]'));
   const seenHrefs = new Set();
 
   return links
     .map((link) => {
       const href = link.href || link.getAttribute('href') || '';
       if (!href || seenHrefs.has(href)) return null;
+      if (!LC_AD_PAGE_PATTERN.test(href)) return null;
       seenHrefs.add(href);
 
       const card = _findLcAdCard(link);

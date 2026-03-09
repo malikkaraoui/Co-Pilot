@@ -30,6 +30,10 @@ describe('LC_AD_PAGE_PATTERN', () => {
     expect(LC_AD_PAGE_PATTERN.test('https://www.lacentrale.fr/auto-occasion-annonce-87103422544.html')).toBe(true);
   });
 
+  it('matches utilitaire ad URL', () => {
+    expect(LC_AD_PAGE_PATTERN.test('https://www.lacentrale.fr/utilitaire-occasion-annonce-69118359788.html')).toBe(true);
+  });
+
   it('rejects listing URL', () => {
     expect(LC_AD_PAGE_PATTERN.test('https://www.lacentrale.fr/listing?energies=dies')).toBe(false);
   });
@@ -51,6 +55,12 @@ describe('LC_AD_PAGE_PATTERN', () => {
 describe('getExtractor for La Centrale', () => {
   it('returns LaCentraleExtractor for ad URL', () => {
     const ext = getExtractor('https://www.lacentrale.fr/auto-occasion-annonce-87103422544.html');
+    expect(ext).not.toBeNull();
+    expect(ext.constructor.SITE_ID).toBe('lacentrale');
+  });
+
+  it('returns LaCentraleExtractor for utilitaire ad URL', () => {
+    const ext = getExtractor('https://www.lacentrale.fr/utilitaire-occasion-annonce-69118359788.html');
     expect(ext).not.toBeNull();
     expect(ext.constructor.SITE_ID).toBe('lacentrale');
   });
@@ -86,6 +96,10 @@ describe('LaCentraleExtractor.isAdPage', () => {
 
   it('accepts standard ad URL', () => {
     expect(ext.isAdPage('https://www.lacentrale.fr/auto-occasion-annonce-87103422544.html')).toBe(true);
+  });
+
+  it('accepts utilitaire ad URL', () => {
+    expect(ext.isAdPage('https://www.lacentrale.fr/utilitaire-occasion-annonce-69118359788.html')).toBe(true);
   });
 
   it('rejects listing URL', () => {
@@ -596,6 +610,27 @@ describe('extractLcAdsFromRenderedDom', () => {
     expect(result).toEqual([
       { price: 27490, year: 2017, km: 82000 },
       { price: 29990, year: 2018, km: 61500 },
+    ]);
+  });
+
+  it('extrait aussi les cartes utilitaire-occasion-annonce', () => {
+    document.body.innerHTML = `
+      <section>
+        <article>
+          <a href="https://www.lacentrale.fr/utilitaire-occasion-annonce-87103217000.html">
+            <div>RENAULT TRAFIC L2H1 BLUE DCI 150</div>
+            <div>26 990 €</div>
+            <div>2021</div>
+            <div>54 500 km</div>
+          </a>
+        </article>
+      </section>
+    `;
+
+    const result = extractLcAdsFromRenderedDom(document);
+
+    expect(result).toEqual([
+      { price: 26990, year: 2021, km: 54500 },
     ]);
   });
 

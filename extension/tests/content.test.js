@@ -248,6 +248,14 @@ describe('isAdPage', () => {
     expect(isAdPage()).toBe(true);
   });
 
+  it('reconnait aussi les URLs utilitaire La Centrale', () => {
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.lacentrale.fr/utilitaire-occasion-annonce-69118359788.html' },
+      writable: true,
+    });
+    expect(isAdPage()).toBe(true);
+  });
+
   it('rejette les pages listing La Centrale', () => {
     Object.defineProperty(window, 'location', {
       value: { href: 'https://www.lacentrale.fr/listing?energies=dies' },

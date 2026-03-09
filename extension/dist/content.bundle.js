@@ -3538,7 +3538,7 @@
   var LC_URL_PATTERNS = [
     /lacentrale\.fr/
   ];
-  var LC_AD_PAGE_PATTERN = /lacentrale\.fr\/auto-occasion-annonce-\d+\.html/;
+  var LC_AD_PAGE_PATTERN = /lacentrale\.fr\/(?:auto|utilitaire)-occasion-annonce-\d+\.html/;
   var LC_FUEL_MAP = {
     "DIESEL": "diesel",
     "ESSENCE": "essence",
@@ -4057,11 +4057,12 @@
   }
   function extractLcAdsFromRenderedDom(root) {
     if (!root?.querySelectorAll) return [];
-    const links = Array.from(root.querySelectorAll('a[href*="auto-occasion-annonce-"]'));
+    const links = Array.from(root.querySelectorAll('a[href*="occasion-annonce-"]'));
     const seenHrefs = /* @__PURE__ */ new Set();
     return links.map((link) => {
       const href = link.href || link.getAttribute("href") || "";
       if (!href || seenHrefs.has(href)) return null;
+      if (!LC_AD_PAGE_PATTERN.test(href)) return null;
       seenHrefs.add(href);
       const card = _findLcAdCard(link);
       const text = _normalizeText2(card?.textContent || link.textContent || "");

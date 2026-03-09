@@ -10,7 +10,9 @@ export const LC_URL_PATTERNS = [
 ];
 
 // Ad page detection (annonce individuelle)
-export const LC_AD_PAGE_PATTERN = /lacentrale\.fr\/auto-occasion-annonce-\d+\.html/;
+// La Centrale utilise plusieurs préfixes de verticales (`auto`, `utilitaire`, ...)
+// pour des pages qui gardent la même structure d'annonce exploitable.
+export const LC_AD_PAGE_PATTERN = /lacentrale\.fr\/(?:auto|utilitaire)-occasion-annonce-\d+\.html/;
 
 // Fuel normalization: La Centrale energy values → standard fuel tokens
 export const LC_FUEL_MAP = {
