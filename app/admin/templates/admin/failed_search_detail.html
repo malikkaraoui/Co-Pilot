@@ -105,16 +105,19 @@
     <div class="action-btn-group">
       {% if rec.status == 'new' %}
       <form method="post" action="{{ url_for('admin.update_failed_search_status', fs_id=rec.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="status" value="investigating">
         <button type="submit" class="btn btn-sm btn-outline-warning" style="font-size:11px; padding:2px 8px">Investiguer</button>
       </form>
       {% endif %}
       {% if rec.status in ('new', 'investigating') %}
       <form method="post" action="{{ url_for('admin.update_failed_search_status', fs_id=rec.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="status" value="resolved">
         <button type="submit" class="btn btn-sm btn-outline-success" style="font-size:11px; padding:2px 8px">Resoudre</button>
       </form>
       <form method="post" action="{{ url_for('admin.update_failed_search_status', fs_id=rec.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="status" value="wont_fix">
         <button type="submit" class="btn btn-sm btn-outline-secondary" style="font-size:11px; padding:2px 8px">Won't fix</button>
       </form>
@@ -201,6 +204,7 @@
 
   <!-- Add note form -->
   <form method="post" action="{{ url_for('admin.add_failed_search_note', fs_id=rec.id) }}" class="mt-2 d-flex gap-2" style="max-width:500px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="note" class="form-control form-control-sm" placeholder="Ajouter une note..." style="font-size:12px">
     <button type="submit" class="btn btn-sm btn-outline-primary" style="font-size:11px; white-space:nowrap">Note</button>
   </form>

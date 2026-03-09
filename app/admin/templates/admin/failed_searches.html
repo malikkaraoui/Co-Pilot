@@ -226,6 +226,7 @@
 <div class="stat-card">
   {% if groups %}
   <form id="bulk-form" method="post" action="{{ url_for('admin.bulk_failed_search_action') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="table-responsive">
     <table class="table table-sm mb-0" style="font-size:13px">
       <thead>
