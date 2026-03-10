@@ -131,6 +131,8 @@ BRAND_ALIASES: dict[str, str] = {
     "vw": "volkswagen",
     "bmw": "bmw",
     "mercedes-benz": "mercedes",
+    "mercedes benz": "mercedes",
+    "mercedesbenz": "mercedes",
     "merc": "mercedes",
     "mb": "mercedes",
     "audi": "audi",
@@ -139,6 +141,7 @@ BRAND_ALIASES: dict[str, str] = {
     "smart": "smart",
     # ── Marques japonaises ──
     "toyota": "toyota",
+    "daihatsu": "daihatsu",
     "honda": "honda",
     "nissan": "nissan",
     "mazda": "mazda",
@@ -153,6 +156,8 @@ BRAND_ALIASES: dict[str, str] = {
     "hundai": "hyundai",
     "kia": "kia",
     "ssangyong": "ssangyong",
+    "ssang yong": "ssangyong",
+    "ssang-yong": "ssangyong",
     "genesis": "genesis",
     # ── Marques italiennes ──
     "fiat": "fiat",
@@ -175,10 +180,14 @@ BRAND_ALIASES: dict[str, str] = {
     "aston martin": "aston martin",
     "aston-martin": "aston martin",
     "astonmartin": "aston martin",
+    "aston": "aston martin",
     "rolls royce": "rolls royce",
     "rolls-royce": "rolls royce",
     "rollsroyce": "rolls royce",
+    "rolls": "rolls royce",
     "mclaren": "mclaren",
+    "mc laren": "mclaren",
+    "mc-laren": "mclaren",
     "lotus": "lotus",
     "mg": "mg",
     "mg motor": "mg",
@@ -198,8 +207,12 @@ BRAND_ALIASES: dict[str, str] = {
     "cadillac": "cadillac",
     "lincoln": "lincoln",
     "gmc": "gmc",
+    "ram": "ram",
     # ── Marques suedoises ──
     "volvo": "volvo",
+    "saab": "saab",
+    # ── Premium allemand ──
+    "alpina": "alpina",
     # ── Marques chinoises (croissance rapide en France) ──
     "byd": "byd",
     "aiways": "aiways",

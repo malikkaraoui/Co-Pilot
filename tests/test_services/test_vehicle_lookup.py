@@ -85,6 +85,36 @@ class TestNormalization:
     def test_brand_porsche(self):
         assert _normalize_brand("Porsche") == "porsche"
 
+    def test_brand_mercedes_benz_space(self):
+        assert _normalize_brand("Mercedes Benz") == "mercedes"
+
+    def test_brand_mercedesbenz(self):
+        assert _normalize_brand("mercedesbenz") == "mercedes"
+
+    def test_brand_mc_laren(self):
+        assert _normalize_brand("Mc Laren") == "mclaren"
+
+    def test_brand_ssang_yong_hyphen(self):
+        assert _normalize_brand("Ssang-Yong") == "ssangyong"
+
+    def test_brand_rolls_shortcut(self):
+        assert _normalize_brand("Rolls") == "rolls royce"
+
+    def test_brand_aston_shortcut(self):
+        assert _normalize_brand("Aston") == "aston martin"
+
+    def test_brand_daihatsu(self):
+        assert _normalize_brand("Daihatsu") == "daihatsu"
+
+    def test_brand_ram(self):
+        assert _normalize_brand("RAM") == "ram"
+
+    def test_brand_alpina(self):
+        assert _normalize_brand("Alpina") == "alpina"
+
+    def test_brand_saab(self):
+        assert _normalize_brand("Saab") == "saab"
+
     # Aliases DS modeles
     def test_model_ds3(self):
         assert _normalize_model("DS 3") == "3"

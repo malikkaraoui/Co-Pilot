@@ -19,6 +19,7 @@ from app import create_app  # noqa: E402
 from app.extensions import db  # noqa: E402
 from app.models.vehicle import Vehicle, VehicleSpec  # noqa: E402
 from app.services.pipeline_tracker import track_pipeline  # noqa: E402
+from app.services.vehicle_lookup import display_brand  # noqa: E402
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -100,8 +101,8 @@ def normalize_transmission(raw: str) -> str:
     return TRANS_MAP.get(raw.strip(), raw.strip()) if raw else ""
 
 
-def import_csv():
-    """Importe les vehicules et specs depuis le CSV Kaggle."""
+def import_csv(dry_run: bool = False):
+    """Importe les vehicules et specs depuis le CSV."""
     if not CSV_PATH.exists():
         logger.error("Fichier CSV introuvable : %s", CSV_PATH)
         sys.exit(1)
@@ -135,6 +136,9 @@ def import_csv():
                     make = row.get("Make", "").strip()
                     if make not in TARGET_MAKES:
                         continue
+                    # Normaliser via le systeme d'alias existant
+                    # Mercedes-Benz → Mercedes, MINI → Mini, SEAT → Seat
+                    make = display_brand(make)
 
                     model = row.get("Modle", "").strip()
                     generation = row.get("Generation", "").strip()
@@ -199,7 +203,11 @@ def import_csv():
                     created_specs += 1
                     brand_counts[make] = brand_counts.get(make, 0) + 1
 
-            db.session.commit()
+            if dry_run:
+                logger.info("=== DRY RUN — rollback ===")
+                db.session.rollback()
+            else:
+                db.session.commit()
             tracker.count = created_specs
 
         # Log recap
@@ -217,4 +225,4 @@ def import_csv():
 
 
 if __name__ == "__main__":
-    import_csv()
+    import_csv(dry_run="--dry-run" in sys.argv)
