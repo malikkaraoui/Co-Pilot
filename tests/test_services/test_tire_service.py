@@ -3,12 +3,18 @@
 
 def test_wheel_size_model_map():
     """Verifie le mapping des modeles composites pour Wheel-Size API."""
-    from app.services.tire_service import WHEEL_SIZE_MODEL_MAP
+    from app.services.tire_service import WHEEL_SIZE_BRAND_MAP, WHEEL_SIZE_MODEL_MAP
 
+    # Marques
+    assert WHEEL_SIZE_BRAND_MAP["alfa romeo"] == "alfa-romeo"
+    assert WHEEL_SIZE_BRAND_MAP["land rover"] == "land-rover"
+    assert "bmw" not in WHEEL_SIZE_BRAND_MAP  # pas besoin de mapping
+
+    # Modeles
     assert WHEEL_SIZE_MODEL_MAP["a4 allroad"] == "a4"
-    assert WHEEL_SIZE_MODEL_MAP["a6 allroad"] == "a6"
-    assert WHEEL_SIZE_MODEL_MAP["allroad"] == "a6"
-    # Un modele normal ne doit PAS etre dans le mapping
+    assert WHEEL_SIZE_MODEL_MAP["serie 5"] == "5-series"
+    assert WHEEL_SIZE_MODEL_MAP["classe a"] == "a-class"
+    assert WHEEL_SIZE_MODEL_MAP["range rover sport"] == "range-rover-sport"
     assert "golf" not in WHEEL_SIZE_MODEL_MAP
 
 

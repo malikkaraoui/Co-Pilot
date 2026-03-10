@@ -66,12 +66,57 @@ _HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 
 # ── Wheel-Size config ───────────────────────────────────────────
 
+# Marques dont le nom normalise differe du nom Wheel-Size.
+# Wheel-Size exige des tirets (pas d'espaces) pour les marques multi-mots.
+WHEEL_SIZE_BRAND_MAP: dict[str, str] = {
+    "alfa romeo": "alfa-romeo",
+    "land rover": "land-rover",
+    "aston martin": "aston-martin",
+    "rolls royce": "rolls-royce",
+}
+
 # Modeles dont le nom LBC/AS24 ne correspond pas au nom Wheel-Size.
-# Wheel-Size utilise le modele de base sans la variante (ex: "a4" et non "a4 allroad").
 WHEEL_SIZE_MODEL_MAP: dict[str, str] = {
+    # Audi variantes
     "a4 allroad": "a4",
     "a6 allroad": "a6",
-    "allroad": "a6",  # "Allroad" seul = A6 Allroad historiquement
+    "allroad": "a6",
+    # BMW : "Serie X" → "X-series"
+    "serie 1": "1-series",
+    "serie 2": "2-series",
+    "serie 3": "3-series",
+    "serie 4": "4-series",
+    "serie 5": "5-series",
+    "serie 6": "6-series",
+    "serie 7": "7-series",
+    "serie 8": "8-series",
+    # Mercedes : "Classe X" → "X-class"
+    "classe a": "a-class",
+    "classe b": "b-class",
+    "classe c": "c-class",
+    "classe e": "e-class",
+    "classe g": "g-class",
+    "classe s": "s-class",
+    "classe v": "v-class",
+    "classe gl": "gl-class",
+    "glc 220": "glc",
+    "glc 250": "glc",
+    "glc 300": "glc",
+    "glc 350": "glc",
+    "gle 250": "gle",
+    "gle 350": "gle",
+    "gla 200": "gla",
+    "gla 250": "gla",
+    # Mazda : "3" → "mazda3"
+    "3": "mazda3",
+    "6": "mazda6",
+    # Peugeot variantes
+    "206+": "206",
+    # Land Rover composites
+    "range rover sport": "range-rover-sport",
+    "range rover evoque": "range-rover-evoque",
+    "range rover velar": "range-rover-velar",
+    "range rover": "range-rover",
 }
 
 
@@ -544,13 +589,14 @@ def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None
 
     base = _wheel_size_base_url().rstrip("/")
 
-    # Mapping des modeles composites vers le nom Wheel-Size
+    # Mapping marque/modele vers les noms Wheel-Size
+    ws_make = WHEEL_SIZE_BRAND_MAP.get(make, make)
     ws_model = WHEEL_SIZE_MODEL_MAP.get(model, model)
 
     # 1) Modifications
     mods_url = f"{base}/modifications/"
     params = {
-        "make": make,
+        "make": ws_make,
         "model": ws_model,
         "year": year,
         "region": "eudm",
@@ -577,7 +623,7 @@ def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None
     # 2) Wheels search
     search_url = f"{base}/search/by_model/"
     params2 = {
-        "make": make,
+        "make": ws_make,
         "model": ws_model,
         "year": year,
         "region": "eudm",
