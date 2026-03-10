@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OKazCar - Analyse Annonces Auto",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Analysez vos annonces auto en 1 clic. Score de fiabilite, comparaison de prix marche, detection d'anomalies. IA integree.",
   "permissions": [
     "activeTab",
@@ -43,7 +43,9 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["carvertical_logo.png"],
+      "resources": [
+        "carvertical_logo.png"
+      ],
       "matches": [
         "https://*.leboncoin.fr/*",
         "https://*.lacentrale.fr/*",

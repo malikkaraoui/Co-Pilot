@@ -1,6 +1,6 @@
 {
   "name": "okazcar",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "OKazCar - Analyse de confiance pour annonces auto",
   "private": true,
   "scripts": {
