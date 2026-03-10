@@ -7,6 +7,7 @@ from flask import jsonify, request
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api import api_bp
 from app.extensions import db, limiter
@@ -280,7 +281,7 @@ def submit_market_prices():
             country=req.country,
         )
     except (ValueError, TypeError, OSError) as exc:
-        logger.error("Failed to store market prices: %s", exc)
+        logger.error("Failed to store market prices (client payload error): %s", exc)
         return jsonify(
             {
                 "success": False,
@@ -289,6 +290,22 @@ def submit_market_prices():
                 "data": None,
             }
         ), 500
+    except SQLAlchemyError as exc:
+        # Typiquement: DB lock/timeout/constraint. On rollback pour ne pas laisser
+        # une session en etat invalide, puis on renvoie un JSON (pas une page HTML 500).
+        try:
+            db.session.rollback()
+        except Exception:  # rollback best-effort
+            pass
+        logger.error("Failed to store market prices (database error): %s", exc, exc_info=True)
+        return jsonify(
+            {
+                "success": False,
+                "error": "DATABASE_ERROR",
+                "message": "Erreur base de données lors du stockage des prix.",
+                "data": None,
+            }
+        ), 503
 
     # Auto-apprendre les tokens LBC depuis le DOM de l'extension.
     # Ces tokens contiennent les accents corrects (ex: "BMW_Série 3")
@@ -339,7 +356,17 @@ def _persist_site_tokens(
         updated = True
 
     if updated:
-        db.session.commit()
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.warning(
+                "Failed to persist LBC tokens for %s %s",
+                make,
+                model,
+                exc_info=True,
+            )
+            return
         logger.info(
             "Auto-learned LBC tokens for %s %s: brand=%s model=%s",
             make,
@@ -368,7 +395,17 @@ def _persist_as24_slugs(
         updated = True
 
     if updated:
-        db.session.commit()
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.warning(
+                "Failed to persist AS24 slugs for %s %s",
+                make,
+                model,
+                exc_info=True,
+            )
+            return
         logger.info(
             "Auto-learned AS24 slugs for %s %s: make=%s model=%s",
             make,

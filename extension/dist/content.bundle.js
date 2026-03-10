@@ -6489,8 +6489,22 @@
     return signals;
   }
 
+  // extension/utils/api-url.js
+  function normalizeAnalyzeApiUrl(input, fallbackAnalyzeUrl) {
+    const raw = String(input || "").trim();
+    if (!raw) return fallbackAnalyzeUrl;
+    const trimmed = raw.replace(/\/+$/g, "");
+    if (/\/api\/analyze$/i.test(trimmed)) return trimmed;
+    if (/\/analyze$/i.test(trimmed)) return trimmed;
+    if (/\/api$/i.test(trimmed)) return trimmed + "/analyze";
+    return trimmed + "/api/analyze";
+  }
+
   // extension/content.js
-  var API_URL = true ? "http://localhost:5001/api/analyze" : "http://localhost:5001/api/analyze";
+  var API_URL = normalizeAnalyzeApiUrl(
+    true ? "http://localhost:5001/api/analyze" : null,
+    "http://localhost:5001/api/analyze"
+  );
   var lastScanId = null;
   var ERROR_MESSAGES = [
     "Oh mince, on a crev\xE9 ! R\xE9essayez dans un instant.",

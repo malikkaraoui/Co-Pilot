@@ -20,6 +20,16 @@ const newVersion = pkg.version;
 // Mettre à jour le fichier VERSION
 writeFileSync(resolve(root, 'VERSION'), newVersion + '\n');
 
+// Mettre à jour la version de l'extension (Chrome Web Store)
+const manifestPath = resolve(root, 'extension', 'manifest.json');
+try {
+	const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+	manifest.version = newVersion;
+	writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+} catch (err) {
+	console.warn(`WARN: impossible de mettre à jour ${manifestPath}:`, err?.message || err);
+}
+
 // Lire l'ancienne version depuis le fichier VERSION (avant ce script)
 const bumpType = process.argv[2] || 'patch';
 
@@ -30,6 +40,7 @@ console.log(`  ╚════════════════════�
 console.log(`  Fichiers mis à jour :`);
 console.log(`    - package.json`);
 console.log(`    - VERSION`);
+console.log(`    - extension/manifest.json`);
 console.log(`\n  Prochaines étapes :`);
 console.log(`    1. Mettre à jour CHANGELOG.md`);
 console.log(`    2. git add -A && git commit -m "release: v${newVersion}"`);

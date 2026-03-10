@@ -18,6 +18,7 @@ import { buildResultsPopup, buildErrorPopup, buildNotAVehiclePopup, buildNotSupp
 import { showProgress } from './ui/progress.js';
 import { getWinterTireSignals } from './utils/winter-tires.js';
 import { SIMULATED_FILTERS } from './ui/filters/index.js';
+import { normalizeAnalyzeApiUrl } from './utils/api-url.js';
 import {
   initLbcDeps,
   extractVehicleFromNextData, extractRegionFromNextData, extractLocationFromNextData,
@@ -32,7 +33,10 @@ import {
 } from './extractors/leboncoin/index.js';
 
 // ── Configuration ──────────────────────────────────────────────
-const API_URL = typeof __API_URL__ !== 'undefined' ? __API_URL__ : "http://localhost:5001/api/analyze";
+const API_URL = normalizeAnalyzeApiUrl(
+  (typeof __API_URL__ !== 'undefined' ? __API_URL__ : null),
+  "http://localhost:5001/api/analyze",
+);
 let lastScanId = null;
 const ERROR_MESSAGES = [
   "Oh mince, on a crevé ! Réessayez dans un instant.",
