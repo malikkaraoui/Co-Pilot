@@ -19,6 +19,7 @@ import httpx
 from bs4 import BeautifulSoup
 from flask import current_app
 from sqlalchemy import and_, func, or_
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.extensions import db
 from app.models.scan import ScanLog
@@ -104,10 +105,15 @@ def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
     tire = _find_tire_size_in_db(make_norm, model_norm, year)
     if tire:
         _increment_request_count(tire)
+        if tire.dimension_count == 0:
+            # Cache negatif — vehicule deja cherche, pas de donnees
+            return None
         return _to_payload(tire)
 
     scraped = _scrape_allopneus(make_norm, model_norm, year)
     if not scraped:
+        # Cache negatif : stocker un record vide pour ne pas re-scraper
+        _store_negative_cache(make_norm, model_norm, year)
         return None
 
     try:
@@ -123,8 +129,8 @@ def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
         )
         _increment_request_count(stored)
         return _to_payload(stored)
-    except Exception:  # noqa: BLE001
-        logger.debug("Failed to store tire sizes (allopneus)", exc_info=True)
+    except (IntegrityError, OperationalError, ValueError, TypeError, KeyError) as exc:
+        logger.warning("Failed to store tire sizes (allopneus): %s", exc)
         db.session.rollback()
         return None
 
@@ -167,8 +173,8 @@ def fill_next_missing_vehicle(exclude_make_model: tuple[str, str] | None = None)
             source_url=fetched.get("source_url"),
         )
         return True
-    except Exception:  # noqa: BLE001
-        logger.debug("Failed to store tire sizes (wheel-size)", exc_info=True)
+    except (IntegrityError, OperationalError, ValueError, TypeError, KeyError) as exc:
+        logger.warning("Failed to store tire sizes (wheel-size): %s", exc)
         db.session.rollback()
         return False
 
@@ -242,7 +248,35 @@ def _increment_request_count(tire: TireSize) -> None:
     try:
         tire.request_count = (tire.request_count or 0) + 1
         db.session.commit()
-    except Exception:  # noqa: BLE001
+    except (IntegrityError, OperationalError) as exc:
+        logger.debug("Failed to increment tire request_count: %s", exc)
+        db.session.rollback()
+
+
+def _store_negative_cache(make: str, model: str, year: int) -> None:
+    """Stocke un record vide pour eviter de re-scraper un vehicule introuvable."""
+    try:
+        existing = TireSize.query.filter_by(
+            make=make, model=model, generation=f"_not_found_{year}"
+        ).first()
+        if existing:
+            return
+        tire = TireSize(
+            make=make,
+            model=model,
+            generation=f"_not_found_{year}",
+            year_start=year,
+            year_end=year,
+            dimensions="[]",
+            dimension_count=0,
+            source="negative_cache",
+            collected_at=datetime.now(timezone.utc),
+            request_count=0,
+        )
+        db.session.add(tire)
+        db.session.commit()
+    except (IntegrityError, OperationalError) as exc:
+        logger.debug("Failed to store negative tire cache: %s", exc)
         db.session.rollback()
 
 
@@ -466,7 +500,7 @@ def _extract_tire_dimensions_from_generation_page(soup: BeautifulSoup) -> list[d
                 "size": size,
                 "load_index": load_index,
                 "speed_index": speed_index,
-                "is_stock": True,
+                "is_stock": None,  # Allopneus ne distingue pas stock/non-stock
             }
         )
 
@@ -584,12 +618,8 @@ def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None
     if not dims:
         return None
 
+    # Ne PAS stocker l'URL Wheel-Size : elle contient la cle API (user_key)
     source_url = None
-    try:
-        # URL utile pour debug — pas forcément exposée publiquement
-        source_url = str(resp2.request.url)
-    except Exception:  # noqa: BLE001
-        source_url = None
 
     return {
         "dimensions": dims,
@@ -699,7 +729,7 @@ def _dedup_dimensions(dimensions: list[dict]) -> list[dict[str, Any]]:
                 "size": key,
                 "load_index": d.get("load_index"),
                 "speed_index": d.get("speed_index"),
-                "is_stock": bool(d.get("is_stock", True)),
+                "is_stock": d.get("is_stock"),
             }
             continue
 
@@ -708,7 +738,11 @@ def _dedup_dimensions(dimensions: list[dict]) -> list[dict[str, Any]]:
             existing["load_index"] = d.get("load_index")
         if existing.get("speed_index") in (None, "") and d.get("speed_index"):
             existing["speed_index"] = d.get("speed_index")
-        existing["is_stock"] = bool(existing.get("is_stock")) or bool(d.get("is_stock"))
+        # Fusionner is_stock : True gagne sur None, None gagne sur False
+        if d.get("is_stock") is True:
+            existing["is_stock"] = True
+        elif existing.get("is_stock") is None and d.get("is_stock") is not None:
+            existing["is_stock"] = d.get("is_stock")
 
     return list(seen.values())
 

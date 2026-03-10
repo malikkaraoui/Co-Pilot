@@ -317,8 +317,11 @@ def _do_analyze():
             app_obj = current_app._get_current_object()
 
             def _run_bg_fill(exclude_mm: tuple[str, str]) -> None:
-                with app_obj.app_context():
-                    fill_next_missing_vehicle(exclude_make_model=exclude_mm)
+                try:
+                    with app_obj.app_context():
+                        fill_next_missing_vehicle(exclude_make_model=exclude_mm)
+                except Exception:  # noqa: BLE001 — background thread, ne doit jamais crasher
+                    pass
 
             t = threading.Thread(
                 target=_run_bg_fill,

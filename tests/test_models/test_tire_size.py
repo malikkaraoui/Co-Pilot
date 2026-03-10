@@ -7,11 +7,11 @@ def test_tire_size_get_set_dimensions(db):
     from app.models.tire_size import TireSize
 
     t = TireSize(
-        make="volkswagen",
-        model="golf",
-        generation="golf-vii",
-        year_start=2012,
-        year_end=2021,
+        make="peugeot",
+        model="208",
+        generation="208-ii",
+        year_start=2019,
+        year_end=2025,
         dimensions=json.dumps([{"size": "205/55R16", "load_index": 91, "speed_index": "V"}]),
         source="allopneus",
         source_url="https://example.com",
