@@ -793,6 +793,147 @@ def database():
     )
 
 
+# ── Pneus : couverture dimensions (TireSize) ───────────────────
+
+
+@admin_bp.route("/tires")
+@login_required
+def tires():
+    """Vue d'ensemble de la couverture des dimensions pneus."""
+    from sqlalchemy import and_
+
+    from app.models.tire_size import TireSize
+
+    # Total d'entrées (générations) en DB
+    total_records = db.session.query(db.func.count(TireSize.id)).scalar() or 0
+
+    # Couples uniques make/model dans le référentiel véhicule
+    vehicle_pairs_sq = (
+        db.session.query(
+            db.func.lower(Vehicle.brand).label("make"),
+            db.func.lower(Vehicle.model).label("model"),
+        )
+        .distinct()
+        .subquery()
+    )
+    total_vehicle_pairs = (
+        db.session.query(db.func.count()).select_from(vehicle_pairs_sq).scalar() or 0
+    )
+
+    # Couples uniques make/model dans TireSize
+    tire_pairs_sq = (
+        db.session.query(TireSize.make.label("make"), TireSize.model.label("model"))
+        .distinct()
+        .subquery()
+    )
+    total_tire_pairs = db.session.query(db.func.count()).select_from(tire_pairs_sq).scalar() or 0
+
+    covered_pairs = (
+        db.session.query(db.func.count())
+        .select_from(
+            vehicle_pairs_sq.join(
+                tire_pairs_sq,
+                and_(
+                    vehicle_pairs_sq.c.make == tire_pairs_sq.c.make,
+                    vehicle_pairs_sq.c.model == tire_pairs_sq.c.model,
+                ),
+            )
+        )
+        .scalar()
+        or 0
+    )
+
+    # Répartition par source
+    source_counts = (
+        db.session.query(TireSize.source, db.func.count(TireSize.id).label("count"))
+        .group_by(TireSize.source)
+        .order_by(db.func.count(TireSize.id).desc())
+        .all()
+    )
+
+    # Top véhicules demandés (request_count)
+    top_requested = (
+        TireSize.query.order_by(TireSize.request_count.desc(), TireSize.collected_at.desc())
+        .limit(30)
+        .all()
+    )
+
+    # Dernières collectes
+    recent_collected = TireSize.query.order_by(TireSize.collected_at.desc()).limit(30).all()
+
+    # Véhicles du référentiel sans pneus (left join TireSize)
+    vehicle_disp_sq = (
+        db.session.query(
+            db.func.min(Vehicle.brand).label("brand"),
+            db.func.min(Vehicle.model).label("model"),
+            db.func.lower(Vehicle.brand).label("make"),
+            db.func.lower(Vehicle.model).label("mdl"),
+        )
+        .group_by(db.func.lower(Vehicle.brand), db.func.lower(Vehicle.model))
+        .subquery()
+    )
+
+    scan_counts_sq = (
+        db.session.query(
+            db.func.lower(ScanLog.vehicle_make).label("make"),
+            db.func.lower(ScanLog.vehicle_model).label("model"),
+            db.func.count(ScanLog.id).label("scan_count"),
+            db.func.max(ScanLog.created_at).label("last_seen"),
+        )
+        .filter(ScanLog.vehicle_make.isnot(None), ScanLog.vehicle_model.isnot(None))
+        .group_by(db.func.lower(ScanLog.vehicle_make), db.func.lower(ScanLog.vehicle_model))
+        .subquery()
+    )
+
+    missing_pairs = (
+        db.session.query(
+            vehicle_disp_sq.c.brand,
+            vehicle_disp_sq.c.model,
+            db.func.coalesce(scan_counts_sq.c.scan_count, 0).label("scan_count"),
+            scan_counts_sq.c.last_seen,
+        )
+        .select_from(vehicle_disp_sq)
+        .outerjoin(
+            tire_pairs_sq,
+            and_(
+                tire_pairs_sq.c.make == vehicle_disp_sq.c.make,
+                tire_pairs_sq.c.model == vehicle_disp_sq.c.mdl,
+            ),
+        )
+        .outerjoin(
+            scan_counts_sq,
+            and_(
+                scan_counts_sq.c.make == vehicle_disp_sq.c.make,
+                scan_counts_sq.c.model == vehicle_disp_sq.c.mdl,
+            ),
+        )
+        .filter(tire_pairs_sq.c.make.is_(None))
+        .order_by(
+            db.func.coalesce(scan_counts_sq.c.scan_count, 0).desc(),
+            scan_counts_sq.c.last_seen.desc(),
+        )
+        .limit(50)
+        .all()
+    )
+
+    wheel_size_enabled = bool(current_app.config.get("WHEEL_SIZE_API_KEY"))
+    wheel_size_budget = int(current_app.config.get("WHEEL_SIZE_DAILY_BUDGET", 50) or 50)
+
+    return render_template(
+        "admin/tires.html",
+        total_records=total_records,
+        total_vehicle_pairs=total_vehicle_pairs,
+        total_tire_pairs=total_tire_pairs,
+        covered_pairs=covered_pairs,
+        source_counts=source_counts,
+        top_requested=top_requested,
+        recent_collected=recent_collected,
+        missing_pairs=missing_pairs,
+        wheel_size_enabled=wheel_size_enabled,
+        wheel_size_budget=wheel_size_budget,
+    )
+
+
 # ── Prospection CSV ─────────────────────────────────────────
 
 

@@ -1,0 +1,168 @@
+{% extends "admin/base.html" %}
+{% block title %}Pneus - OKazCar Admin{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Pneus : couverture des dimensions</h2>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ total_records }}</div>
+      <div class="stat-label">Entrées TireSize (générations)</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ covered_pairs }} / {{ total_vehicle_pairs }}</div>
+      <div class="stat-label">Couverture référentiel (make+model)</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ total_tire_pairs }}</div>
+      <div class="stat-label">Couples make+model avec pneus</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-card text-center">
+      <div class="stat-value">{{ 'ON' if wheel_size_enabled else 'OFF' }}</div>
+      <div class="stat-label">Wheel-Size background (budget {{ wheel_size_budget }}/jour)</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="stat-card">
+      <h5 class="mb-3">Répartition par source</h5>
+      {% if source_counts %}
+        <div class="d-flex flex-wrap gap-2">
+          {% for s in source_counts %}
+            <span class="badge bg-secondary" style="font-size:13px">
+              {{ s[0] or 'unknown' }} : {{ s[1] }}
+            </span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-muted">Aucune donnée pneus en base.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="stat-card">
+      <h5 class="mb-3">Véhicules du référentiel sans pneus (Top 50)</h5>
+      {% if missing_pairs %}
+      <div class="table-responsive" style="max-height:340px; overflow-y:auto">
+        <table class="table table-sm table-hover mb-0" style="font-size:13px">
+          <thead class="table-light" style="position:sticky; top:0">
+            <tr>
+              <th>Véhicule</th>
+              <th class="text-end">Scans</th>
+              <th class="text-end">Dernier scan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in missing_pairs %}
+            <tr>
+              <td><strong>{{ row.brand }}</strong> {{ row.model }}</td>
+              <td class="text-end">{{ row.scan_count }}</td>
+              <td class="text-end">{{ row.last_seen.strftime('%Y-%m-%d') if row.last_seen else '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="text-muted">Tout le référentiel a déjà des pneus (ou le référentiel est vide).</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-6">
+    <div class="stat-card">
+      <h5 class="mb-3">Top véhicules demandés (request_count)</h5>
+      {% if top_requested %}
+      <div class="table-responsive" style="max-height:420px; overflow-y:auto">
+        <table class="table table-sm table-hover mb-0" style="font-size:13px">
+          <thead class="table-light" style="position:sticky; top:0">
+            <tr>
+              <th>Véhicule</th>
+              <th>Génération</th>
+              <th class="text-center">Dims</th>
+              <th>Source</th>
+              <th class="text-end">Demandes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in top_requested %}
+            <tr>
+              <td><strong>{{ t.make }}</strong> {{ t.model }}</td>
+              <td>{{ t.generation or '-' }}</td>
+              <td class="text-center">{{ t.dimension_count or 0 }}</td>
+              <td>
+                {% if t.source_url %}
+                  <a href="{{ t.source_url }}" target="_blank" rel="noopener noreferrer">{{ t.source }}</a>
+                {% else %}
+                  {{ t.source }}
+                {% endif %}
+              </td>
+              <td class="text-end">{{ t.request_count or 0 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="text-muted">Aucune donnée.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="stat-card">
+      <h5 class="mb-3">Dernières collectes</h5>
+      {% if recent_collected %}
+      <div class="table-responsive" style="max-height:420px; overflow-y:auto">
+        <table class="table table-sm table-hover mb-0" style="font-size:13px">
+          <thead class="table-light" style="position:sticky; top:0">
+            <tr>
+              <th>Véhicule</th>
+              <th>Années</th>
+              <th class="text-center">Dims</th>
+              <th>Source</th>
+              <th class="text-end">Collecté</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in recent_collected %}
+            <tr>
+              <td><strong>{{ t.make }}</strong> {{ t.model }}</td>
+              <td>{{ t.year_start or '?' }}–{{ t.year_end or '?' }}</td>
+              <td class="text-center">{{ t.dimension_count or 0 }}</td>
+              <td>
+                {% if t.source_url %}
+                  <a href="{{ t.source_url }}" target="_blank" rel="noopener noreferrer">{{ t.source }}</a>
+                {% else %}
+                  {{ t.source }}
+                {% endif %}
+              </td>
+              <td class="text-end">{{ t.collected_at.strftime('%Y-%m-%d') if t.collected_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="text-muted">Aucune donnée.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<p class="text-muted mt-4" style="font-size:12px">
+  Notes : Allopneus sert le véhicule courant en temps réel. Wheel-Size remplit la base en tâche de fond si une clé est configurée.
+</p>
+{% endblock %}

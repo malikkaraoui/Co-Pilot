@@ -5,9 +5,10 @@ import { scoreColor } from '../utils/styles.js';
 import { buildRadarSVG } from './components.js';
 import { buildFiltersList, SIMULATED_FILTERS } from './filters/index.js';
 import { buildAutovizaBanner, buildYouTubeBanner, buildEmailBanner } from './banners.js';
+import { buildTiresPanel } from './tires.js';
 
 export function buildResultsPopup(data, options = {}) {
-  const { score, is_partial, filters, vehicle, featured_video } = data;
+  const { score, is_partial, filters, vehicle, featured_video, tire_sizes } = data;
   const { autovizaUrl, bonusSignals } = options;
   const color = scoreColor(score);
 
@@ -77,6 +78,7 @@ export function buildResultsPopup(data, options = {}) {
         <h3 class="okazcar-section-title">Détails de l'analyse</h3>
         ${buildFiltersList(filters, vehicle)}
       </div>
+      ${buildTiresPanel(tire_sizes)}
       ${bonusHTML}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}

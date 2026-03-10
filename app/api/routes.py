@@ -296,6 +296,39 @@ def _do_analyze():
         except (OSError, ValueError, TypeError) as exc:
             logger.debug("Featured video lookup failed: %s", exc)
 
+    # Recherche des dimensions pneus pour ce vehicule
+    tire_sizes_data = None
+    year = ad_data.get("year_model")
+    if make and model and year:
+        try:
+            from app.services.tire_service import get_tire_sizes
+
+            tire_sizes_data = get_tire_sizes(make, model, year)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug("Tire sizes lookup failed: %s", exc)
+
+    # --- Background fill : remplir un AUTRE vehicule via Wheel-Size ---
+    if make and model and not current_app.testing:
+        try:
+            import threading
+
+            from app.services.tire_service import fill_next_missing_vehicle
+
+            app_obj = current_app._get_current_object()
+
+            def _run_bg_fill(exclude_mm: tuple[str, str]) -> None:
+                with app_obj.app_context():
+                    fill_next_missing_vehicle(exclude_make_model=exclude_mm)
+
+            t = threading.Thread(
+                target=_run_bg_fill,
+                args=((make.lower(), model.lower()),),
+                daemon=True,
+            )
+            t.start()
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug("Background tire fill failed: %s", exc)
+
     vehicle_info: dict[str, Any] = {
         "make": make,
         "model": model,
@@ -315,6 +348,7 @@ def _do_analyze():
         filters=filters_out,
         vehicle=vehicle_info,
         featured_video=featured_video,
+        tire_sizes=tire_sizes_data,
     )
 
     return jsonify(

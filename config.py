@@ -33,6 +33,11 @@ class Config:
     # API externes
     SIRET_API_TIMEOUT = int(os.environ.get("SIRET_API_TIMEOUT", "5"))
 
+    # Wheel-Size (dimensions pneus)
+    WHEEL_SIZE_API_KEY = os.environ.get("WHEEL_SIZE_API_KEY", "")
+    WHEEL_SIZE_BASE_URL = os.environ.get("WHEEL_SIZE_BASE_URL", "https://api.wheel-size.com/v2")
+    WHEEL_SIZE_DAILY_BUDGET = int(os.environ.get("WHEEL_SIZE_DAILY_BUDGET", "50"))
+
     # Journalisation
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 

@@ -6022,9 +6022,51 @@
     return `<div class="okazcar-email-banner" id="okazcar-email-section"><button class="okazcar-email-btn" id="okazcar-email-btn">&#x2709; R\xE9diger un email au vendeur</button><div class="okazcar-email-result" id="okazcar-email-result" style="display:none;"><textarea class="okazcar-email-textarea" id="okazcar-email-text" rows="8" readonly></textarea><div class="okazcar-email-actions"><button class="okazcar-email-copy" id="okazcar-email-copy">&#x1F4CB; Copier</button><span class="okazcar-email-copied" id="okazcar-email-copied" style="display:none;">Copi\xE9 !</span></div></div><div class="okazcar-email-loading" id="okazcar-email-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> G\xE9n\xE9ration en cours...</div><div class="okazcar-email-error" id="okazcar-email-error" style="display:none;"></div></div>`;
   }
 
+  // extension/ui/tires.js
+  function formatTireSize(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    return s.replace(/(\d{3}\/\d{2})R(\d{2})/i, "$1 R$2");
+  }
+  function formatDimLine(dim) {
+    if (!dim) return "";
+    const size = formatTireSize(dim.size || dim.tire_full || dim.tire || "");
+    if (!size) return "";
+    const li = dim.load_index != null && dim.load_index !== "" ? String(dim.load_index) : "";
+    const si = dim.speed_index != null && dim.speed_index !== "" ? String(dim.speed_index) : "";
+    const suffix = li || si ? ` ${li}${si}`.trimEnd() : "";
+    return `${size}${suffix}`.trim();
+  }
+  function buildTiresPanel(tireSizes) {
+    if (!tireSizes || !Array.isArray(tireSizes.dimensions) || tireSizes.dimensions.length === 0) {
+      return "";
+    }
+    const dims = tireSizes.dimensions.map(formatDimLine).filter((x) => x);
+    if (dims.length === 0) return "";
+    const warn = dims.length > 1 ? '<div class="okazcar-tire-warning">\u26A0 Plusieurs dimensions correspondent \xE0 ce v\xE9hicule. V\xE9rifiez sur le pneu !</div>' : '<div class="okazcar-tire-warning">\u2139 Dimension indicative : v\xE9rifiez sur le pneu</div>';
+    const source = tireSizes.source ? escapeHTML(String(tireSizes.source)) : "";
+    const sourceUrl = tireSizes.source_url ? String(tireSizes.source_url) : "";
+    const sourceLink = sourceUrl ? `<a class="okazcar-tire-source-link" href="${escapeHTML(sourceUrl)}" target="_blank" rel="noopener noreferrer">${source || "Source"}</a>` : source ? `<span class="okazcar-tire-source">${source}</span>` : "";
+    const generation = tireSizes.generation ? escapeHTML(String(tireSizes.generation)) : "";
+    const yearRange = tireSizes.year_range ? escapeHTML(String(tireSizes.year_range)) : "";
+    const meta = generation || yearRange ? `<div class="okazcar-tire-meta">${generation}${generation && yearRange ? " \xB7 " : ""}${yearRange}</div>` : "";
+    const listHtml = dims.slice(0, 12).map((d) => `<li class="okazcar-tire-dim">${escapeHTML(d)}</li>`).join("");
+    const more = dims.length > 12 ? `<div class="okazcar-tire-more">+ ${dims.length - 12} autres</div>` : "";
+    return `
+    <div class="okazcar-tire-section">
+      <h3 class="okazcar-section-title">Dimensions pneus possibles</h3>
+      ${warn}
+      ${meta}
+      <ul class="okazcar-tire-dims">${listHtml}</ul>
+      ${more}
+      ${sourceLink ? `<div class="okazcar-tire-footer">Source : ${sourceLink}</div>` : ""}
+    </div>
+  `;
+  }
+
   // extension/ui/popups.js
   function buildResultsPopup(data, options = {}) {
-    const { score, is_partial, filters, vehicle, featured_video } = data;
+    const { score, is_partial, filters, vehicle, featured_video, tire_sizes } = data;
     const { autovizaUrl, bonusSignals } = options;
     const color = scoreColor(score);
     const vehicleInfo = vehicle ? `${vehicle.make || ""} ${vehicle.model || ""} ${vehicle.year || ""}`.trim() : "V\xE9hicule";
@@ -6096,6 +6138,7 @@
         <h3 class="okazcar-section-title">D\xE9tails de l'analyse</h3>
         ${buildFiltersList(filters, vehicle)}
       </div>
+      ${buildTiresPanel(tire_sizes)}
       ${bonusHTML}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}
