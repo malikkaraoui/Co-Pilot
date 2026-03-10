@@ -1,6 +1,17 @@
 """Tests du service `tire_service` (sans appels réseau)."""
 
 
+def test_wheel_size_model_map():
+    """Verifie le mapping des modeles composites pour Wheel-Size API."""
+    from app.services.tire_service import WHEEL_SIZE_MODEL_MAP
+
+    assert WHEEL_SIZE_MODEL_MAP["a4 allroad"] == "a4"
+    assert WHEEL_SIZE_MODEL_MAP["a6 allroad"] == "a6"
+    assert WHEEL_SIZE_MODEL_MAP["allroad"] == "a6"
+    # Un modele normal ne doit PAS etre dans le mapping
+    assert "golf" not in WHEEL_SIZE_MODEL_MAP
+
+
 def test_store_tire_sizes_dedup_and_sort(db, app):
     from app.services.tire_service import store_tire_sizes
 

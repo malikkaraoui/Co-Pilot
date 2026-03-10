@@ -66,6 +66,14 @@ _HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 
 # ── Wheel-Size config ───────────────────────────────────────────
 
+# Modeles dont le nom LBC/AS24 ne correspond pas au nom Wheel-Size.
+# Wheel-Size utilise le modele de base sans la variante (ex: "a4" et non "a4 allroad").
+WHEEL_SIZE_MODEL_MAP: dict[str, str] = {
+    "a4 allroad": "a4",
+    "a6 allroad": "a6",
+    "allroad": "a6",  # "Allroad" seul = A6 Allroad historiquement
+}
+
 
 def _wheel_size_key() -> str:
     return current_app.config.get("WHEEL_SIZE_API_KEY", "")
@@ -88,13 +96,14 @@ def _wheel_size_daily_budget() -> int:
 def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
     """Retourne les dimensions pneus pour un véhicule.
 
+    Cascade :
     1) Check DB (cache permanent)
-    2) Si absent → scrape Allopneus
-    3) Stocke en DB
-    4) Retourne les dimensions
+    2) Wheel-Size API (fiable, pas de WAF)
+    3) Fallback Allopneus scrape (peut etre bloque par Cloudflare)
+    4) Stocke en DB pour ne plus jamais refaire la requete
 
     Returns:
-        dict: {"dimensions": [...], "source": "allopneus", "source_url": "...", ...} ou None
+        dict: {"dimensions": [...], "source": "...", ...} ou None
     """
     if not make or not model or not year:
         return None
@@ -102,6 +111,7 @@ def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
     make_norm = normalize_brand(make).lower()
     model_norm = normalize_model(model).lower()
 
+    # 1) Cache DB
     tire = _find_tire_size_in_db(make_norm, model_norm, year)
     if tire:
         _increment_request_count(tire)
@@ -110,27 +120,42 @@ def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
             return None
         return _to_payload(tire)
 
-    scraped = _scrape_allopneus(make_norm, model_norm, year)
-    if not scraped:
-        # Cache negatif : stocker un record vide pour ne pas re-scraper
-        _store_negative_cache(make_norm, model_norm, year)
-        return None
+    # 2) Wheel-Size API (prioritaire : API propre, pas de WAF)
+    fetched = None
+    if _wheel_size_key() and not _wheel_size_budget_reached():
+        fetched = _fetch_wheel_size(make_norm, model_norm, int(year))
+        if fetched:
+            return _store_and_return(make_norm, model_norm, fetched, source="wheel-size")
 
+    # 3) Fallback Allopneus (peut echouer : 403 Cloudflare depuis le backend)
+    scraped = _scrape_allopneus(make_norm, model_norm, year)
+    if scraped:
+        return _store_and_return(make_norm, model_norm, scraped, source="allopneus")
+
+    # Rien trouve — cache negatif pour ne pas re-tenter
+    _store_negative_cache(make_norm, model_norm, year)
+    return None
+
+
+def _store_and_return(
+    make: str, model: str, data: dict[str, Any], source: str
+) -> dict[str, Any] | None:
+    """Stocke les dimensions et retourne le payload."""
     try:
         stored = store_tire_sizes(
-            make=make_norm,
-            model=model_norm,
-            generation=scraped.get("generation") or "",
-            year_start=scraped.get("year_start"),
-            year_end=scraped.get("year_end"),
-            dimensions=scraped.get("dimensions") or [],
-            source="allopneus",
-            source_url=scraped.get("source_url"),
+            make=make,
+            model=model,
+            generation=data.get("generation") or "",
+            year_start=data.get("year_start"),
+            year_end=data.get("year_end"),
+            dimensions=data.get("dimensions") or [],
+            source=source,
+            source_url=data.get("source_url"),
         )
         _increment_request_count(stored)
         return _to_payload(stored)
     except (IntegrityError, OperationalError, ValueError, TypeError, KeyError) as exc:
-        logger.warning("Failed to store tire sizes (allopneus): %s", exc)
+        logger.warning("Failed to store tire sizes (%s): %s", source, exc)
         db.session.rollback()
         return None
 
@@ -519,11 +544,14 @@ def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None
 
     base = _wheel_size_base_url().rstrip("/")
 
+    # Mapping des modeles composites vers le nom Wheel-Size
+    ws_model = WHEEL_SIZE_MODEL_MAP.get(model, model)
+
     # 1) Modifications
     mods_url = f"{base}/modifications/"
     params = {
         "make": make,
-        "model": model,
+        "model": ws_model,
         "year": year,
         "region": "eudm",
         "user_key": key,
@@ -550,7 +578,7 @@ def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None
     search_url = f"{base}/search/by_model/"
     params2 = {
         "make": make,
-        "model": model,
+        "model": ws_model,
         "year": year,
         "region": "eudm",
         "user_key": key,
