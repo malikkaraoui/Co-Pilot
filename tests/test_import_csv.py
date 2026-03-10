@@ -176,8 +176,8 @@ class TestImportCsv:
                 import_csv()
 
         with app.app_context():
-            # Lamborghini filtree (pas dans TARGET_MAKES)
-            assert Vehicle.query.filter_by(brand="Lamborghini").first() is None
+            # Lamborghini est dans TARGET_MAKES (56 marques EU)
+            assert Vehicle.query.filter_by(brand="Lamborghini").first() is not None
 
             # Peugeot 208, Renault Clio, Toyota Yaris crees
             peugeot = Vehicle.query.filter_by(brand="Peugeot", model="208").first()

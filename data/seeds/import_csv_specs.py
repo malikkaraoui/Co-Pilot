@@ -26,33 +26,75 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 CSV_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "Car Dataset 1945-2020.csv"
 
-# Marques du marché français à importer
+# Marques du marche europeen a importer (56 marques)
 TARGET_MAKES = {
+    # Francaises
     "Peugeot",
     "Renault",
     "Citroen",
     "Dacia",
+    "DS",
+    "Alpine",
+    # Allemandes
     "Volkswagen",
-    "Toyota",
-    "Hyundai",
-    "Kia",
     "BMW",
     "Mercedes-Benz",
     "Audi",
-    "Ford",
     "Opel",
-    "Fiat",
-    "Nissan",
+    "Porsche",
+    "Smart",
+    # Groupe VW
     "Skoda",
-    "MINI",
-    "Suzuki",
-    "MG",
     "SEAT",
-    "Volvo",
-    "Mazda",
-    "Honda",
-    "Mitsubishi",
+    # Italiennes
+    "Fiat",
     "Alfa Romeo",
+    "Maserati",
+    "Lamborghini",
+    "Ferrari",
+    "Lancia",
+    # Japonaises (vendues EU)
+    "Toyota",
+    "Honda",
+    "Nissan",
+    "Mazda",
+    "Suzuki",
+    "Mitsubishi",
+    "Subaru",
+    "Daihatsu",
+    "Lexus",
+    # Coreennes
+    "Hyundai",
+    "Kia",
+    "SsangYong",
+    "Genesis",
+    # Anglaises
+    "Land Rover",
+    "Jaguar",
+    "Mini",
+    "Bentley",
+    "Rolls-Royce",
+    "Aston Martin",
+    "McLaren",
+    "Lotus",
+    # Suedoises
+    "Volvo",
+    "Saab",
+    # USA vendues EU
+    "Ford",
+    "Jeep",
+    "Dodge",
+    "Chrysler",
+    "Cadillac",
+    "Chevrolet",
+    "GMC",
+    "Tesla",
+    "RAM",
+    # Chinoises arrivees EU
+    "BYD",
+    "MG",
+    # Premium allemand
+    "Alpina",
 }
 
 # Normalisation des types de carburant
