@@ -92,14 +92,5 @@ export function getWinterTireSignals(location, now) {
     });
   }
 
-  // Rappel dimensions pneus (toujours, si departement montagne)
-  if (isLoiMontagneDept && (inSeason || nearBeforeSeason || nearAfterSeason)) {
-    signals.push({
-      label: 'Dimensions pneus',
-      value: 'Verifier la compatibilite des pneus avec la carte grise (expert sinistre)',
-      status: 'info',
-    });
-  }
-
   return signals;
 }

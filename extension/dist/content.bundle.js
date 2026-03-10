@@ -6043,23 +6043,34 @@
     }
     const dims = tireSizes.dimensions.map(formatDimLine).filter((x) => x);
     if (dims.length === 0) return "";
-    const warn = dims.length > 1 ? '<div class="okazcar-tire-warning">\u26A0 Plusieurs dimensions correspondent \xE0 ce v\xE9hicule. V\xE9rifiez sur le pneu !</div>' : '<div class="okazcar-tire-warning">\u2139 Dimension indicative : v\xE9rifiez sur le pneu</div>';
-    const source = tireSizes.source ? escapeHTML(String(tireSizes.source)) : "";
-    const sourceUrl = tireSizes.source_url ? String(tireSizes.source_url) : "";
-    const sourceLink = sourceUrl ? `<a class="okazcar-tire-source-link" href="${escapeHTML(sourceUrl)}" target="_blank" rel="noopener noreferrer">${source || "Source"}</a>` : source ? `<span class="okazcar-tire-source">${source}</span>` : "";
+    const count = dims.length;
+    const icon = "\u{1F6DE}";
+    const statusColor2 = count > 1 ? "#f59e0b" : "#16a34a";
+    const summary = count > 1 ? `${count} dimensions possibles` : dims[0];
     const generation = tireSizes.generation ? escapeHTML(String(tireSizes.generation)) : "";
     const yearRange = tireSizes.year_range ? escapeHTML(String(tireSizes.year_range)) : "";
     const meta = generation || yearRange ? `<div class="okazcar-tire-meta">${generation}${generation && yearRange ? " \xB7 " : ""}${yearRange}</div>` : "";
+    const warn = count > 1 ? '<div class="okazcar-tire-warning">\u26A0 Plusieurs dimensions correspondent \xE0 ce v\xE9hicule. V\xE9rifiez sur le pneu !</div>' : '<div class="okazcar-tire-warning">\u2139 Dimension indicative : v\xE9rifiez sur le pneu</div>';
     const listHtml = dims.slice(0, 12).map((d) => `<li class="okazcar-tire-dim">${escapeHTML(d)}</li>`).join("");
     const more = dims.length > 12 ? `<div class="okazcar-tire-more">+ ${dims.length - 12} autres</div>` : "";
+    const source = tireSizes.source ? escapeHTML(String(tireSizes.source)) : "";
+    const sourceUrl = tireSizes.source_url ? String(tireSizes.source_url) : "";
+    const sourceLink = sourceUrl ? `<a class="okazcar-tire-source-link" href="${escapeHTML(sourceUrl)}" target="_blank" rel="noopener noreferrer">${source || "Source"}</a>` : source ? `<span class="okazcar-tire-source">${source}</span>` : "";
     return `
-    <div class="okazcar-tire-section">
-      <h3 class="okazcar-section-title">Dimensions pneus possibles</h3>
-      ${warn}
-      ${meta}
-      <ul class="okazcar-tire-dims">${listHtml}</ul>
-      ${more}
-      ${sourceLink ? `<div class="okazcar-tire-footer">Source : ${sourceLink}</div>` : ""}
+    <div class="okazcar-filter-item" data-status="info">
+      <div class="okazcar-filter-header">
+        <span class="okazcar-filter-icon">${icon}</span>
+        <span class="okazcar-filter-label">Dimensions pneus</span>
+        <span style="margin-left:auto;font-size:12px;color:${statusColor2};font-weight:600;">${escapeHTML(summary)}</span>
+        <span class="okazcar-filter-chevron">&#x25BE;</span>
+      </div>
+      <div class="okazcar-filter-body">
+        ${warn}
+        ${meta}
+        <ul class="okazcar-tire-dims">${listHtml}</ul>
+        ${more}
+        ${sourceLink ? `<div class="okazcar-tire-footer">Source : ${sourceLink}</div>` : ""}
+      </div>
     </div>
   `;
   }
@@ -6137,8 +6148,8 @@
       <div class="okazcar-popup-filters">
         <h3 class="okazcar-section-title">D\xE9tails de l'analyse</h3>
         ${buildFiltersList(filters, vehicle)}
+        ${buildTiresPanel(tire_sizes)}
       </div>
-      ${buildTiresPanel(tire_sizes)}
       ${bonusHTML}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}
@@ -6473,13 +6484,6 @@
         label: "Pneus hiver en fin de saison",
         value: "Verifier que les pneus ne sont pas des pneus hiver (usure acceleree en \xE9t\xE9)",
         status: "warning"
-      });
-    }
-    if (isLoiMontagneDept && (inSeason || nearBeforeSeason || nearAfterSeason)) {
-      signals.push({
-        label: "Dimensions pneus",
-        value: "Verifier la compatibilite des pneus avec la carte grise (expert sinistre)",
-        status: "info"
       });
     }
     return signals;

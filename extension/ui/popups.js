@@ -77,8 +77,8 @@ export function buildResultsPopup(data, options = {}) {
       <div class="okazcar-popup-filters">
         <h3 class="okazcar-section-title">Détails de l'analyse</h3>
         ${buildFiltersList(filters, vehicle)}
+        ${buildTiresPanel(tire_sizes)}
       </div>
-      ${buildTiresPanel(tire_sizes)}
       ${bonusHTML}
       ${buildAutovizaBanner(autovizaUrl)}
       ${buildYouTubeBanner(featured_video)}

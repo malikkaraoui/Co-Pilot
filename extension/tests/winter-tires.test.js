@@ -59,15 +59,14 @@ describe('getWinterTireSignals', () => {
     expect(signals).toEqual([]);
   });
 
-  it('includes tire dimensions reminder during season', () => {
-    // Haute-Savoie (74) in December
+  it('does not include tire dimensions reminder (moved to tire panel)', () => {
+    // Haute-Savoie (74) in December — dimensions pneus now in dedicated panel
     const signals = getWinterTireSignals(
       { zipcode: '74000' },
       new Date(2025, 11, 15), // December 15
     );
     const dimSignal = signals.find((s) => s.label.includes('Dimensions'));
-    expect(dimSignal).toBeDefined();
-    expect(dimSignal.status).toBe('info');
+    expect(dimSignal).toBeUndefined();
   });
 
   it('works with department field instead of zipcode', () => {

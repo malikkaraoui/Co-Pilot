@@ -11,7 +11,7 @@ describe('buildTiresPanel', () => {
     expect(buildTiresPanel({ dimensions: [] })).toBe('');
   });
 
-  it('renders a single dimension with reminder', () => {
+  it('renders a single dimension as compact tile', () => {
     const html = buildTiresPanel({
       dimensions: [{ size: '205/55R16', load_index: 91, speed_index: 'V' }],
       source: 'allopneus',
@@ -20,14 +20,16 @@ describe('buildTiresPanel', () => {
       year_range: '2012-2021',
     });
 
-    expect(html).toContain('Dimensions pneus possibles');
+    expect(html).toContain('Dimensions pneus');
+    expect(html).toContain('okazcar-filter-item');
+    expect(html).toContain('okazcar-filter-header');
     expect(html).toContain('Dimension indicative');
     expect(html).toContain('205/55 R16 91V');
     expect(html).toContain('Golf VII');
     expect(html).toContain('2012-2021');
   });
 
-  it('renders multiple dimensions and warning text', () => {
+  it('renders multiple dimensions with count summary and warning', () => {
     const html = buildTiresPanel({
       dimensions: [
         { size: '195/65R15', load_index: 91, speed_index: 'H' },
@@ -36,9 +38,11 @@ describe('buildTiresPanel', () => {
       source: 'wheel-size',
     });
 
+    expect(html).toContain('2 dimensions possibles');
     expect(html).toContain('Plusieurs dimensions correspondent');
     expect(html).toContain('195/65 R15 91H');
     expect(html).toContain('205/55 R16 91V');
+    expect(html).toContain('okazcar-filter-chevron');
   });
 
   it('includes a source link when source_url is provided', () => {

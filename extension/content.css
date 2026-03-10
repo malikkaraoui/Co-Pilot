@@ -386,6 +386,9 @@
 .okazcar-filter-item[data-status="neutral"] {
   opacity: 0.7;
 }
+.okazcar-filter-item[data-status="info"] {
+  background: linear-gradient(135deg, #eff6ff 0%, var(--okazcar-bg-secondary) 60%);
+}
 
 /* ── Collapse / Expand ──────────────────────────────────── */
 .okazcar-filter-header {
