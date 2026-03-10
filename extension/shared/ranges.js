@@ -1,15 +1,11 @@
 "use strict";
 
-/** Calcule le range de puissance (CV/ch) pour la recherche. */
+/** Calcule le range de puissance (CV/ch) pour la recherche (±5 ch). */
 export function getHpRange(hp) {
   if (!hp || hp <= 0) return null;
-  if (hp < 80)  return "min-90";
-  if (hp < 110) return "70-120";
-  if (hp < 140) return "100-150";
-  if (hp < 180) return "130-190";
-  if (hp < 250) return "170-260";
-  if (hp < 350) return "240-360";
-  return "340-max";
+  const low = Math.max(0, hp - 5);
+  const high = hp + 5;
+  return `${low}-${high}`;
 }
 
 /** Calcule le range de kilometrage pour la recherche. */

@@ -1276,21 +1276,21 @@ describe('getAs24PowerParams', () => {
     expect(getAs24PowerParams(-10)).toEqual({});
   });
 
-  it('returns {powerto: 90} for low hp', () => {
-    expect(getAs24PowerParams(75)).toEqual({ powerto: 66 });
+  it('returns ±5ch range for 75hp (powerfrom=51, powerto=59)', () => {
+    expect(getAs24PowerParams(75)).toEqual({ powerfrom: 51, powerto: 59 });
   });
 
-  it('returns correct range for mid hp', () => {
-    expect(getAs24PowerParams(100)).toEqual({ powerfrom: 51, powerto: 88 });
-    expect(getAs24PowerParams(136)).toEqual({ powerfrom: 74, powerto: 110 });
+  it('returns ±5ch range for mid hp', () => {
+    expect(getAs24PowerParams(100)).toEqual({ powerfrom: 70, powerto: 77 });
+    expect(getAs24PowerParams(136)).toEqual({ powerfrom: 96, powerto: 104 });
   });
 
-  it('returns correct range for GTI hp (245)', () => {
-    expect(getAs24PowerParams(245)).toEqual({ powerfrom: 125, powerto: 191 });
+  it('returns ±5ch range for GTI hp (245)', () => {
+    expect(getAs24PowerParams(245)).toEqual({ powerfrom: 177, powerto: 184 });
   });
 
-  it('returns {powerfrom: 340} for high hp', () => {
-    expect(getAs24PowerParams(400)).toEqual({ powerfrom: 250 });
+  it('returns ±5ch range for high hp (400)', () => {
+    expect(getAs24PowerParams(400)).toEqual({ powerfrom: 291, powerto: 298 });
   });
 });
 
@@ -1329,20 +1329,20 @@ describe('getHpRangeString', () => {
     expect(getHpRangeString(null)).toBeNull();
   });
 
-  it('returns min-90 for low hp', () => {
-    expect(getHpRangeString(75)).toBe('min-90');
+  it('returns 70-80 for 75hp (±5ch)', () => {
+    expect(getHpRangeString(75)).toBe('70-80');
   });
 
-  it('returns 100-150 for 136hp', () => {
-    expect(getHpRangeString(136)).toBe('100-150');
+  it('returns 131-141 for 136hp (±5ch)', () => {
+    expect(getHpRangeString(136)).toBe('131-141');
   });
 
-  it('returns 170-260 for GTI (245hp)', () => {
-    expect(getHpRangeString(245)).toBe('170-260');
+  it('returns 240-250 for GTI (245hp) (±5ch)', () => {
+    expect(getHpRangeString(245)).toBe('240-250');
   });
 
-  it('returns 340-max for high hp', () => {
-    expect(getHpRangeString(400)).toBe('340-max');
+  it('returns 395-405 for 400hp (±5ch)', () => {
+    expect(getHpRangeString(400)).toBe('395-405');
   });
 });
 
@@ -1468,16 +1468,16 @@ describe('getAs24FuelCode', () => {
 // ─── parseHpRange ────────────────────────────────────────────────────
 
 describe('parseHpRange', () => {
-  it('parses 170-260 into powerfrom/powerto', () => {
-    expect(parseHpRange('170-260')).toEqual({ powerfrom: 125, powerto: 191 });
+  it('parses 175-185 into powerfrom/powerto (±5ch for 180hp)', () => {
+    expect(parseHpRange('175-185')).toEqual({ powerfrom: 129, powerto: 136 });
   });
 
-  it('parses min-90 into powerto only', () => {
-    expect(parseHpRange('min-90')).toEqual({ powerto: 66 });
+  it('parses 70-80 into powerfrom/powerto (±5ch for 75hp)', () => {
+    expect(parseHpRange('70-80')).toEqual({ powerfrom: 51, powerto: 59 });
   });
 
-  it('parses 340-max into powerfrom only', () => {
-    expect(parseHpRange('340-max')).toEqual({ powerfrom: 250 });
+  it('parses 395-405 into powerfrom/powerto (±5ch for 400hp)', () => {
+    expect(parseHpRange('395-405')).toEqual({ powerfrom: 291, powerto: 298 });
   });
 
   it('returns empty for null/empty', () => {

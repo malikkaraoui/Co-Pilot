@@ -630,40 +630,44 @@ describe('getHorsePowerRange', () => {
     expect(getHorsePowerRange(-10)).toBeNull();
   });
 
-  it('segment bas: 75ch -> "min-90"', () => {
-    expect(getHorsePowerRange(75)).toBe('min-90');
+  it('75ch -> "70-80" (±5ch)', () => {
+    expect(getHorsePowerRange(75)).toBe('70-80');
   });
 
-  it('segment bas: 45ch -> "min-90"', () => {
-    expect(getHorsePowerRange(45)).toBe('min-90');
+  it('45ch -> "40-50" (±5ch)', () => {
+    expect(getHorsePowerRange(45)).toBe('40-50');
   });
 
-  it('segment 80-109: 100ch -> "70-120"', () => {
-    expect(getHorsePowerRange(100)).toBe('70-120');
+  it('100ch -> "95-105" (±5ch)', () => {
+    expect(getHorsePowerRange(100)).toBe('95-105');
   });
 
-  it('segment 110-139: 130ch -> "100-150"', () => {
-    expect(getHorsePowerRange(130)).toBe('100-150');
+  it('130ch -> "125-135" (±5ch)', () => {
+    expect(getHorsePowerRange(130)).toBe('125-135');
   });
 
-  it('segment 110-139: 136ch -> "100-150"', () => {
-    expect(getHorsePowerRange(136)).toBe('100-150');
+  it('136ch -> "131-141" (±5ch)', () => {
+    expect(getHorsePowerRange(136)).toBe('131-141');
   });
 
-  it('segment 140-179: 150ch -> "130-190"', () => {
-    expect(getHorsePowerRange(150)).toBe('130-190');
+  it('150ch -> "145-155" (±5ch)', () => {
+    expect(getHorsePowerRange(150)).toBe('145-155');
   });
 
-  it('segment 180-249: 200ch -> "170-260"', () => {
-    expect(getHorsePowerRange(200)).toBe('170-260');
+  it('200ch -> "195-205" (±5ch)', () => {
+    expect(getHorsePowerRange(200)).toBe('195-205');
   });
 
-  it('segment 250-349: 300ch -> "240-360"', () => {
-    expect(getHorsePowerRange(300)).toBe('240-360');
+  it('300ch -> "295-305" (±5ch)', () => {
+    expect(getHorsePowerRange(300)).toBe('295-305');
   });
 
-  it('segment haut: 400ch -> "340-max"', () => {
-    expect(getHorsePowerRange(400)).toBe('340-max');
+  it('400ch -> "395-405" (±5ch)', () => {
+    expect(getHorsePowerRange(400)).toBe('395-405');
+  });
+
+  it('3ch -> "0-8" (plancher a 0)', () => {
+    expect(getHorsePowerRange(3)).toBe('0-8');
   });
 });
 
@@ -1292,7 +1296,7 @@ describe('maybeCollectMarketPrices', () => {
       await maybeCollectMarketPrices(currentVehicle, makeNextData());
 
       const searchUrl = fetchMock.mock.calls[2][0];
-      expect(searchUrl).toContain('horse_power_din=170-260'); // 180ch -> segment 170-260
+      expect(searchUrl).toContain('horse_power_din=175-185'); // 180ch -> ±5ch
     });
 
     it('ajoute le parametre region rn_XX a URL quand pas de geo-location', async () => {

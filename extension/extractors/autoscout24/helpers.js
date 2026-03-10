@@ -117,14 +117,9 @@ export function getAs24FuelCode(fuel) {
 export function getAs24PowerParams(hp) {
   if (!hp || hp <= 0) return {};
   const hpToKw = (v) => Math.round(v * 0.7355);
-
-  if (hp < 80)  return { powerto: hpToKw(90) };
-  if (hp < 110) return { powerfrom: hpToKw(70), powerto: hpToKw(120) };
-  if (hp < 140) return { powerfrom: hpToKw(100), powerto: hpToKw(150) };
-  if (hp < 180) return { powerfrom: hpToKw(130), powerto: hpToKw(190) };
-  if (hp < 250) return { powerfrom: hpToKw(170), powerto: hpToKw(260) };
-  if (hp < 350) return { powerfrom: hpToKw(240), powerto: hpToKw(360) };
-  return { powerfrom: hpToKw(340) };
+  const low = Math.max(0, hp - 5);
+  const high = hp + 5;
+  return { powerfrom: hpToKw(low), powerto: hpToKw(high) };
 }
 
 export function getAs24KmParams(km) {
