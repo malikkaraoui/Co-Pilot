@@ -22,5 +22,9 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
+      - key: WHEEL_SIZE_API_KEY
+        sync: false
+      - key: WHEEL_SIZE_DAILY_BUDGET
+        value: "50"
       - key: LOG_LEVEL
         value: INFO
