@@ -6889,7 +6889,8 @@
         progress.update("phone", "running");
         const phone = await extractor.revealPhone();
         if (phone) {
-          progress.update("phone", "done", phone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5"));
+          const formatted = phone.replace(/^\+33(\d)(\d{2})(\d{2})(\d{2})(\d{2})$/, "+33 $1 $2 $3 $4 $5").replace(/^(0\d)(\d{2})(\d{2})(\d{2})(\d{2})$/, "$1 $2 $3 $4 $5").replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5");
+          progress.update("phone", "done", formatted);
         } else {
           progress.update("phone", "warning", "Num\xE9ro non r\xE9cup\xE9r\xE9");
         }

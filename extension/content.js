@@ -82,7 +82,14 @@ async function runAnalysis(injectedExtractor) {
     if (extractor.isLoggedIn()) {
       progress.update("phone", "running");
       const phone = await extractor.revealPhone();
-      if (phone) { progress.update("phone", "done", phone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5")); }
+      if (phone) {
+        // Format: +33 X XX XX XX XX (indicatif +33 puis 1 chiffre + 4 groupes de 2)
+        // ou 0X XX XX XX XX pour les numéros locaux
+        const formatted = phone.replace(/^\+33(\d)(\d{2})(\d{2})(\d{2})(\d{2})$/, "+33 $1 $2 $3 $4 $5")
+          .replace(/^(0\d)(\d{2})(\d{2})(\d{2})(\d{2})$/, "$1 $2 $3 $4 $5")
+          .replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5"); // fallback
+        progress.update("phone", "done", formatted);
+      }
       else { progress.update("phone", "warning", "Numéro non récupéré"); }
     } else { progress.update("phone", "skip", "Non connecté"); }
   } else { progress.update("phone", "skip", "Pas de téléphone"); }
