@@ -196,6 +196,15 @@ def import_csv(dry_run: bool = False):
                         # (cree par auto-create L2, quick-add, ou seed_vehicles)
                         existing = Vehicle.query.filter_by(brand=make, model=model).first()
                         if existing:
+                            # Elargir year_start/year_end pour couvrir toutes les generations
+                            csv_start = int_or_none(row.get("Year_from", ""))
+                            csv_end = int_or_none(row.get("Year_to", ""))
+                            if csv_start and (
+                                not existing.year_start or csv_start < existing.year_start
+                            ):
+                                existing.year_start = csv_start
+                            if csv_end and (not existing.year_end or csv_end > existing.year_end):
+                                existing.year_end = csv_end
                             vehicle_cache[vkey] = existing
                             vehicle = existing
                         else:

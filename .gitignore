@@ -40,8 +40,8 @@ htmlcov/
 reports/
 
 # SQLite database (managed via Docker volume in prod)
-data/*.db
-data/okazcar.db
+data/*.db*
+releases/render-db/
 
 # Chrome Web Store packaging
 extension.zip

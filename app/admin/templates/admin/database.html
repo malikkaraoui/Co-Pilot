@@ -57,31 +57,55 @@
 <!-- Filtres -->
 <div class="stat-card mb-4">
   <form method="get" class="row g-2 align-items-end">
-    <div class="col-md-3">
+    <div class="col-md-2">
       <label class="form-label fw-bold">Marque</label>
-      <select name="brand" class="form-select">
+      <select name="brand" class="form-select form-select-sm">
         <option value="">Toutes</option>
         {% for b in brand_list %}
           <option value="{{ b }}" {% if b == brand_filter %}selected{% endif %}>{{ b }}</option>
         {% endfor %}
       </select>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
       <label class="form-label fw-bold">Modele</label>
-      <input type="text" name="model" class="form-control" placeholder="Recherche..."
+      <input type="text" name="model" class="form-control form-control-sm" placeholder="Recherche..."
              value="{{ model_filter }}">
     </div>
-    <div class="col-md-3">
-      <label class="form-label fw-bold">Carburant</label>
-      <select name="fuel" class="form-select">
+    <div class="col-md-2">
+      <label class="form-label fw-bold">Generation</label>
+      <input type="text" name="generation" class="form-control form-control-sm" placeholder="ex: VII, II..."
+             value="{{ generation_filter }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label fw-bold">Motorisation</label>
+      <select name="fuel" class="form-select form-select-sm" id="db-fuel-select">
         <option value="">Tous</option>
         {% for f in fuel_list %}
           <option value="{{ f }}" {% if f == fuel_filter %}selected{% endif %}>{{ f }}</option>
         {% endfor %}
       </select>
     </div>
-    <div class="col-md-3">
-      <button type="submit" class="btn btn-primary w-100">Filtrer</button>
+    <div class="col-md-2">
+      <label class="form-label fw-bold">Puissance (ch)</label>
+      <div class="input-group input-group-sm">
+        <input type="number" name="hp_min" class="form-control" placeholder="Min"
+               value="{{ hp_min_filter or '' }}" min="0" max="2000">
+        <input type="number" name="hp_max" class="form-control" placeholder="Max"
+               value="{{ hp_max_filter or '' }}" min="0" max="2000">
+      </div>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label fw-bold">Annees</label>
+      <div class="input-group input-group-sm">
+        <input type="number" name="year_min" class="form-control" placeholder="De"
+               value="{{ year_min_filter or '' }}" min="1900" max="2030">
+        <input type="number" name="year_max" class="form-control" placeholder="A"
+               value="{{ year_max_filter or '' }}" min="1900" max="2030">
+      </div>
+    </div>
+    <div class="col-12 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+      <a href="{{ url_for('admin.database') }}" class="btn btn-outline-secondary btn-sm">Reinitialiser</a>
     </div>
   </form>
 </div>
@@ -93,9 +117,10 @@
     {% if total_pages > 1 %}
     <nav>
       <ul class="pagination pagination-sm mb-0">
+        {% set pargs = "brand=" ~ brand_filter ~ "&model=" ~ model_filter ~ "&fuel=" ~ fuel_filter ~ "&generation=" ~ generation_filter ~ "&hp_min=" ~ (hp_min_filter or '') ~ "&hp_max=" ~ (hp_max_filter or '') ~ "&year_min=" ~ (year_min_filter or '') ~ "&year_max=" ~ (year_max_filter or '') %}
         {% if page > 1 %}
           <li class="page-item">
-            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page - 1 }}">Prec</a>
+            <a class="page-link" href="?{{ pargs }}&page={{ page - 1 }}">Prec</a>
           </li>
         {% endif %}
         <li class="page-item disabled">
@@ -103,7 +128,7 @@
         </li>
         {% if page < total_pages %}
           <li class="page-item">
-            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page + 1 }}">Suiv</a>
+            <a class="page-link" href="?{{ pargs }}&page={{ page + 1 }}">Suiv</a>
           </li>
         {% endif %}
       </ul>
@@ -154,11 +179,8 @@
           <td>{{ spec.co2_emissions_gkm or '-' }}</td>
           <td>{{ spec.curb_weight_kg or '-' }}</td>
           <td>
-            <form method="post" action="{{ url_for('admin.youtube_search') }}" class="d-inline">
-              <input type="hidden" name="vehicle_id" value="{{ vehicle.id }}">
-              <input type="hidden" name="redirect_to" value="{{ request.url }}">
-              <button type="submit" class="btn btn-sm btn-outline-danger" title="Fetch YouTube pour {{ vehicle.brand }} {{ vehicle.model }}">YT</button>
-            </form>
+            <a href="{{ url_for('admin.youtube_fine_search', make=vehicle.brand, model=vehicle.model, generation=vehicle.generation or '', fuel=spec.fuel_type or '', hp=spec.power_hp or '') }}"
+               class="btn btn-sm btn-outline-danger" title="Recherche YouTube pour {{ vehicle.brand }} {{ vehicle.model }}">YT</a>
           </td>
         </tr>
         {% endfor %}
@@ -170,9 +192,10 @@
   <div class="d-flex justify-content-center mt-3">
     <nav>
       <ul class="pagination pagination-sm mb-0">
+        {% set pargs = "brand=" ~ brand_filter ~ "&model=" ~ model_filter ~ "&fuel=" ~ fuel_filter ~ "&generation=" ~ generation_filter ~ "&hp_min=" ~ (hp_min_filter or '') ~ "&hp_max=" ~ (hp_max_filter or '') ~ "&year_min=" ~ (year_min_filter or '') ~ "&year_max=" ~ (year_max_filter or '') %}
         {% if page > 1 %}
           <li class="page-item">
-            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page - 1 }}">Prec</a>
+            <a class="page-link" href="?{{ pargs }}&page={{ page - 1 }}">Prec</a>
           </li>
         {% endif %}
         <li class="page-item disabled">
@@ -180,7 +203,7 @@
         </li>
         {% if page < total_pages %}
           <li class="page-item">
-            <a class="page-link" href="?brand={{ brand_filter }}&model={{ model_filter }}&fuel={{ fuel_filter }}&page={{ page + 1 }}">Suiv</a>
+            <a class="page-link" href="?{{ pargs }}&page={{ page + 1 }}">Suiv</a>
           </li>
         {% endif %}
       </ul>
@@ -192,6 +215,41 @@
 
 {% block extra_js %}
 <script>
+(function() {
+  /* ── Cascade motorisation selon marque/modele/annees ── */
+  var fuelSelect = document.getElementById('db-fuel-select');
+  var prevFuel = {{ fuel_filter|tojson }};
+
+  function refreshFuels() {
+    var brand = document.querySelector('[name=brand]').value;
+    var model = document.querySelector('[name=model]').value;
+    var yearMin = document.querySelector('[name=year_min]').value;
+    var yearMax = document.querySelector('[name=year_max]').value;
+
+    var url = '{{ url_for("admin.database_fuels") }}?brand=' + encodeURIComponent(brand)
+      + '&model=' + encodeURIComponent(model)
+      + '&year_min=' + encodeURIComponent(yearMin)
+      + '&year_max=' + encodeURIComponent(yearMax);
+
+    fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+      var current = fuelSelect.value;
+      while (fuelSelect.options.length > 1) { fuelSelect.remove(1); }
+      data.fuels.forEach(function(f) {
+        var opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        if (f === current || f === prevFuel) { opt.selected = true; }
+        fuelSelect.appendChild(opt);
+      });
+    });
+  }
+
+  ['brand', 'model', 'generation', 'year_min', 'year_max'].forEach(function(name) {
+    var el = document.querySelector('[name=' + name + ']');
+    if (el) { el.addEventListener('change', refreshFuels); }
+  });
+})();
+
   var brands = {{ chart_brands|safe }};
   var counts = {{ chart_counts|safe }};
 

@@ -685,6 +685,11 @@ def database():
     brand_filter = request.args.get("brand", "").strip()
     model_filter = request.args.get("model", "").strip()
     fuel_filter = request.args.get("fuel", "").strip()
+    generation_filter = request.args.get("generation", "").strip()
+    hp_min_filter = request.args.get("hp_min", type=int)
+    hp_max_filter = request.args.get("hp_max", type=int)
+    year_min_filter = request.args.get("year_min", type=int)
+    year_max_filter = request.args.get("year_max", type=int)
     page = request.args.get("page", 1, type=int)
 
     # Stats generales
@@ -737,6 +742,16 @@ def database():
         query = query.filter(Vehicle.model.ilike(f"%{model_filter}%"))
     if fuel_filter:
         query = query.filter(VehicleSpec.fuel_type == fuel_filter)
+    if generation_filter:
+        query = query.filter(Vehicle.generation.ilike(f"%{generation_filter}%"))
+    if hp_min_filter is not None:
+        query = query.filter(VehicleSpec.power_hp >= hp_min_filter)
+    if hp_max_filter is not None:
+        query = query.filter(VehicleSpec.power_hp <= hp_max_filter)
+    if year_min_filter is not None:
+        query = query.filter(Vehicle.year_end >= year_min_filter)
+    if year_max_filter is not None:
+        query = query.filter(Vehicle.year_start <= year_max_filter)
 
     # Pagination manuelle (query retourne des tuples, pas un model)
     per_page = 50
@@ -777,6 +792,11 @@ def database():
         brand_filter=brand_filter,
         model_filter=model_filter,
         fuel_filter=fuel_filter,
+        generation_filter=generation_filter,
+        hp_min_filter=hp_min_filter,
+        hp_max_filter=hp_max_filter,
+        year_min_filter=year_min_filter,
+        year_max_filter=year_max_filter,
         results=results,
         page=page,
         total_pages=total_pages,
@@ -785,6 +805,35 @@ def database():
         promoted_motorizations=promoted_motorizations,
         pending_promotion=pending_promotion,
     )
+
+
+@admin_bp.route("/database/fuels")
+@login_required
+def database_fuels():
+    """Retourne les carburants disponibles pour brand+model+year_min+year_max (AJAX)."""
+    from app.models.vehicle import VehicleSpec
+
+    brand = request.args.get("brand", "").strip()
+    model = request.args.get("model", "").strip()
+    year_min = request.args.get("year_min", type=int)
+    year_max = request.args.get("year_max", type=int)
+
+    q = (
+        db.session.query(db.distinct(VehicleSpec.fuel_type))
+        .join(Vehicle, Vehicle.id == VehicleSpec.vehicle_id)
+        .filter(VehicleSpec.fuel_type.isnot(None), VehicleSpec.fuel_type != "")
+    )
+    if brand:
+        q = q.filter(Vehicle.brand == brand)
+    if model:
+        q = q.filter(Vehicle.model.ilike(f"%{model}%"))
+    if year_min:
+        q = q.filter(Vehicle.year_end >= year_min)
+    if year_max:
+        q = q.filter(Vehicle.year_start <= year_max)
+
+    fuels = sorted(row[0] for row in q.all())
+    return {"fuels": fuels}
 
 
 # ── Gaps métier du référentiel ──────────────────────────────────
@@ -1723,7 +1772,10 @@ def youtube_featured(video_id: int):
 
 _DEFAULT_SYNTHESIS_PROMPT = (
     "Tu es un expert automobile francais. A partir des transcripts de tests "
-    "YouTube ci-dessous, redige une synthese structuree du vehicule.\n\n"
+    "YouTube ci-dessous, redige une synthese structuree UNIQUEMENT pour le "
+    "vehicule {vehicle_desc}.\n\n"
+    "IMPORTANT: Ne parle QUE de ce vehicule precis. Ignore tout contenu des "
+    "transcripts qui concerne un autre modele ou une autre motorisation.\n\n"
     "Inclus:\n"
     "- Points forts (3-5)\n"
     "- Points faibles (3-5)\n"
@@ -1738,7 +1790,8 @@ def _build_vehicle_catalog() -> dict:
     """Construit le catalogue vehicules pour les selects en cascade.
 
     Retourne un dict JSON-serialisable :
-    {brand: {model: {years: [2015, 2016, ...], hp: [90, 110, 130, ...]}}}
+    {brand: {model: {years: [...], fuels: [...], hp: [...]}}}
+    Toutes les valeurs viennent de okazcar.db (Vehicle + VehicleSpec).
     """
     from app.models.vehicle import VehicleSpec
 
@@ -1755,6 +1808,19 @@ def _build_vehicle_catalog() -> dict:
             end = v.year_end or datetime.now(timezone.utc).year
             years = list(range(v.year_start, end + 1))
 
+        # Carburants depuis VehicleSpec (valeurs uniques, triees)
+        fuel_rows = (
+            db.session.query(db.distinct(VehicleSpec.fuel_type))
+            .filter(
+                VehicleSpec.vehicle_id == v.id,
+                VehicleSpec.fuel_type.isnot(None),
+                VehicleSpec.fuel_type != "",
+            )
+            .order_by(VehicleSpec.fuel_type)
+            .all()
+        )
+        fuel_values = [row[0] for row in fuel_rows]
+
         # Chevaux depuis VehicleSpec (valeurs uniques, triees)
         hp_rows = (
             db.session.query(db.distinct(VehicleSpec.power_hp))
@@ -1767,7 +1833,12 @@ def _build_vehicle_catalog() -> dict:
         )
         hp_values = [row[0] for row in hp_rows]
 
-        catalog[v.brand][v.model] = {"years": years, "hp": hp_values}
+        catalog[v.brand][v.model] = {
+            "generation": v.generation or "",
+            "years": years,
+            "fuels": fuel_values,
+            "hp": hp_values,
+        }
 
     return catalog
 
@@ -1785,6 +1856,7 @@ def youtube_fine_search():
     form_data = {
         "make": request.args.get("make", "").strip(),
         "model": request.args.get("model", "").strip(),
+        "generation": request.args.get("generation", "").strip(),
         "year": request.args.get("year", "").strip(),
         "fuel": request.args.get("fuel", "").strip(),
         "hp": request.args.get("hp", "").strip(),
@@ -1794,6 +1866,14 @@ def youtube_fine_search():
         "llm_model": request.args.get("llm_model", "").strip(),
         "prompt": request.args.get("prompt", "").strip(),
     }
+
+    # Si job_id present sans params vehicule → restaurer form_data depuis le job
+    job_id = request.args.get("job_id", "")
+    if job_id and not form_data["make"]:
+        with _jobs_lock:
+            stored_job = _synthesis_jobs.get(job_id)
+        if stored_job:
+            form_data = dict(stored_job.get("form_data", form_data))
 
     return render_template(
         "admin/youtube_search.html",
@@ -1832,6 +1912,7 @@ def youtube_fine_search_run():
         "form_data": {
             "make": make,
             "model": model_name,
+            "generation": request.form.get("generation", "").strip(),
             "year": request.form.get("year", "").strip(),
             "fuel": request.form.get("fuel", "").strip(),
             "hp": request.form.get("hp", "").strip(),
@@ -1907,6 +1988,7 @@ def _run_synthesis_pipeline(app, job: dict) -> None:
             query = build_search_query(
                 make=fd["make"],
                 model=fd["model"],
+                generation=fd.get("generation") or None,
                 year=year_int,
                 fuel=fd["fuel"] or None,
                 hp=fd["hp"] or None,
@@ -2011,7 +2093,21 @@ def _run_synthesis_pipeline(app, job: dict) -> None:
             synthesis_id = None
             llm_duration = 0.0
             llm_model = fd["llm_model"]
-            prompt = fd["prompt"]
+            # Construire la description vehicule pour le prompt
+            desc_parts = [fd["make"], fd["model"]]
+            if fd.get("generation"):
+                desc_parts.append(fd["generation"])
+            if fd.get("fuel"):
+                desc_parts.append(fd["fuel"])
+            if fd.get("hp"):
+                desc_parts.append(f"{fd['hp']}ch")
+            if fd.get("year"):
+                desc_parts.append(f"({fd['year']})")
+            vehicle_desc = " ".join(desc_parts)
+            try:
+                prompt = fd["prompt"].format(vehicle_desc=vehicle_desc)
+            except (KeyError, IndexError):
+                prompt = fd["prompt"]
 
             if concatenated and llm_model:
                 job["progress_label"] = f"Generation LLM ({llm_model})..."

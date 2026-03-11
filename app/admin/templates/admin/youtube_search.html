@@ -108,7 +108,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div class="row g-3 mb-3">
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label">Marque</label>
         <select name="make" class="form-select form-select-sm" id="sel-make" required>
           <option value="">Choisir...</option>
@@ -117,11 +117,17 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label">Modele</label>
         <select name="model" class="form-select form-select-sm" id="sel-model" required>
           <option value="">Choisir marque d'abord...</option>
         </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Generation</label>
+        <input type="text" name="generation" class="form-control form-control-sm" id="inp-generation"
+               value="{{ form_data.generation or '' }}"
+               placeholder="Auto" title="Pre-rempli depuis le referentiel, modifiable">
       </div>
       <div class="col-md-2">
         <label class="form-label">Annee</label>
@@ -131,11 +137,8 @@
       </div>
       <div class="col-md-2">
         <label class="form-label">Motorisation</label>
-        <select name="fuel" class="form-select form-select-sm">
+        <select name="fuel" class="form-select form-select-sm" id="sel-fuel">
           <option value="">Toutes</option>
-          {% for f in ["diesel", "essence", "hybride", "electrique", "GPL"] %}
-          <option value="{{ f }}" {% if form_data.fuel == f %}selected{% endif %}>{{ f|capitalize }}</option>
-          {% endfor %}
         </select>
       </div>
       <div class="col-md-2">
@@ -330,11 +333,14 @@
   var catalog = {{ vehicle_catalog|tojson }};
   var selMake  = document.getElementById('sel-make');
   var selModel = document.getElementById('sel-model');
+  var inpGen   = document.getElementById('inp-generation');
   var selYear  = document.getElementById('sel-year');
+  var selFuel  = document.getElementById('sel-fuel');
   var selHp    = document.getElementById('sel-hp');
 
   var prevModel = {{ (form_data.model or "")|tojson }};
   var prevYear  = {{ (form_data.year or "")|tojson }};
+  var prevFuel  = {{ (form_data.fuel or "")|tojson }};
   var prevHp    = {{ (form_data.hp or "")|tojson }};
 
   function clearSelect(sel) {
@@ -369,8 +375,11 @@
     var brand = selMake.value;
     var model = selModel.value;
     var info = (brand && model && catalog[brand] && catalog[brand][model]) ? catalog[brand][model] : null;
+    inpGen.value = info ? info.generation : '';
     var years = info ? info.years.slice().reverse() : [];
     populateSelect(selYear, years, 'Toutes', prevYear);
+    var fuels = info ? info.fuels : [];
+    populateSelect(selFuel, fuels, 'Toutes', prevFuel);
     var hpValues = info ? info.hp : [];
     populateSelect(selHp, hpValues, 'Tous', prevHp);
   }

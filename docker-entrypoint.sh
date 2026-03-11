@@ -3,6 +3,10 @@ set -e
 
 PORT="${PORT:-5000}"
 
+# Synchronisation optionnelle d'un snapshot SQLite canonique vers le disque Render.
+# Le script ne fait rien si RENDER_DB_SYNC_URL n'est pas renseigne.
+python /app/scripts/sync_render_sqlite.py
+
 # Auto-seed si la DB est vide (premier deploy)
 python -c "
 from app import create_app

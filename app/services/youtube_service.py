@@ -54,6 +54,7 @@ EXCLUDED_TITLE_KEYWORDS = [
 def build_search_query(
     make: str,
     model: str,
+    generation: str | None = None,
     year: int | None = None,
     fuel: str | None = None,
     hp: str | None = None,
@@ -62,8 +63,8 @@ def build_search_query(
     """Construit une query YouTube precise a partir des parametres vehicule.
 
     Exemples:
-        ("Peugeot", "308", 2019, "diesel", "130") ->
-        '"Peugeot 308" 2019 diesel 130ch fiabilite problemes defauts avis'
+        ("Peugeot", "308", "II", 2019, "diesel", "130") ->
+        '"Peugeot 308" II 2019 diesel 130ch fiabilite problemes defauts avis'
 
         ("Renault", "Clio") ->
         '"Renault Clio" fiabilite problemes defauts avis'
@@ -72,6 +73,8 @@ def build_search_query(
     vehicle_name = '"' + make.strip() + " " + model.strip() + '"'
     parts = [vehicle_name]
 
+    if generation:
+        parts.append(generation.strip())
     if year:
         parts.append(str(year))
     if fuel:
