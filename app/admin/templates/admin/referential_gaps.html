@@ -134,32 +134,65 @@
 </div>
 
 <div class="stat-card mb-4">
-  <form method="get" class="row g-3 align-items-end">
-    <div class="col-md-3">
-      <label class="form-label">Marque</label>
-      <select name="brand" class="form-select form-select-sm">
-        <option value="">Toutes</option>
-        {% for brand in brand_list %}
-        <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
-        {% endfor %}
-      </select>
+  <form method="get" id="gaps-filter-form">
+    <div class="row g-2 mb-2">
+      <div class="col-md-2">
+        <label class="form-label form-label-sm">Marque</label>
+        <select name="brand" class="form-select form-select-sm" id="rg-brand">
+          <option value="">Toutes</option>
+          {% for brand in brand_list %}
+          <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label form-label-sm">Modele</label>
+        <select name="model" class="form-select form-select-sm" id="rg-model">
+          <option value="">Tous</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label form-label-sm">Generation</label>
+        <input type="text" name="generation" class="form-control form-control-sm" id="rg-generation"
+               value="{{ generation_filter or '' }}" placeholder="VII, redesign...">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label form-label-sm">Annee de</label>
+        <input type="number" name="year_min" class="form-control form-control-sm"
+               value="{{ year_min_filter or '' }}" placeholder="2010" min="1950" max="2030">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label form-label-sm">a</label>
+        <input type="number" name="year_max" class="form-control form-control-sm"
+               value="{{ year_max_filter or '' }}" placeholder="2025" min="1950" max="2030">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label form-label-sm">Motorisation</label>
+        <select name="fuel" class="form-select form-select-sm" id="rg-fuel">
+          <option value="">Toutes</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label form-label-sm">Chevaux</label>
+        <select name="hp" class="form-select form-select-sm" id="rg-hp">
+          <option value="">Tous</option>
+        </select>
+      </div>
     </div>
-    <div class="col-md-3">
-      <label class="form-label">Recherche</label>
-      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Golf, 308, Tesla...">
-    </div>
-    <div class="col-md-3">
-      <label class="form-label">État métier</label>
-      <select name="status" class="form-select form-select-sm">
-        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>Tous</option>
-        <option value="critical" {% if status_filter == 'critical' %}selected{% endif %}>Critique</option>
-        <option value="attention" {% if status_filter == 'attention' %}selected{% endif %}>À compléter</option>
-        <option value="healthy" {% if status_filter == 'healthy' %}selected{% endif %}>Solide</option>
-      </select>
-    </div>
-    <div class="col-md-3 d-flex gap-2">
-      <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
-      <a href="{{ url_for('admin.referential_gaps') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+    <div class="row g-2">
+      <div class="col-md-3">
+        <label class="form-label form-label-sm">Etat metier</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="all" {% if status_filter == 'all' %}selected{% endif %}>Tous</option>
+          <option value="critical" {% if status_filter == 'critical' %}selected{% endif %}>Critique</option>
+          <option value="attention" {% if status_filter == 'attention' %}selected{% endif %}>A completer</option>
+          <option value="healthy" {% if status_filter == 'healthy' %}selected{% endif %}>Solide</option>
+        </select>
+      </div>
+      <div class="col-md-3 d-flex gap-2 align-items-end">
+        <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+        <a href="{{ url_for('admin.referential_gaps') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      </div>
     </div>
   </form>
 </div>
@@ -272,11 +305,14 @@
   {% endfor %}
 
   {% if total_pages > 1 %}
+  {% set pargs = {'brand': brand_filter, 'model': model_filter, 'generation': generation_filter,
+                  'year_min': year_min_filter, 'year_max': year_max_filter,
+                  'fuel': fuel_filter, 'hp': hp_filter, 'status': status_filter} %}
   <nav class="mt-4">
     <ul class="pagination pagination-sm">
       {% for p in range(1, total_pages + 1) %}
       <li class="page-item {% if p == page %}active{% endif %}">
-        <a class="page-link" href="{{ url_for('admin.referential_gaps', page=p, brand=brand_filter, q=q, status=status_filter) }}">{{ p }}</a>
+        <a class="page-link" href="{{ url_for('admin.referential_gaps', page=p, **pargs) }}">{{ p }}</a>
       </li>
       {% endfor %}
     </ul>
@@ -285,4 +321,58 @@
 {% else %}
 <div class="stat-card text-center py-5 text-muted">Aucun véhicule ne correspond à ces filtres.</div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  var catalog = {{ vehicle_catalog|tojson }};
+  var selBrand = document.getElementById('rg-brand');
+  var selModel = document.getElementById('rg-model');
+  var inpGen   = document.getElementById('rg-generation');
+  var selFuel  = document.getElementById('rg-fuel');
+  var selHp    = document.getElementById('rg-hp');
+
+  var savedModel = {{ (model_filter or "")|tojson }};
+  var savedFuel  = {{ (fuel_filter or "")|tojson }};
+  var savedHp    = {{ (hp_filter or "")|tojson }};
+
+  function populateSelect(sel, options, placeholder, selected) {
+    while (sel.options.length > 0) sel.remove(0);
+    var opt = document.createElement('option');
+    opt.value = ''; opt.textContent = placeholder;
+    sel.appendChild(opt);
+    for (var i = 0; i < options.length; i++) {
+      var o = document.createElement('option');
+      o.value = options[i]; o.textContent = options[i];
+      if (String(options[i]) === String(selected)) o.selected = true;
+      sel.appendChild(o);
+    }
+  }
+
+  function onBrandChange() {
+    var brand = selBrand.value;
+    var models = brand && catalog[brand] ? Object.keys(catalog[brand]).sort() : [];
+    populateSelect(selModel, models, models.length ? 'Tous' : 'Choisir marque...', savedModel);
+    onModelChange();
+  }
+
+  function onModelChange() {
+    var brand = selBrand.value;
+    var model = selModel.value;
+    var info = (brand && model && catalog[brand] && catalog[brand][model]) ? catalog[brand][model] : null;
+    if (info && info.generation && !inpGen.value) {
+      inpGen.placeholder = info.generation;
+    }
+    var fuels = info ? info.fuels : [];
+    populateSelect(selFuel, fuels, 'Toutes', savedFuel);
+    var hpVals = info ? info.hp.map(String) : [];
+    populateSelect(selHp, hpVals, 'Tous', String(savedHp || ''));
+  }
+
+  selBrand.addEventListener('change', onBrandChange);
+  selModel.addEventListener('change', onModelChange);
+  if (selBrand.value) onBrandChange();
+})();
+</script>
 {% endblock %}

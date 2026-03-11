@@ -851,7 +851,12 @@ def referential_gaps():
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     brand_filter = request.args.get("brand", "").strip()
-    q = request.args.get("q", "").strip()
+    model_filter = request.args.get("model", "").strip()
+    generation_filter = request.args.get("generation", "").strip()
+    year_min_filter = request.args.get("year_min", type=int)
+    year_max_filter = request.args.get("year_max", type=int)
+    fuel_filter = request.args.get("fuel", "").strip()
+    hp_filter = request.args.get("hp", type=int)
     status_filter = request.args.get("status", "all").strip() or "all"
     page = max(1, request.args.get("page", 1, type=int))
     per_page = 25
@@ -863,11 +868,33 @@ def referential_gaps():
     filtered_vehicles = all_vehicles
     if brand_filter:
         filtered_vehicles = [v for v in filtered_vehicles if v.brand == brand_filter]
-    if q:
-        q_lower = q.lower()
+    if model_filter:
+        ml = model_filter.lower()
+        filtered_vehicles = [v for v in filtered_vehicles if ml in v.model.lower()]
+    if generation_filter:
+        gl = generation_filter.lower()
         filtered_vehicles = [
-            v for v in filtered_vehicles if q_lower in v.brand.lower() or q_lower in v.model.lower()
+            v for v in filtered_vehicles if v.generation and gl in v.generation.lower()
         ]
+    if year_min_filter:
+        filtered_vehicles = [
+            v for v in filtered_vehicles if v.year_end is None or v.year_end >= year_min_filter
+        ]
+    if year_max_filter:
+        filtered_vehicles = [
+            v for v in filtered_vehicles if v.year_start is None or v.year_start <= year_max_filter
+        ]
+    if fuel_filter or hp_filter:
+        matching_ids: set[int] = set()
+        for v in filtered_vehicles:
+            for spec in v.specs:
+                if fuel_filter and spec.fuel_type != fuel_filter:
+                    continue
+                if hp_filter and spec.power_hp != hp_filter:
+                    continue
+                matching_ids.add(v.id)
+                break
+        filtered_vehicles = [v for v in filtered_vehicles if v.id in matching_ids]
     if status_filter != "all":
         filtered_vehicles = [
             v for v in filtered_vehicles if profiles.get(v.id, {}).get("status") == status_filter
@@ -890,18 +917,27 @@ def referential_gaps():
         row.brand for row in db.session.query(Vehicle.brand).distinct().order_by(Vehicle.brand)
     ]
 
+    # Catalogue pour cascade JS {brand: {model: {fuels, hp, years, generation}}}
+    vehicle_catalog = _build_vehicle_catalog()
+
     return render_template(
         "admin/referential_gaps.html",
         summary=summary,
         snapshots=snapshots,
         brand_list=brand_list,
         brand_filter=brand_filter,
-        q=q,
+        model_filter=model_filter,
+        generation_filter=generation_filter,
+        year_min_filter=year_min_filter,
+        year_max_filter=year_max_filter,
+        fuel_filter=fuel_filter,
+        hp_filter=hp_filter,
         status_filter=status_filter,
         page=page,
         total_pages=total_pages,
         total_results=total_results,
         now=now,
+        vehicle_catalog=vehicle_catalog,
     )
 
 
