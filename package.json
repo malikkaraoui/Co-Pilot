@@ -6,6 +6,7 @@
   "scripts": {
     "build:ext": "node extension/build.js",
     "build:ext:prod": "node extension/build.js",
+    "render:publish-db": "python3 scripts/publish_render_release.py --version auto",
     "test:extension": "vitest run --config vitest.config.mjs",
     "verify": "bash scripts/verify.sh",
     "version:patch": "npm version patch --no-git-tag-version && node scripts/update-version.mjs patch",
@@ -24,7 +25,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/malikkaraoui/OKazCar.git"
+    "url": "https://github.com/malikkaraoui/Co-Pilot.git"
   },
   "author": "Malik Karaoui",
   "license": "UNLICENSED"

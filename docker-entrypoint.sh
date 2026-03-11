@@ -2,10 +2,17 @@
 set -e
 
 PORT="${PORT:-5000}"
+APP_ROOT="$(cd "$(dirname "$0")" && pwd)"
+SYNC_SCRIPT="$APP_ROOT/scripts/sync_render_sqlite.py"
 
 # Synchronisation optionnelle d'un snapshot SQLite canonique vers le disque Render.
 # Le script ne fait rien si RENDER_DB_SYNC_URL n'est pas renseigne.
-python /app/scripts/sync_render_sqlite.py
+if [ -f "$SYNC_SCRIPT" ]; then
+    python "$SYNC_SCRIPT"
+else
+    echo "[entrypoint] WARNING: script de synchro introuvable: $SYNC_SCRIPT"
+    echo "[entrypoint] WARNING: synchro Render ignoree, demarrage de l'application quand meme"
+fi
 
 # Auto-seed si la DB est vide (premier deploy)
 python -c "
