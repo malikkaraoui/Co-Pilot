@@ -125,6 +125,7 @@
           <th>Conso (L/100)</th>
           <th>CO2 (g/km)</th>
           <th>Poids (kg)</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -152,6 +153,13 @@
           <td>{{ spec.mixed_consumption_l100km or '-' }}</td>
           <td>{{ spec.co2_emissions_gkm or '-' }}</td>
           <td>{{ spec.curb_weight_kg or '-' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.youtube_search') }}" class="d-inline">
+              <input type="hidden" name="vehicle_id" value="{{ vehicle.id }}">
+              <input type="hidden" name="redirect_to" value="{{ request.url }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Fetch YouTube pour {{ vehicle.brand }} {{ vehicle.model }}">YT</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

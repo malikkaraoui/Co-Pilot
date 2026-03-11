@@ -127,6 +127,50 @@ Codes distance connus :
 ?ratedHorsePowerMin=5&ratedHorsePowerMax=10   # entre 5 et 10 CV fiscaux
 ```
 
+### Categories / Carrosserie (`categories`)
+
+> **Verifie manuellement 2026-03-11** : `bodyType=` est IGNORE par LC.
+> Seul `categories=` fonctionne, avec des codes numeriques.
+
+| Code | Carrosserie |
+|------|-------------|
+| `47` | 4x4, SUV & Crossover |
+| `41_42` | Berline (2 sous-codes) |
+| `43` | Break |
+| `44` | Monospace |
+| `45` | Coupe |
+
+**Multi-select** : virgule encodee `%2C`
+```
+?categories=41_42%2C43          # Berline + Break
+?categories=47                   # SUV uniquement
+```
+
+### Prix (`priceMin`, `priceMax`)
+
+> **Verifie manuellement 2026-03-11**.
+
+```
+?priceMin=15000&priceMax=30000   # entre 15k et 30k EUR
+```
+
+### Type de vendeur (`customerFamilyCodes`)
+
+> **Verifie manuellement 2026-03-11** : `sellerType=` est IGNORE par LC.
+> Seul `customerFamilyCodes=` fonctionne.
+
+| Valeur | Type |
+|--------|------|
+| `PART` | Particulier |
+| `PROFESSIONNEL%2CCOURTIER_AUTOMOBILE%2CINTERMEDIAIRE` | Professionnel (3 codes) |
+
+```
+?customerFamilyCodes=PART
+?customerFamilyCodes=PROFESSIONNEL%2CCOURTIER_AUTOMOBILE%2CINTERMEDIAIRE
+```
+
+---
+
 ## Exemples complets
 
 Diesel, manuelle, VW Golf, 2003-2005, >100k km :

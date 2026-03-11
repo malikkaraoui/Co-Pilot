@@ -1673,7 +1673,8 @@ def youtube_search():
         flash(f"Erreur de recherche : {exc}", "error")
         logger.exception("Erreur recherche YouTube pour vehicule %d", vehicle_id)
 
-    return redirect(url_for("admin.youtube", vehicle_id=vehicle_id))
+    referrer = request.form.get("redirect_to") or url_for("admin.youtube", vehicle_id=vehicle_id)
+    return redirect(referrer)
 
 
 @admin_bp.route("/youtube/<int:video_id>/archive", methods=["POST"])
