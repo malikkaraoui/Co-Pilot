@@ -1582,6 +1582,93 @@ def set_argus_threshold(vehicle_id: int):
     return redirect(url_for("admin.argus"))
 
 
+# ── Fiabilite Moteurs ─────────────────────────────────────────────
+
+
+@admin_bp.route("/engine-reliability")
+@login_required
+def engine_reliability():
+    """Liste des moteurs avec score de fiabilite, filtrables."""
+    from app.models.engine_reliability import EngineReliability
+
+    fuel_filter = request.args.get("fuel", "").strip()
+    score_min_filter = request.args.get("score_min", "").strip()
+    brand_filter = request.args.get("brand", "").strip()
+
+    q = EngineReliability.query.order_by(
+        EngineReliability.score.desc(), EngineReliability.source_count.desc()
+    )
+    if fuel_filter:
+        q = q.filter(EngineReliability.fuel_type == fuel_filter)
+    if score_min_filter:
+        try:
+            q = q.filter(EngineReliability.score >= float(score_min_filter))
+        except ValueError:
+            pass
+    if brand_filter:
+        q = q.filter(EngineReliability.brand.ilike(f"%{brand_filter}%"))
+
+    engines = q.all()
+
+    total_count = EngineReliability.query.count()
+    diesel_count = EngineReliability.query.filter_by(fuel_type="Diesel").count()
+    essence_count = EngineReliability.query.filter_by(fuel_type="Essence").count()
+
+    engines_json = [
+        {
+            "id": e.id,
+            "engine_code": e.engine_code,
+            "brand": e.brand,
+            "fuel_type": e.fuel_type,
+            "score": e.score,
+            "source_count": e.source_count,
+            "note": e.note,
+            "weaknesses": e.weaknesses,
+            "match_patterns": e.match_patterns,
+        }
+        for e in engines
+    ]
+
+    return render_template(
+        "admin/engine_reliability.html",
+        engines=engines,
+        engines_json=engines_json,
+        total_count=total_count,
+        diesel_count=diesel_count,
+        essence_count=essence_count,
+        fuel_filter=fuel_filter,
+        score_min_filter=score_min_filter,
+        brand_filter=brand_filter,
+    )
+
+
+@admin_bp.route("/engine-reliability/update", methods=["POST"])
+@login_required
+def engine_reliability_update():
+    """Met a jour un enregistrement EngineReliability."""
+    from app.models.engine_reliability import EngineReliability
+
+    engine_id = request.form.get("engine_id", type=int)
+    entry = db.session.get(EngineReliability, engine_id) or abort(404)
+
+    try:
+        entry.score = float(request.form.get("score", entry.score))
+    except ValueError:
+        pass
+    entry.fuel_type = request.form.get("fuel_type", entry.fuel_type).strip()
+    try:
+        entry.source_count = int(request.form.get("source_count", entry.source_count))
+    except ValueError:
+        pass
+    entry.note = request.form.get("note", "").strip() or None
+    entry.weaknesses = request.form.get("weaknesses", "").strip() or None
+    entry.match_patterns = request.form.get("match_patterns", "").strip() or None
+
+    db.session.commit()
+    flash(f"Moteur « {entry.engine_code} » mis a jour.", "success")
+    return redirect(url_for("admin.engine_reliability"))
+
+
 # ── YouTube Tests ────────────────────────────────────────────────
 
 
