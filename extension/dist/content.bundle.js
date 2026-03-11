@@ -6895,7 +6895,7 @@
           progress.update("phone", "warning", "Num\xE9ro non r\xE9cup\xE9r\xE9");
         }
       } else {
-        progress.update("phone", "skip", "Non connect\xE9");
+        progress.update("phone", "skip", "Connectez-vous sur LeBonCoin pour analyser le num\xE9ro du vendeur");
       }
     } else {
       progress.update("phone", "skip", "Pas de t\xE9l\xE9phone");

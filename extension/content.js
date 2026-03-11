@@ -91,7 +91,7 @@ async function runAnalysis(injectedExtractor) {
         progress.update("phone", "done", formatted);
       }
       else { progress.update("phone", "warning", "Numéro non récupéré"); }
-    } else { progress.update("phone", "skip", "Non connecté"); }
+    } else { progress.update("phone", "skip", "Connectez-vous sur LeBonCoin pour analyser le numéro du vendeur"); }
   } else { progress.update("phone", "skip", "Pas de téléphone"); }
 
   // Phase 2: Market prices
