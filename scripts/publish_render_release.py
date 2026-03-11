@@ -51,8 +51,11 @@ def _load_dotenv(dotenv_path: Path) -> None:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        if not os.environ.get(key):
+            os.environ[key] = value
 
 
 def _default_version() -> str:
