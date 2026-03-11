@@ -15,6 +15,7 @@ from youtube_transcript_api._errors import (
     NoTranscriptFound,
     RequestBlocked,
     TranscriptsDisabled,
+    TranslationLanguageNotAvailable,
     VideoUnavailable,
 )
 
@@ -444,6 +445,8 @@ def fetch_transcript(video_id: str) -> dict | None:
                 translated = t.translate("fr")
                 fetched = translated.fetch()
                 return _make_transcript_result(fetched, language_override="fr (translated)")
+    except TranslationLanguageNotAvailable:
+        logger.info("Traduction FR indisponible pour %s, fallback yt-dlp...", video_id)
     except (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound):
         pass
     except (RequestBlocked, IpBlocked):
