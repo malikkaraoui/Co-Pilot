@@ -62,12 +62,15 @@ def build_search_query(
     """Construit une query YouTube precise a partir des parametres vehicule.
 
     Exemples:
-        ("Peugeot", "308", 2019, "diesel", "130", "fiabilite") ->
-        "Peugeot 308 2019 diesel 130ch fiabilite"
+        ("Peugeot", "308", 2019, "diesel", "130") ->
+        '"Peugeot 308" 2019 diesel 130ch fiabilite problemes defauts avis'
 
-        ("Renault", "Clio") -> "Renault Clio essai test avis"
+        ("Renault", "Clio") ->
+        '"Renault Clio" fiabilite problemes defauts avis'
     """
-    parts = [make.strip(), model.strip()]
+    # Guillemets autour de marque+modele pour forcer la pertinence YouTube
+    vehicle_name = '"' + make.strip() + " " + model.strip() + '"'
+    parts = [vehicle_name]
 
     if year:
         parts.append(str(year))
@@ -78,8 +81,9 @@ def build_search_query(
     if keywords:
         parts.append(keywords.strip())
 
-    if not keywords and not fuel and not hp and not year:
-        parts.extend(["essai", "test", "avis"])
+    # Toujours ajouter les mots-cles fiabilite sauf si des keywords custom
+    if not keywords:
+        parts.extend(["fiabilite", "problemes", "defauts", "avis"])
 
     return " ".join(parts)
 
@@ -534,7 +538,7 @@ def search_and_extract_for_vehicle(vehicle, max_videos: int = 5) -> dict:
 
     Retourne {videos_found, transcripts_ok, transcripts_failed, transcripts_skipped}.
     """
-    query = f"{vehicle.brand} {vehicle.model} essai test avis"
+    query = build_search_query(make=vehicle.brand, model=vehicle.model)
     stats = {
         "videos_found": 0,
         "transcripts_ok": 0,
