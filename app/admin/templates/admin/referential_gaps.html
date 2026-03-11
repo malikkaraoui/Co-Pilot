@@ -1,0 +1,288 @@
+{% extends "admin/base.html" %}
+{% block title %}Gaps métier du référentiel - OKazCar Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .health-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .health-pill.critical { background: #fee2e2; color: #b91c1c; }
+  .health-pill.attention { background: #fef3c7; color: #b45309; }
+  .health-pill.healthy { background: #dcfce7; color: #15803d; }
+  .mini-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 12px;
+    margin: 2px 6px 2px 0;
+  }
+  .gap-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    margin: 2px 6px 2px 0;
+  }
+  .vehicle-card {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    padding: 18px 20px;
+  }
+  .vehicle-card + .vehicle-card { margin-top: 14px; }
+  .card-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .readiness-bar {
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .readiness-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="mb-1">Gaps métier du référentiel</h2>
+    <p class="text-muted mb-0">Vue portefeuille de toute la base, avec une fiche exploitable pour chaque véhicule.</p>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value">{{ summary.total_vehicles }}</div>
+      <div class="stat-label">Véhicules référencés</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value">{{ summary.avg_readiness_pct }}%</div>
+      <div class="stat-label">Readiness moyenne</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#22c55e">{{ summary.with_specs }}</div>
+      <div class="stat-label">Avec specs</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#3b82f6">{{ summary.with_tires }}</div>
+      <div class="stat-label">Avec pneus</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#8b5cf6">{{ summary.with_market }}</div>
+      <div class="stat-label">Avec argus maison</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#f59e0b">{{ summary.with_youtube }}</div>
+      <div class="stat-label">Avec matière YouTube</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#ef4444">{{ summary.critical_count }}</div>
+      <div class="stat-label">Fiches critiques</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#f59e0b">{{ summary.attention_count }}</div>
+      <div class="stat-label">Fiches à compléter</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#22c55e">{{ summary.healthy_count }}</div>
+      <div class="stat-label">Fiches solides</div>
+    </div>
+  </div>
+</div>
+
+<div class="stat-card mb-4">
+  <form method="get" class="row g-3 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label">Marque</label>
+      <select name="brand" class="form-select form-select-sm">
+        <option value="">Toutes</option>
+        {% for brand in brand_list %}
+        <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Recherche</label>
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Golf, 308, Tesla...">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">État métier</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>Tous</option>
+        <option value="critical" {% if status_filter == 'critical' %}selected{% endif %}>Critique</option>
+        <option value="attention" {% if status_filter == 'attention' %}selected{% endif %}>À compléter</option>
+        <option value="healthy" {% if status_filter == 'healthy' %}selected{% endif %}>Solide</option>
+      </select>
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+      <a href="{{ url_for('admin.referential_gaps') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+    </div>
+  </form>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="text-muted" style="font-size:13px">{{ total_results }} véhicule{{ 's' if total_results != 1 else '' }} affiché{{ 's' if total_results != 1 else '' }}</div>
+</div>
+
+{% if snapshots %}
+  {% for item in snapshots %}
+  <div class="vehicle-card">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+          <h4 class="mb-0">{{ item.vehicle.brand }} {{ item.vehicle.model }}</h4>
+          <span class="health-pill {{ item.status }}">
+            {% if item.status == 'critical' %}Critique{% elif item.status == 'attention' %}À compléter{% else %}Solide{% endif %}
+          </span>
+        </div>
+        <div class="text-muted" style="font-size:13px">
+          Référentiel : {{ item.vehicle.year_start or '?' }}{% if item.vehicle.year_end %} → {{ item.vehicle.year_end }}{% endif %}
+          {% if item.vehicle.generation %} · {{ item.vehicle.generation }}{% endif %}
+          · Enrichissement: {{ item.vehicle.enrichment_status }}
+        </div>
+      </div>
+      <div style="min-width:240px">
+        <div class="d-flex justify-content-between" style="font-size:12px;color:#64748b">
+          <span>Readiness</span>
+          <strong>{{ item.readiness_pct }}%</strong>
+        </div>
+        <div class="readiness-bar mt-1"><span style="width: {{ item.readiness_pct }}%"></span></div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-3">
+        <div class="card-section-title">Fiche technique</div>
+        <div class="mini-metric">Specs: <strong>{{ item.specs.count }}</strong></div>
+        <div class="mini-metric">Carburants: <strong>{{ item.specs.fuel_values|length }}</strong></div>
+        <div class="mini-metric">Max ch: <strong>{{ item.specs.max_hp or '-' }}</strong></div>
+        <div class="mini-metric">Fiabilité: <strong>{{ item.specs.avg_reliability or '-' }}</strong></div>
+        <div class="mt-2" style="font-size:12px;color:#64748b">
+          LBC tokens: {% if item.tokens.lbc_ready %}<strong style="color:#16a34a">OK</strong>{% else %}<strong style="color:#dc2626">manquants</strong>{% endif %}<br>
+          AS24 slugs: {% if item.tokens.as24_ready %}<strong style="color:#16a34a">OK</strong>{% else %}<strong style="color:#dc2626">manquants</strong>{% endif %}
+        </div>
+      </div>
+
+      <div class="col-md-2">
+        <div class="card-section-title">Pneus</div>
+        <div class="mini-metric">Sources: <strong>{{ item.tires.source_values|length }}</strong></div>
+        <div class="mini-metric">Dimensions: <strong>{{ item.tires.dimension_count }}</strong></div>
+        {% if item.tires.dimensions_preview %}
+        <div class="mt-2" style="font-size:12px;color:#475569">
+          {{ item.tires.dimensions_preview|join(', ') }}
+        </div>
+        {% else %}
+        <div class="mt-2 text-muted" style="font-size:12px">Aucune dimension stockée</div>
+        {% endif %}
+      </div>
+
+      <div class="col-md-3">
+        <div class="card-section-title">Argus maison</div>
+        <div class="mini-metric">Réfs: <strong>{{ item.market.count }}</strong></div>
+        <div class="mini-metric">Régions: <strong>{{ item.market.regions|length }}</strong></div>
+        <div class="mini-metric">Annonces: <strong>{{ item.market.total_samples }}</strong></div>
+        <div class="mini-metric">LBC est.: <strong>{{ item.market.lbc_estimate_count }}</strong></div>
+        <div class="mini-metric">AS24: <strong>{{ item.market.non_fr_count }}</strong></div>
+        {% if item.market.insufficient_count %}
+        <div class="mt-2" style="font-size:12px;color:#b45309">{{ item.market.insufficient_count }} référence{{ 's' if item.market.insufficient_count > 1 else '' }} sous le seuil mini.</div>
+        {% endif %}
+      </div>
+
+      <div class="col-md-2">
+        <div class="card-section-title">YouTube / fiabilité</div>
+        <div class="mini-metric">Vidéos: <strong>{{ item.youtube.video_count }}</strong></div>
+        <div class="mini-metric">Transcripts: <strong>{{ item.youtube.transcript_count }}</strong></div>
+        <div class="mini-metric">Synthèses: <strong>{{ item.youtube.synthesis_count }}</strong></div>
+        <div class="mini-metric">Chars: <strong>{{ "{:,}".format(item.youtube.transcript_chars).replace(",", " ") }}</strong></div>
+      </div>
+
+      <div class="col-md-2">
+        <div class="card-section-title">Scans</div>
+        <div class="mini-metric">24h: <strong>{{ item.scans.day }}</strong></div>
+        <div class="mini-metric">7j: <strong>{{ item.scans.week }}</strong></div>
+        <div class="mini-metric">30j: <strong>{{ item.scans.month }}</strong></div>
+        <div class="mini-metric">Total: <strong>{{ item.scans.total }}</strong></div>
+        <div class="mt-2" style="font-size:12px;color:#64748b">
+          {% for src in item.scans.by_source %}
+            {{ src.source|upper }}: <strong>{{ src.count }}</strong>{% if not loop.last %} · {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-3">
+      {% for gap in item.gap_items[:6] %}
+      <span class="gap-badge">{{ gap }}</span>
+      {% endfor %}
+      {% if item.gap_items|length > 6 %}
+      <span class="gap-badge">+{{ item.gap_items|length - 6 }} autres</span>
+      {% endif %}
+    </div>
+
+    <div class="d-flex gap-2 mt-3 flex-wrap">
+      <a href="{{ url_for('admin.referential_gap_detail', vehicle_id=item.vehicle.id) }}" class="btn btn-sm btn-primary">Ouvrir la fiche</a>
+      <a href="{{ url_for('admin.youtube_fine_search', make=item.vehicle.brand, model=item.vehicle.model) }}" class="btn btn-sm btn-outline-danger">YouTube fine search</a>
+      <a href="{{ url_for('admin.argus', make=item.vehicle.brand) }}" class="btn btn-sm btn-outline-secondary">Voir l'argus</a>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if total_pages > 1 %}
+  <nav class="mt-4">
+    <ul class="pagination pagination-sm">
+      {% for p in range(1, total_pages + 1) %}
+      <li class="page-item {% if p == page %}active{% endif %}">
+        <a class="page-link" href="{{ url_for('admin.referential_gaps', page=p, brand=brand_filter, q=q, status=status_filter) }}">{{ p }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+{% else %}
+<div class="stat-card text-center py-5 text-muted">Aucun véhicule ne correspond à ces filtres.</div>
+{% endif %}
+{% endblock %}

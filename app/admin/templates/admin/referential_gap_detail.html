@@ -1,0 +1,357 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ snapshot.vehicle.brand }} {{ snapshot.vehicle.model }} - Gaps métier{% endblock %}
+
+{% block extra_css %}
+<style>
+  .health-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .health-pill.critical { background: #fee2e2; color: #b91c1c; }
+  .health-pill.attention { background: #fef3c7; color: #b45309; }
+  .health-pill.healthy { background: #dcfce7; color: #15803d; }
+  .gap-badge {
+    display: inline-block;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    margin: 4px 8px 0 0;
+  }
+  .section-box {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .mono-mini {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    color: #475569;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="{{ url_for('admin.referential_gaps') }}" class="text-muted" style="font-size:13px">&larr; Retour à la vue portefeuille</a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-4">
+  <div>
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+      <h2 class="mb-0">{{ snapshot.vehicle.brand }} {{ snapshot.vehicle.model }}</h2>
+      <span class="health-pill {{ snapshot.status }}">
+        {% if snapshot.status == 'critical' %}Critique{% elif snapshot.status == 'attention' %}À compléter{% else %}Solide{% endif %}
+      </span>
+    </div>
+    <div class="text-muted">
+      Référentiel: {{ snapshot.vehicle.year_start or '?' }}{% if snapshot.vehicle.year_end %} → {{ snapshot.vehicle.year_end }}{% endif %}
+      {% if snapshot.vehicle.generation %} · {{ snapshot.vehicle.generation }}{% endif %}
+      · Enrichissement: {{ snapshot.vehicle.enrichment_status }}
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('admin.youtube_fine_search', make=snapshot.vehicle.brand, model=snapshot.vehicle.model) }}" class="btn btn-sm btn-danger">Lancer la recherche YouTube</a>
+    <a href="{{ url_for('admin.argus', make=snapshot.vehicle.brand) }}" class="btn btn-sm btn-outline-secondary">Explorer l'argus</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value">{{ snapshot.readiness_pct }}%</div>
+      <div class="stat-label">Readiness</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value">{{ snapshot.gap_count }}</div>
+      <div class="stat-label">Gaps ouverts</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#3b82f6">{{ snapshot.tires.dimension_count }}</div>
+      <div class="stat-label">Dimensions pneus</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#8b5cf6">{{ snapshot.market.count }}</div>
+      <div class="stat-label">Réfs argus maison</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#f59e0b">{{ snapshot.youtube.transcript_count }}</div>
+      <div class="stat-label">Transcripts YouTube</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="stat-card">
+      <div class="stat-value" style="color:#22c55e">{{ snapshot.scans.total }}</div>
+      <div class="stat-label">Scans total</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-box">
+  <h5 class="mb-3">Ce qui manque encore</h5>
+  {% if snapshot.gap_items %}
+    {% for gap in snapshot.gap_items %}
+    <span class="gap-badge">{{ gap }}</span>
+    {% endfor %}
+  {% else %}
+    <p class="text-success mb-0">Fiche très bien couverte. Champagne administratif modéré. 🍾</p>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="section-box h-100">
+      <h5 class="mb-3">Référentiel & tokens</h5>
+      <table class="table table-sm mb-0">
+        <tbody>
+          <tr><th>ID</th><td>{{ snapshot.vehicle.id }}</td></tr>
+          <tr><th>Marque</th><td>{{ snapshot.vehicle.brand }}</td></tr>
+          <tr><th>Modèle</th><td>{{ snapshot.vehicle.model }}</td></tr>
+          <tr><th>Statut enrichissement</th><td>{{ snapshot.vehicle.enrichment_status }}</td></tr>
+          <tr><th>Token LBC marque</th><td class="mono-mini">{{ snapshot.tokens.site_brand_token or '—' }}</td></tr>
+          <tr><th>Token LBC modèle</th><td class="mono-mini">{{ snapshot.tokens.site_model_token or '—' }}</td></tr>
+          <tr><th>Slug AS24 marque</th><td class="mono-mini">{{ snapshot.tokens.as24_slug_make or '—' }}</td></tr>
+          <tr><th>Slug AS24 modèle</th><td class="mono-mini">{{ snapshot.tokens.as24_slug_model or '—' }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="section-box h-100">
+      <h5 class="mb-3">Scans & cadence</h5>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <span class="badge text-bg-light">24h: {{ snapshot.scans.day }}</span>
+        <span class="badge text-bg-light">7j: {{ snapshot.scans.week }}</span>
+        <span class="badge text-bg-light">30j: {{ snapshot.scans.month }}</span>
+        <span class="badge text-bg-light">Total: {{ snapshot.scans.total }}</span>
+      </div>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Site</th><th class="text-end">Volume</th></tr></thead>
+        <tbody>
+          {% for source in snapshot.scans.by_source %}
+          <tr><td>{{ source.source }}</td><td class="text-end">{{ source.count }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="text-muted mt-3" style="font-size:12px">
+        Dernier scan : {% if snapshot.scans.last_seen %}{{ snapshot.scans.last_seen|localdatetime('%d/%m/%Y %H:%M') }}{% else %}jamais{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section-box">
+  <h5 class="mb-3">Pneus</h5>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <span class="badge text-bg-light">Sources: {{ snapshot.tires.source_values|join(', ') if snapshot.tires.source_values else 'aucune' }}</span>
+    <span class="badge text-bg-light">Dimensions uniques: {{ snapshot.tires.dimension_count }}</span>
+  </div>
+  {% if snapshot.tires.dimensions_preview %}
+  <div class="mb-3">
+    {% for size in snapshot.tires.dimensions_preview %}
+    <span class="gap-badge">{{ size }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if snapshot.tires.rows %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Source</th><th>Génération</th><th>Période</th><th class="text-end">Demandes</th><th>Collecte</th></tr></thead>
+      <tbody>
+        {% for row in snapshot.tires.rows %}
+        <tr>
+          <td>{{ row.source }}</td>
+          <td>{{ row.generation or '—' }}</td>
+          <td>{{ row.year_start or '—' }}{% if row.year_end %} → {{ row.year_end }}{% endif %}</td>
+          <td class="text-end">{{ row.request_count or 0 }}</td>
+          <td>{% if row.source_url %}<a href="{{ row.source_url }}" target="_blank" rel="noopener">ouvrir</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">Aucune dimension de pneu stockée.</p>
+  {% endif %}
+</div>
+
+<div class="section-box">
+  <h5 class="mb-3">Argus maison localisé</h5>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <span class="badge text-bg-light">Réfs: {{ snapshot.market.count }}</span>
+    <span class="badge text-bg-light">Régions: {{ snapshot.market.regions|length }}</span>
+    <span class="badge text-bg-light">Pays: {{ snapshot.market.countries|join(', ') if snapshot.market.countries else '—' }}</span>
+    <span class="badge text-bg-light">Annonces cumulées: {{ snapshot.market.total_samples }}</span>
+    <span class="badge text-bg-light">Estimations LBC: {{ snapshot.market.lbc_estimate_count }}</span>
+    <span class="badge text-bg-light">Réfs insuffisantes: {{ snapshot.market.insufficient_count }}</span>
+  </div>
+  {% if snapshot.market.rows %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Pays</th><th>Région</th><th>Année</th><th>Fuel</th><th>HP</th>
+          <th>Réf.</th><th>Échantillon</th><th>LBC</th><th>Fraîcheur</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in snapshot.market.rows %}
+        <tr>
+          <td>{{ row.country or 'FR' }}</td>
+          <td>{{ row.region }}</td>
+          <td>{{ row.year }}</td>
+          <td>{{ row.fuel or '—' }}</td>
+          <td>{{ row.hp_range or '—' }}</td>
+          <td>
+            <strong>{{ "{:,}".format(row.price_iqr_mean or row.price_median or 0).replace(",", " ") }}</strong>
+            {% if row.price_p25 and row.price_p75 %}
+            <div class="text-muted" style="font-size:11px">{{ "{:,}".format(row.price_p25).replace(",", " ") }} → {{ "{:,}".format(row.price_p75).replace(",", " ") }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {{ row.sample_count }}/{{ row._min_required }}
+            {% if row._sample_gap > 0 %}
+            <div style="font-size:11px;color:#b45309">manque {{ row._sample_gap }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if row._has_lbc_estimate %}
+              {{ row.lbc_estimate_low }} → {{ row.lbc_estimate_high }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if row._is_fresh %}
+            <span class="badge bg-success">Frais</span>
+            {% else %}
+            <span class="badge bg-warning text-dark">À rafraîchir</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">Aucune référence de marché localisée.</p>
+  {% endif %}
+</div>
+
+<div class="section-box">
+  <h5 class="mb-3">Cote seed / référence locale</h5>
+  {% if snapshot.seed_argus.rows %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Région</th><th>Année</th><th>Bas</th><th>Milieu</th><th>Haut</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for row in snapshot.seed_argus.rows %}
+        <tr>
+          <td>{{ row.region }}</td>
+          <td>{{ row.year }}</td>
+          <td>{{ row.price_low or '—' }}</td>
+          <td><strong>{{ row.price_mid or '—' }}</strong></td>
+          <td>{{ row.price_high or '—' }}</td>
+          <td>{{ row.source or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">Aucune cote seed disponible.</p>
+  {% endif %}
+</div>
+
+<div class="section-box">
+  <h5 class="mb-3">YouTube / fiabilité</h5>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <span class="badge text-bg-light">Vidéos: {{ snapshot.youtube.video_count }}</span>
+    <span class="badge text-bg-light">Transcripts: {{ snapshot.youtube.transcript_count }}</span>
+    <span class="badge text-bg-light">Chars: {{ "{:,}".format(snapshot.youtube.transcript_chars).replace(",", " ") }}</span>
+    <span class="badge text-bg-light">Synthèses: {{ snapshot.youtube.synthesis_count }}</span>
+  </div>
+  {% if snapshot.youtube.latest_synthesis %}
+  <div class="alert alert-light border mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <strong>Dernière synthèse</strong>
+      <span class="badge text-bg-secondary">{{ snapshot.youtube.latest_synthesis.status }}</span>
+    </div>
+    <div style="white-space:pre-wrap;font-size:13px;line-height:1.6">{{ snapshot.youtube.latest_synthesis.synthesis_text[:800] }}{% if snapshot.youtube.latest_synthesis.synthesis_text|length > 800 %}...{% endif %}</div>
+  </div>
+  {% endif %}
+
+  {% if snapshot.youtube.videos %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Vidéo</th><th>Chaîne</th><th>Transcript</th><th>Date</th></tr></thead>
+      <tbody>
+        {% for row in snapshot.youtube.videos %}
+        <tr>
+          <td><a href="https://youtube.com/watch?v={{ row.video_id }}" target="_blank" rel="noopener">{{ row.title[:90] }}</a></td>
+          <td>{{ row.channel_name or '—' }}</td>
+          <td>
+            {% if row.transcript and row.transcript.status == 'extracted' %}
+            <span class="badge bg-success">{{ row.transcript.char_count or 0 }} chars</span>
+            {% else %}
+            <span class="badge bg-secondary">absent</span>
+            {% endif %}
+          </td>
+          <td>{{ row.created_at|localdatetime('%d/%m/%Y') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">Aucune vidéo reliée à ce véhicule.</p>
+  {% endif %}
+</div>
+
+<div class="section-box">
+  <h5 class="mb-3">Jobs de collecte par site</h5>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="stat-card" style="background:#f8fafc">
+        <h6 class="mb-3">AutoScout24</h6>
+        <div class="d-flex flex-wrap gap-2">
+          <span class="badge text-bg-light">Total: {{ snapshot.jobs.as24.total }}</span>
+          <span class="badge text-bg-light">Pending: {{ snapshot.jobs.as24.pending }}</span>
+          <span class="badge text-bg-light">Assigned: {{ snapshot.jobs.as24.assigned }}</span>
+          <span class="badge text-bg-light">Done: {{ snapshot.jobs.as24.done }}</span>
+          <span class="badge text-bg-light">Failed: {{ snapshot.jobs.as24.failed }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="stat-card" style="background:#f8fafc">
+        <h6 class="mb-3">La Centrale</h6>
+        <div class="d-flex flex-wrap gap-2">
+          <span class="badge text-bg-light">Total: {{ snapshot.jobs.lacentrale.total }}</span>
+          <span class="badge text-bg-light">Pending: {{ snapshot.jobs.lacentrale.pending }}</span>
+          <span class="badge text-bg-light">Assigned: {{ snapshot.jobs.lacentrale.assigned }}</span>
+          <span class="badge text-bg-light">Done: {{ snapshot.jobs.lacentrale.done }}</span>
+          <span class="badge text-bg-light">Failed: {{ snapshot.jobs.lacentrale.failed }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
