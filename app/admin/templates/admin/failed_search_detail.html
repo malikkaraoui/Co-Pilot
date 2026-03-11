@@ -40,6 +40,20 @@
   .strategy-table td { font-size: 12px; }
 
   .action-btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .diag-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .02em;
+  }
+  .diag-anti-bot { background: #fee2e2; color: #991b1b; }
+  .diag-parser { background: #ede9fe; color: #5b21b6; }
+  .diag-html { background: #e0f2fe; color: #0c4a6e; }
+  .diag-zero { background: #dcfce7; color: #166534; }
+  .diag-iframe { background: #ffedd5; color: #9a3412; }
 </style>
 {% endblock %}
 
@@ -173,8 +187,38 @@
           <td>{{ step.get('label', step.get('location_type', '-')) }}</td>
           <td>
             <span class="badge bg-{{ 'success' if step.get('ads_found', 0) > 0 else 'danger' }}">{{ step.get('ads_found', 0) }}</span>
+            {% if step.get('diagnostic_tag') %}
+            {% set tag = step.get('diagnostic_tag') %}
+            <div class="mt-1">
+              <span class="diag-badge {% if 'anti_bot' in tag %}diag-anti-bot{% elif 'parser' in tag %}diag-parser{% elif 'html' in tag %}diag-html{% elif 'zero' in tag %}diag-zero{% elif 'iframe' in tag %}diag-iframe{% else %}diag-html{% endif %}">
+                {{ tag }}
+              </span>
+            </div>
+            {% endif %}
           </td>
-          <td style="font-size:11px; color:#64748b">{{ step.get('reason', '') }}</td>
+          <td style="font-size:11px; color:#64748b">
+            <div>{{ step.get('reason', '') }}</div>
+            {% if step.get('http_status') %}
+            <div class="text-muted">HTTP {{ step.get('http_status') }}{% if step.get('fetch_mode') %} · {{ step.get('fetch_mode') }}{% endif %}</div>
+            {% elif step.get('fetch_mode') %}
+            <div class="text-muted">{{ step.get('fetch_mode') }}</div>
+            {% endif %}
+            {% if step.get('html_title') %}
+            <div class="text-muted">Titre : {{ step.get('html_title') }}</div>
+            {% endif %}
+            {% if step.get('body_excerpt') %}
+            <details class="mt-1">
+              <summary style="cursor:pointer; color:#475569">Extrait HTML</summary>
+              <div style="white-space:normal; color:#334155; margin-top:4px">{{ step.get('body_excerpt') }}</div>
+            </details>
+            {% endif %}
+            {% if step.get('resource_sample') %}
+            <details class="mt-1">
+              <summary style="cursor:pointer; color:#475569">Ressources</summary>
+              <div style="white-space:normal; color:#334155; margin-top:4px">{{ step.get('resource_sample') }}</div>
+            </details>
+            {% endif %}
+          </td>
           <td>
             {% if step.get('url') %}
             <a href="{{ step.url }}" target="_blank" rel="noopener" style="font-size:10px; word-break:break-all">Ouvrir</a>

@@ -23,6 +23,9 @@ const LC_IFRAME_LOAD_TIMEOUT_MS = 5000;
 const LC_IFRAME_RENDER_WAIT_MS = 2000;
 const LC_IFRAME_POLL_INTERVAL_MS = 500;
 
+const LC_DIAGNOSTIC_BODY_EXCERPT_MAX = 320;
+const LC_DIAGNOSTIC_REASON_MAX = 180;
+
 // ── URL Builder ─────────────────────────────────────────────────
 
 /**
@@ -112,6 +115,116 @@ function _sleep(ms) {
 
 function _normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function _clipLcText(text, maxLen) {
+  const normalized = _normalizeText(text);
+  if (!normalized) return '';
+  if (normalized.length <= maxLen) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function _extractLcBodyExcerpt(html) {
+  if (!html) return null;
+  const excerpt = _clipLcText(
+    String(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' '),
+    LC_DIAGNOSTIC_BODY_EXCERPT_MAX,
+  );
+  return excerpt || null;
+}
+
+function _extractLcTitleFromHtml(html) {
+  const match = String(html || '').match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? _clipLcText(match[1], 140) : null;
+}
+
+function _looksLikeZeroResultsPage(html) {
+  return /\b0\s*(?:resultat|résultat|annonce)s?\b|aucun\s+(?:resultat|résultat|vehicule|véhicule|annonce)|pas de resultats|pas de résultats/i.test(html || '');
+}
+
+function _hasLcAdSignals(html) {
+  return /occasion-annonce-|"classifieds"|__NEXT_DATA__|application\/ld\+json|ItemList|ListItem|moteur de recherche|searchData/i.test(html || '');
+}
+
+function _summarizeLcResources(resources) {
+  if (!Array.isArray(resources) || resources.length === 0) return null;
+  return _clipLcText(resources.slice(0, 5).join(' | '), 500);
+}
+
+function _buildLcDiagnostic(overrides = {}) {
+  return {
+    reasonTag: null,
+    reason: '',
+    fetchMode: null,
+    httpStatus: null,
+    bodyExcerpt: null,
+    htmlTitle: null,
+    resourceSample: null,
+    responseBytes: null,
+    antiBotDetected: false,
+    ...overrides,
+  };
+}
+
+function _finalizeLcDiagnostic(diagnostic = {}) {
+  return {
+    reasonTag: diagnostic.reasonTag || null,
+    reason: _clipLcText(diagnostic.reason || '', LC_DIAGNOSTIC_REASON_MAX),
+    fetchMode: diagnostic.fetchMode || null,
+    httpStatus: Number.isInteger(diagnostic.httpStatus) ? diagnostic.httpStatus : null,
+    bodyExcerpt: diagnostic.bodyExcerpt ? _clipLcText(diagnostic.bodyExcerpt, LC_DIAGNOSTIC_BODY_EXCERPT_MAX) : null,
+    htmlTitle: diagnostic.htmlTitle ? _clipLcText(diagnostic.htmlTitle, 140) : null,
+    resourceSample: diagnostic.resourceSample ? _clipLcText(diagnostic.resourceSample, 500) : null,
+    responseBytes: Number.isInteger(diagnostic.responseBytes) ? diagnostic.responseBytes : null,
+    antiBotDetected: Boolean(diagnostic.antiBotDetected),
+  };
+}
+
+function _classifyLcEmptyHtml(html, baseDiagnostic = {}) {
+  const antiBot = _looksLikeAntiBotPage(html);
+  if (antiBot) {
+    return _finalizeLcDiagnostic({
+      ...baseDiagnostic,
+      reasonTag: baseDiagnostic.httpStatus === 403 ? 'anti_bot_403' : 'anti_bot_page',
+      reason: baseDiagnostic.httpStatus === 403
+        ? 'Réponse 403 avec signature anti-bot La Centrale/DataDome'
+        : 'HTML de challenge anti-bot détecté',
+      antiBotDetected: true,
+      bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
+      htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
+    });
+  }
+
+  if (_looksLikeZeroResultsPage(html)) {
+    return _finalizeLcDiagnostic({
+      ...baseDiagnostic,
+      reasonTag: 'true_zero_results',
+      reason: 'Page listing valide mais zéro résultat affiché par La Centrale',
+      bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
+      htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
+    });
+  }
+
+  if (_hasLcAdSignals(html)) {
+    return _finalizeLcDiagnostic({
+      ...baseDiagnostic,
+      reasonTag: 'parser_no_match',
+      reason: 'HTML reçu avec signaux d’annonces mais parsing resté vide',
+      bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
+      htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
+    });
+  }
+
+  return _finalizeLcDiagnostic({
+    ...baseDiagnostic,
+    reasonTag: 'html_without_cards',
+    reason: 'HTML reçu sans cartes d’annonces détectables',
+    bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
+    htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
+  });
 }
 
 function _parseLcPrice(text) {
@@ -350,7 +463,16 @@ function _looksLikeAntiBotPage(html) {
 }
 
 async function _probeLcListingViaIframe(searchUrl) {
-  if (!_canUseLcIframeProbe(searchUrl)) return null;
+  if (!_canUseLcIframeProbe(searchUrl)) {
+    return {
+      ok: false,
+      diagnostic: _finalizeLcDiagnostic({
+        reasonTag: 'iframe_blocked',
+        reason: 'Iframe same-origin indisponible depuis ce contexte',
+        fetchMode: 'iframe',
+      }),
+    };
+  }
 
   const iframe = _createLcProbeIframe();
 
@@ -382,14 +504,28 @@ async function _probeLcListingViaIframe(searchUrl) {
 
     if (!loadResult.ok) {
       console.debug('[OKazCar] LC iframe probe failed: %s', loadResult.reason);
-      return null;
+      return {
+        ok: false,
+        diagnostic: _finalizeLcDiagnostic({
+          reasonTag: 'iframe_blocked',
+          reason: `Iframe same-origin indisponible (${loadResult.reason})`,
+          fetchMode: 'iframe',
+        }),
+      };
     }
 
     const frameWin = iframe.contentWindow;
     const frameDoc = iframe.contentDocument;
     if (!frameWin || !frameDoc?.documentElement) {
       console.debug('[OKazCar] LC iframe probe: inaccessible document');
-      return null;
+      return {
+        ok: false,
+        diagnostic: _finalizeLcDiagnostic({
+          reasonTag: 'iframe_blocked',
+          reason: 'Iframe chargée mais document inaccessible',
+          fetchMode: 'iframe',
+        }),
+      };
     }
 
     let ads = [];
@@ -423,14 +559,30 @@ async function _probeLcListingViaIframe(searchUrl) {
     }
 
     return {
+      ok: true,
       html,
       ads: mergedAds,
       title: frameDoc.title || '',
       resources,
+      diagnostic: _finalizeLcDiagnostic({
+        fetchMode: 'iframe',
+        bodyExcerpt: _extractLcBodyExcerpt(html),
+        htmlTitle: frameDoc.title || _extractLcTitleFromHtml(html),
+        resourceSample: _summarizeLcResources(resources),
+        responseBytes: html.length,
+        antiBotDetected: _looksLikeAntiBotPage(html),
+      }),
     };
   } catch (err) {
     console.debug('[OKazCar] LC iframe probe error:', err.message);
-    return null;
+    return {
+      ok: false,
+      diagnostic: _finalizeLcDiagnostic({
+        reasonTag: 'iframe_blocked',
+        reason: `Erreur iframe: ${err.message}`,
+        fetchMode: 'iframe',
+      }),
+    };
   } finally {
     iframe.remove();
   }
@@ -443,11 +595,24 @@ async function _fetchLcListingHtml(searchUrl) {
         action: 'lc_listing_fetch',
         url: searchUrl,
       });
-      if (result?.ok && typeof result.body === 'string') {
-        return result.body;
+      if (result && typeof result.body === 'string') {
+        return {
+          ok: Boolean(result.ok),
+          status: Number.isInteger(result.status) ? result.status : null,
+          body: result.body,
+          fetchMode: 'main',
+          error: result.error || null,
+        };
       }
       if (result && !result.ok) {
         console.warn('[OKazCar] LC listing fetch (MAIN): %s', result.error || `HTTP ${result.status}`);
+        return {
+          ok: false,
+          status: Number.isInteger(result.status) ? result.status : null,
+          body: null,
+          fetchMode: 'main',
+          error: result.error || `HTTP ${result.status}`,
+        };
       }
     } catch (err) {
       console.debug('[OKazCar] LC listing MAIN fetch indisponible:', err.message);
@@ -459,14 +624,33 @@ async function _fetchLcListingHtml(searchUrl) {
       credentials: 'include',
       headers: { 'Accept': 'text/html' },
     });
+    const body = await resp.text();
     if (!resp.ok) {
       console.warn('[OKazCar] LC listing fetch HTTP %d for %s', resp.status, searchUrl.substring(0, 120));
-      return null;
+      return {
+        ok: false,
+        status: resp.status,
+        body,
+        fetchMode: 'direct',
+        error: `HTTP ${resp.status}`,
+      };
     }
-    return await resp.text();
+    return {
+      ok: true,
+      status: resp.status,
+      body,
+      fetchMode: 'direct',
+      error: null,
+    };
   } catch (err) {
     console.warn('[OKazCar] LC listing fetch error:', err.message);
-    return null;
+    return {
+      ok: false,
+      status: null,
+      body: null,
+      fetchMode: 'direct',
+      error: err.message,
+    };
   }
 }
 
@@ -481,30 +665,75 @@ async function _fetchLcListingHtml(searchUrl) {
  * @param {number} yearSpread - Tolerance around target year
  * @returns {Promise<Array<{price: number, year: number|null, km: number|null}>>}
  */
-export async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
+export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpread) {
   const iframeProbe = await _probeLcListingViaIframe(searchUrl);
-  if (iframeProbe?.html) {
+  let lastDiagnostic = iframeProbe?.diagnostic || _finalizeLcDiagnostic();
+
+  if (iframeProbe?.ok && iframeProbe?.html) {
     if (_looksLikeAntiBotPage(iframeProbe.html)) {
       console.warn('[OKazCar] LC listing blocked in iframe for %s', searchUrl.substring(0, 120));
-      return [];
+      return {
+        prices: [],
+        diagnostic: _classifyLcEmptyHtml(iframeProbe.html, {
+          ...iframeProbe.diagnostic,
+          fetchMode: 'iframe',
+        }),
+      };
     }
 
     if (iframeProbe.ads?.length > 0) {
       console.log('[OKazCar] LC listing (rendered DOM): %d ads extracted from %s', iframeProbe.ads.length, searchUrl.substring(0, 100));
-      return _filterAds(iframeProbe.ads, targetYear, yearSpread);
+      return {
+        prices: _filterAds(iframeProbe.ads, targetYear, yearSpread),
+        diagnostic: _finalizeLcDiagnostic({
+          ...iframeProbe.diagnostic,
+          reasonTag: 'ok',
+          reason: `Extraction DOM iframe réussie (${iframeProbe.ads.length} annonces)`,
+          fetchMode: 'iframe',
+        }),
+      };
     }
 
     console.debug('[OKazCar] LC iframe loaded but no ad cards found (%s)', iframeProbe.title || 'no title');
+    lastDiagnostic = _classifyLcEmptyHtml(iframeProbe.html, {
+      ...iframeProbe.diagnostic,
+      fetchMode: 'iframe',
+      htmlTitle: iframeProbe.title || iframeProbe.diagnostic?.htmlTitle,
+      resourceSample: _summarizeLcResources(iframeProbe.resources),
+    });
   }
 
-  const html = await _fetchLcListingHtml(searchUrl);
+  const fetchResult = await _fetchLcListingHtml(searchUrl);
+  const html = fetchResult?.body || null;
   if (!html) {
-    return [];
+    return {
+      prices: [],
+      diagnostic: _finalizeLcDiagnostic({
+        ...lastDiagnostic,
+        reasonTag: fetchResult?.status === 403 ? 'anti_bot_403' : (lastDiagnostic.reasonTag || 'html_unavailable'),
+        reason: fetchResult?.status === 403
+          ? 'Réponse 403 sans HTML exploitable renvoyée par La Centrale'
+          : (fetchResult?.error || lastDiagnostic.reason || 'Aucun HTML récupéré pour la recherche La Centrale'),
+        fetchMode: fetchResult?.fetchMode || lastDiagnostic.fetchMode,
+        httpStatus: fetchResult?.status,
+        antiBotDetected: fetchResult?.status === 403 || lastDiagnostic.antiBotDetected,
+      }),
+    };
   }
 
   if (_looksLikeAntiBotPage(html)) {
     console.warn('[OKazCar] LC listing blocked by anti-bot for %s', searchUrl.substring(0, 120));
-    return [];
+    return {
+      prices: [],
+      diagnostic: _classifyLcEmptyHtml(html, {
+        ...lastDiagnostic,
+        fetchMode: fetchResult?.fetchMode,
+        httpStatus: fetchResult?.status,
+        bodyExcerpt: _extractLcBodyExcerpt(html),
+        htmlTitle: _extractLcTitleFromHtml(html),
+        responseBytes: html.length,
+      }),
+    };
   }
 
   // Strategy 1: __NEXT_DATA__ JSON
@@ -522,11 +751,38 @@ export async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
 
   if (!ads || ads.length === 0) {
     console.log('[OKazCar] LC listing: 0 ads extracted from %s', searchUrl.substring(0, 100));
-    return [];
+    return {
+      prices: [],
+      diagnostic: _classifyLcEmptyHtml(html, {
+        ...lastDiagnostic,
+        fetchMode: fetchResult?.fetchMode,
+        httpStatus: fetchResult?.status,
+        bodyExcerpt: _extractLcBodyExcerpt(html),
+        htmlTitle: _extractLcTitleFromHtml(html),
+        responseBytes: html.length,
+      }),
+    };
   }
 
   // Filter by year tolerance and minimum price
-  return _filterAds(ads, targetYear, yearSpread);
+  return {
+    prices: _filterAds(ads, targetYear, yearSpread),
+    diagnostic: _finalizeLcDiagnostic({
+      ...lastDiagnostic,
+      reasonTag: 'ok',
+      reason: `Extraction HTML réussie (${ads.length} annonces brutes)`,
+      fetchMode: fetchResult?.fetchMode,
+      httpStatus: fetchResult?.status,
+      bodyExcerpt: _extractLcBodyExcerpt(html),
+      htmlTitle: _extractLcTitleFromHtml(html),
+      responseBytes: html.length,
+    }),
+  };
+}
+
+export async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
+  const result = await fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpread);
+  return result.prices;
 }
 
 // ── Internal extraction helpers ─────────────────────────────────

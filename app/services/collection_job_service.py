@@ -274,6 +274,61 @@ def _try_create_job(
     return job
 
 
+def enqueue_collection_job(
+    make: str,
+    model: str,
+    year: int,
+    region: str,
+    fuel: str | None = None,
+    gearbox: str | None = None,
+    hp_range: str | None = None,
+    priority: int = 1,
+    source_vehicle: str | None = None,
+    country: str = "FR",
+) -> CollectionJob | None:
+    """Cree un job explicite pour un vehicule/region precis.
+
+    Utile quand on veut pousser un vehicule cible dans la file sans passer
+    par l'expansion multi-variantes.
+    """
+    make = make.strip()
+    model = model.strip()
+    region = region.strip()
+    country = (country or "FR").upper().strip()
+    if fuel:
+        fuel = fuel.strip().lower()
+    if gearbox:
+        gearbox = gearbox.strip().lower()
+
+    if country != "FR":
+        logger.debug(
+            "enqueue_collection_job: skip non-FR country %s (use AS24 enqueue)",
+            country,
+        )
+        return None
+
+    valid_regions = _get_regions_for_country(country)
+    if region not in valid_regions:
+        logger.debug("enqueue_collection_job: skip unknown region '%s'", region)
+        return None
+
+    source_vehicle = source_vehicle or f"{make} {model} {year} {fuel or ''} {gearbox or ''}".strip()
+    job = _try_create_job(
+        make,
+        model,
+        year,
+        region,
+        fuel,
+        gearbox,
+        hp_range,
+        priority=priority,
+        source_vehicle=source_vehicle,
+        country=country,
+    )
+    db.session.commit()
+    return job
+
+
 def expand_collection_jobs(
     make: str,
     model: str,

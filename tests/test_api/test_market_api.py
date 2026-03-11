@@ -800,6 +800,142 @@ class TestFailedSearchApi:
             assert row.model_token_used == "a-35-amg"
             assert row.token_source == "as24_response_url"
 
+    def test_lacentrale_failed_search_creates_lbc_and_as24_fallback_jobs(self, app, client):
+        """Un echec LC cree des jobs de fallback vers LBC et AS24 si les slugs existent."""
+        with app.app_context():
+            from app.models.collection_job import CollectionJobLBC
+            from app.models.collection_job_as24 import CollectionJobAS24
+
+            CollectionJobLBC.query.filter_by(make="LCFallback", model="Modele1").delete()
+            CollectionJobAS24.query.filter_by(make="LCFallback", model="Modele1").delete()
+
+            v = Vehicle.query.filter_by(brand="LCFallback", model="Modele1").first()
+            if not v:
+                v = Vehicle(brand="LCFallback", model="Modele1", year_start=2019, year_end=2026)
+                db.session.add(v)
+            v.as24_slug_make = "lcfallback"
+            v.as24_slug_model = "modele1"
+            db.session.commit()
+
+        payload = {
+            "make": "LCFallback",
+            "model": "Modele1",
+            "year": 2022,
+            "region": "Bretagne",
+            "country": "FR",
+            "site": "lacentrale",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 5,
+                    "location_type": "national",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 0,
+                    "url": "https://www.lacentrale.fr/listing?makesModelsCommercialNames=LCFALLBACK::MODELE1",
+                    "was_selected": False,
+                    "diagnostic_tag": "anti_bot_403",
+                }
+            ],
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJobLBC
+            from app.models.collection_job_as24 import CollectionJobAS24
+
+            row = (
+                FailedSearch.query.filter_by(make="LCFallback", model="Modele1", region="Bretagne")
+                .order_by(FailedSearch.id.desc())
+                .first()
+            )
+            assert row is not None
+            assert row.status == "investigating"
+            assert any(
+                "Fallback automatique La Centrale" in note["message"] for note in row.get_notes()
+            )
+
+            lbc_jobs = CollectionJobLBC.query.filter_by(make="LCFallback", model="Modele1").all()
+            as24_jobs = CollectionJobAS24.query.filter_by(
+                make="LCFallback", model="Modele1", country="FR", tld="fr"
+            ).all()
+            assert len(lbc_jobs) >= 1
+            assert len(as24_jobs) == 1
+
+    def test_lacentrale_failed_search_skips_as24_without_slugs_but_keeps_lbc_fallback(
+        self, app, client
+    ):
+        """Sans slugs AS24, le fallback LC cree au moins les jobs LBC et journalise le skip."""
+        with app.app_context():
+            from app.models.collection_job import CollectionJobLBC
+            from app.models.collection_job_as24 import CollectionJobAS24
+
+            CollectionJobLBC.query.filter_by(make="LCFallbackNoSlug", model="Modele2").delete()
+            CollectionJobAS24.query.filter_by(make="LCFallbackNoSlug", model="Modele2").delete()
+            Vehicle.query.filter_by(brand="LCFallbackNoSlug", model="Modele2").delete()
+            db.session.commit()
+
+        payload = {
+            "make": "LCFallbackNoSlug",
+            "model": "Modele2",
+            "year": 2021,
+            "region": "France",
+            "country": "FR",
+            "site": "lacentrale",
+            "search_log": [
+                {
+                    "step": 1,
+                    "precision": 4,
+                    "location_type": "national",
+                    "year_spread": 1,
+                    "filters_applied": [],
+                    "ads_found": 0,
+                    "url": "https://www.lacentrale.fr/listing?makesModelsCommercialNames=LCFALLBACKNOSLUG::MODELE2",
+                    "was_selected": False,
+                    "diagnostic_tag": "parser_no_match",
+                }
+            ],
+        }
+
+        resp = client.post(
+            "/api/market-prices/failed-search",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            from app.models.collection_job import CollectionJobLBC
+            from app.models.collection_job_as24 import CollectionJobAS24
+
+            row = (
+                FailedSearch.query.filter_by(
+                    make="LCFallbackNoSlug", model="Modele2", region="France"
+                )
+                .order_by(FailedSearch.id.desc())
+                .first()
+            )
+            assert row is not None
+            assert row.status == "investigating"
+            assert any(
+                "AS24 ignore (slugs manquants)" in note["message"] for note in row.get_notes()
+            )
+
+            lbc_jobs = CollectionJobLBC.query.filter_by(
+                make="LCFallbackNoSlug", model="Modele2"
+            ).all()
+            as24_jobs = CollectionJobAS24.query.filter_by(
+                make="LCFallbackNoSlug", model="Modele2"
+            ).all()
+            assert len(lbc_jobs) >= 1
+            assert len(as24_jobs) == 0
+
 
 class TestFailedSearchTokenPersistence:
     """Tests pour la persistence des tokens/slugs dans failed-search."""

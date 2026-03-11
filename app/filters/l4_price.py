@@ -59,6 +59,8 @@ class L4PriceFilter(BaseFilter):
             return self.skip("Région non disponible dans l'annonce")
 
         fuel = (data.get("fuel") or "").strip() or None
+        lc_quotation = data.get("lc_quotation")
+        has_lc_quotation = isinstance(lc_quotation, (int, float)) and lc_quotation > 0
         ref_price = None
         source = None
         details: dict[str, Any] = {
@@ -71,6 +73,9 @@ class L4PriceFilter(BaseFilter):
             "lookup_fuel_input": fuel,
             "lookup_fuel_key": normalize_market_text(fuel).lower() if fuel else None,
         }
+        if has_lc_quotation:
+            details["lc_quotation"] = lc_quotation
+            details["lc_trust_index"] = data.get("lc_trust_index")
 
         # Transparence cascade : quels tiers ont ete essayes et avec quel resultat
         cascade_tried: list[str] = []
@@ -163,13 +168,10 @@ class L4PriceFilter(BaseFilter):
 
         # 4. Fallback La Centrale Cote (quotation extraite du DOM -- scoring attenue)
         if ref_price is None:
-            lc_quotation = data.get("lc_quotation")
             cascade_tried.append("lc_quotation")
-            if lc_quotation and isinstance(lc_quotation, (int, float)) and lc_quotation > 0:
+            if has_lc_quotation:
                 ref_price = float(lc_quotation)
                 source = "cote_lacentrale"
-                details["lc_quotation"] = lc_quotation
-                details["lc_trust_index"] = data.get("lc_trust_index")
                 details["price_reference"] = ref_price
                 details["source"] = source
                 details["cascade_lc_quotation_result"] = "found"
@@ -210,6 +212,25 @@ class L4PriceFilter(BaseFilter):
                 "Pas de données de référence pour ce modèle dans cette région",
                 details=details,
             )
+
+        details["reference_primary"] = {
+            "source": source,
+            "price": ref_price,
+        }
+        if source == "cote_lacentrale":
+            details["reference_primary"]["trust_index"] = data.get("lc_trust_index")
+
+        secondary_references: list[dict[str, Any]] = []
+        if has_lc_quotation and source != "cote_lacentrale":
+            secondary_references.append(
+                {
+                    "source": "cote_lacentrale",
+                    "price": float(lc_quotation),
+                    "trust_index": data.get("lc_trust_index"),
+                }
+            )
+        if secondary_references:
+            details["reference_secondary"] = secondary_references
 
         # Comparaison
         delta = price - ref_price

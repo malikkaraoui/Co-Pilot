@@ -101,11 +101,33 @@ export function createProgressTracker() {
         + ")"
       );
     }
-    else if (details.source === "argus_seed") { lines.push("Source : Argus (donn\u00e9es seed)"); }
+    else if (details.source === "argus_seed") { lines.push("Source : Argus base interne"); }
+    else if (details.source === "estimation_lbc") { lines.push("Source : estimation LeBonCoin"); }
+    else if (details.source === "cote_lacentrale") { lines.push("Source : cote La Centrale"); }
+
+    var secondaryRefs = Array.isArray(details.reference_secondary) ? details.reference_secondary : [];
+    if (secondaryRefs.length === 0 && details.source !== "cote_lacentrale" && details.lc_quotation) {
+      secondaryRefs = [{ source: "cote_lacentrale", price: details.lc_quotation, trust_index: details.lc_trust_index }];
+    }
+    secondaryRefs.forEach(function (ref) {
+      if (!ref || !ref.price) return;
+      if (ref.source === "cote_lacentrale") {
+        lines.push("Info complémentaire : cote LC " + Number(ref.price).toLocaleString("fr-FR") + " €" + (ref.trust_index ? " · indice " + ref.trust_index : ""));
+      }
+    });
+
     if (details.cascade_tried) {
       details.cascade_tried.forEach(function (tier) {
         var result = details["cascade_" + tier + "_result"] || "non essay\u00e9";
-        var tierLabel = tier === "market_price" ? "March\u00e9 crowdsourc\u00e9" : "Argus Seed";
+        var tierLabel = tier === "market_price"
+          ? "March\u00e9 crowdsourc\u00e9"
+          : tier === "argus_seed"
+            ? "Argus base interne"
+            : tier === "lbc_estimation"
+              ? "Estimation LeBonCoin"
+              : tier === "lc_quotation"
+                ? "Cote La Centrale"
+                : tier;
         var tierIcon = result === "found" ? "\u2713" : result === "insufficient" ? "\u26A0" : "\u2014";
         lines.push(tierIcon + " " + tierLabel + " : " + result);
       });

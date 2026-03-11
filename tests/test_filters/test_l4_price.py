@@ -228,6 +228,65 @@ class TestL4MarketPriceFallback:
         assert result.details["source"] == "marche_leboncoin"
         assert result.details["sample_count"] == 33
 
+    def test_keeps_lc_quote_as_secondary_reference_when_internal_ref_exists(self):
+        """La cote LC doit rester visible meme si une ref interne a gagne la cascade."""
+        from unittest.mock import MagicMock
+
+        market = MagicMock()
+        market.price_iqr_mean = 17500
+        market.price_median = 17500
+        market.price_p25 = 16000
+        market.price_p75 = 19000
+        market.sample_count = 10
+        market.precision = 4
+
+        with (
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=self.vehicle),
+            patch("app.services.market_service.get_market_stats", return_value=market),
+        ):
+            result = self.filt.run(
+                {
+                    **self._base_data(18000),
+                    "lc_quotation": 17100,
+                    "lc_trust_index": 63,
+                }
+            )
+
+        assert result.details["source"] == "marche_leboncoin"
+        assert result.details["reference_primary"] == {
+            "source": "marche_leboncoin",
+            "price": 17500,
+        }
+        assert result.details["reference_secondary"] == [
+            {
+                "source": "cote_lacentrale",
+                "price": 17100.0,
+                "trust_index": 63,
+            }
+        ]
+
+    def test_uses_lc_quote_as_primary_reference_when_no_internal_data(self):
+        """La cote LC reste le fallback principal quand on n'a rien d'autre."""
+        with (
+            patch("app.services.market_service.get_market_stats", return_value=None),
+            patch("app.services.vehicle_lookup.find_vehicle", return_value=None),
+        ):
+            result = self.filt.run(
+                {
+                    **self._base_data(15000),
+                    "lc_quotation": 16000,
+                    "lc_trust_index": 58,
+                }
+            )
+
+        assert result.status != "skip"
+        assert result.details["source"] == "cote_lacentrale"
+        assert result.details["reference_primary"] == {
+            "source": "cote_lacentrale",
+            "price": 16000.0,
+            "trust_index": 58,
+        }
+
 
 class TestL4FuelAccentIntegration:
     """Tests d'integration L4 pour les carburants accentues (Électrique, etc.)."""

@@ -10,9 +10,15 @@ import {
 import {
   normalizeToAdData, buildBonusSignals,
 } from '../extractors/lacentrale/normalize.js';
-import { fetchLcSearchPrices, extractLcAdsFromRenderedDom } from '../extractors/lacentrale/search.js';
+import {
+  fetchLcSearchPrices,
+  fetchLcSearchPricesDetailed,
+  extractLcAdsFromRenderedDom,
+} from '../extractors/lacentrale/search.js';
+import { collectMarketPricesLC } from '../extractors/lacentrale/collect.js';
 import { LaCentraleExtractor } from '../extractors/lacentrale/extractor.js';
 import { getExtractor } from '../extractors/index.js';
+import { buildPriceBarHTML } from '../ui/filters/l4.js';
 
 afterEach(() => {
   delete global.fetch;
@@ -428,6 +434,27 @@ describe('normalizeToAdData', () => {
     const result = await ext.collectMarketPrices({});
     expect(result).toEqual({ submitted: false, isCurrentVehicle: false });
   });
+
+  it('delegue desormais la collecte LC au backend de fallback', async () => {
+    const progress = { update: vi.fn() };
+    const backendFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    const result = await collectMarketPricesLC({
+      make: 'Peugeot',
+      model: '208',
+      year_model: '2020',
+      fuel: 'essence',
+      gearbox: 'manuelle',
+    }, backendFetch, 'http://localhost:5001/api/analyze', progress);
+
+    expect(result).toEqual({ submitted: false, isCurrentVehicle: false });
+    expect(backendFetch).toHaveBeenCalledTimes(1);
+    expect(backendFetch.mock.calls[0][0]).toBe('http://localhost:5001/api/market-prices/failed-search');
+    const payload = JSON.parse(backendFetch.mock.calls[0][1].body);
+    expect(payload.site).toBe('lacentrale');
+    expect(payload.search_log[0].diagnostic_tag).toBe('strategy_disabled');
+    expect(progress.update).toHaveBeenCalledWith('submit', 'done', 'Relance LBC/AS24 demandée');
+  });
 });
 
 
@@ -540,6 +567,7 @@ describe('fetchLcSearchPrices', () => {
   it('retourne [] sur page anti-bot DataDome', async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
+      status: 200,
       text: () => Promise.resolve('<html><body><p>Please enable JS and disable any ad blocker</p><script src="https://ct.captcha-delivery.com/c.js"></script></body></html>'),
     });
 
@@ -574,6 +602,49 @@ describe('fetchLcSearchPrices', () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({ price: 9990, year: 2015, km: 101000 });
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('conserve un diagnostic anti_bot_403 avec extrait de body', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve('<html><head><title>Robot or not?</title></head><body>Please enable JS and disable any ad blocker</body></html>'),
+    });
+
+    const result = await fetchLcSearchPricesDetailed(searchUrl, 2016, 2);
+
+    expect(result.prices).toEqual([]);
+    expect(result.diagnostic.reasonTag).toBe('anti_bot_403');
+    expect(result.diagnostic.httpStatus).toBe(403);
+    expect(result.diagnostic.bodyExcerpt).toContain('Please enable JS');
+    expect(result.diagnostic.htmlTitle).toBe('Robot or not?');
+  });
+
+  it('distingue une vraie page zéro résultat d’un parser KO', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('<html><head><title>Recherche</title></head><body><main><h1>0 résultat</h1><p>Aucune annonce ne correspond à votre recherche.</p></main></body></html>'),
+    });
+
+    const result = await fetchLcSearchPricesDetailed(searchUrl, 2016, 2);
+
+    expect(result.prices).toEqual([]);
+    expect(result.diagnostic.reasonTag).toBe('true_zero_results');
+    expect(result.diagnostic.reason).toContain('zéro résultat');
+  });
+
+  it('tagge parser_no_match quand le HTML contient des signaux d’annonces non parsés', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('<html><head><title>Recherche Peugeot</title></head><body><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"searchData":{"classifieds":[{"price":null}]}}}}</script><div data-testid="listing">classifieds</div></body></html>'),
+    });
+
+    const result = await fetchLcSearchPricesDetailed(searchUrl, 2016, 2);
+
+    expect(result.prices).toEqual([]);
+    expect(result.diagnostic.reasonTag).toBe('parser_no_match');
   });
 });
 
@@ -861,5 +932,47 @@ describe('LaCentraleExtractor phone handling', () => {
     expect(ext.hasPhone()).toBe(false);
     expect(phone).toBeNull();
     expect(document.getElementById('target').textContent).toBe('');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 13. UI L4
+// ═══════════════════════════════════════════════════════════════════
+
+describe('buildPriceBarHTML', () => {
+  it('affiche la cote LC comme référence complémentaire', () => {
+    const html = buildPriceBarHTML({
+      price_annonce: 18000,
+      price_reference: 17500,
+      delta_eur: 500,
+      delta_pct: 3,
+      source: 'marche_leboncoin',
+      sample_count: 12,
+      reference_secondary: [
+        {
+          source: 'cote_lacentrale',
+          price: 17100,
+          trust_index: 63,
+        },
+      ],
+    }, { currency: 'EUR', price: 18000 });
+
+    expect(html).toContain('LBC');
+    expect(html).toContain('Cote LC');
+    expect(html).toContain('17 100 € · indice 63');
+  });
+
+  it('renomme le repère principal quand la cote LC est la source active', () => {
+    const html = buildPriceBarHTML({
+      price_annonce: 15000,
+      price_reference: 16000,
+      delta_eur: -1000,
+      delta_pct: -6,
+      source: 'cote_lacentrale',
+    }, { currency: 'EUR', price: 15000 });
+
+    expect(html).toContain('Cote LC');
+    expect(html).not.toContain('>Marché<');
   });
 });

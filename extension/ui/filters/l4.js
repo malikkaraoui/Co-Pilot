@@ -11,6 +11,15 @@ function _detectCurrentSite() {
   return null;
 }
 
+function _mapReferenceSourceMeta(src) {
+  if (src === "marche_leboncoin") return { label: "LBC", className: "okazcar-l4-src-lbc", marker: "Marché" };
+  if (src === "marche_autoscout24") return { label: "AS24", className: "okazcar-l4-src-as24", marker: "Marché" };
+  if (src === "argus_seed") return { label: "Argus Base", className: "okazcar-l4-src-seed", marker: "Argus" };
+  if (src === "estimation_lbc") return { label: "Estimation LBC", className: "okazcar-l4-src-est", marker: "Est. LBC" };
+  if (src === "cote_lacentrale") return { label: "Cote LC", className: "okazcar-l4-src-lc", marker: "Cote LC" };
+  return { label: "Référence", className: "okazcar-l4-src-default", marker: "Réf." };
+}
+
 export function buildPriceBarHTML(details, vehicle) {
   const priceAnnonce = details.price_annonce;
   const priceRef = details.price_reference;
@@ -84,12 +93,9 @@ export function buildPriceBarHTML(details, vehicle) {
   const fmtP = (n) => escapeHTML(n.toLocaleString("fr-FR")) + " " + escapeHTML(sym);
 
   const src = details.source || "";
-  let srcLabel = "";
-  let srcClass = "okazcar-l4-src-default";
-  if (src === "marche_leboncoin") { srcLabel = "LBC"; srcClass = "okazcar-l4-src-lbc"; }
-  else if (src === "marche_autoscout24") { srcLabel = "AS24"; srcClass = "okazcar-l4-src-as24"; }
-  else if (src === "argus_seed") { srcLabel = "Argus Seed"; srcClass = "okazcar-l4-src-seed"; }
-  else if (src === "estimation_lbc") { srcLabel = "Estimation LBC"; srcClass = "okazcar-l4-src-est"; }
+  const sourceMeta = _mapReferenceSourceMeta(src);
+  let srcLabel = sourceMeta.label;
+  let srcClass = sourceMeta.className;
 
   const currentSite = _detectCurrentSite();
   const marketSite = src === 'marche_leboncoin'
@@ -112,14 +118,33 @@ export function buildPriceBarHTML(details, vehicle) {
     precisionStars = "\u2605".repeat(full) + (half ? "\u00BD" : "") + "\u2606".repeat(empty);
   }
 
+  let secondaryRefs = Array.isArray(details.reference_secondary)
+    ? details.reference_secondary.filter((entry) => entry && entry.price)
+    : [];
+  if (secondaryRefs.length === 0 && src !== "cote_lacentrale" && details.lc_quotation) {
+    secondaryRefs = [{
+      source: "cote_lacentrale",
+      price: details.lc_quotation,
+      trust_index: details.lc_trust_index,
+    }];
+  }
+
   let footerHTML = "";
-  if (srcLabel) {
+  if (srcLabel || secondaryRefs.length > 0) {
     footerHTML = `<div class="okazcar-l4-footer">`;
-    footerHTML += `<span class="okazcar-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
+    if (srcLabel) {
+      footerHTML += `<span class="okazcar-l4-source ${escapeHTML(srcClass)}">${escapeHTML(srcLabel)}</span>`;
+    }
     if (sampleCount != null) {
       footerHTML += `<span class="okazcar-l4-samples">Bas\u00E9 sur ${sampleCount} annonce${sampleCount > 1 ? "s" : ""}${isCrossSource ? " (source externe au site)" : ""}</span>`;
     }
     if (precisionStars) footerHTML += `<span class="okazcar-l4-precision" title="Pr\u00E9cision de l'\u00E9chantillon">${precisionStars}</span>`;
+    secondaryRefs.forEach((entry) => {
+      const meta = _mapReferenceSourceMeta(entry.source || "");
+      const priceText = `${Math.round(Number(entry.price)).toLocaleString("fr-FR")} ${sym}`;
+      const trustText = entry.trust_index ? ` · indice ${entry.trust_index}` : "";
+      footerHTML += `<span class="okazcar-l4-secondary-ref"><span class="okazcar-l4-source ${escapeHTML(meta.className)}">${escapeHTML(meta.label)}</span><span class="okazcar-l4-secondary-value">${escapeHTML(priceText + trustText)}</span></span>`;
+    });
     footerHTML += `</div>`;
   }
 
@@ -149,7 +174,7 @@ export function buildPriceBarHTML(details, vehicle) {
         <div class="okazcar-price-arrow-zone" style="left:${fillLeft}%;width:${fillWidth}%;border-color:${color}"></div>
         <div class="okazcar-price-market-ref" style="left:${argusPct}%">
           <div class="okazcar-price-market-line"></div>
-          <div class="okazcar-price-market-label">March\u00E9</div>
+          <div class="okazcar-price-market-label">${escapeHTML(sourceMeta.marker)}</div>
           <div class="okazcar-price-market-price">${fmtP(displayRef)}</div>
         </div>
         <div class="okazcar-price-car" style="left:${annoncePct}%">

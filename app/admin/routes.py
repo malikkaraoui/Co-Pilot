@@ -2199,6 +2199,8 @@ def purge_failed_jobs():
 @login_required
 def failed_searches():
     """Dashboard de monitoring des recherches echouees (inspire Sentry/Datadog)."""
+    import json
+
     from sqlalchemy import func as sqla_func
 
     from app.models.failed_search import FailedSearch
@@ -2340,6 +2342,65 @@ def failed_searches():
     page = max(1, min(page, total_pages))
     groups = all_groups[(page - 1) * per_page : page * per_page]
 
+    def _diagnostic_rank(tag: str | None) -> int:
+        ranking = {
+            "anti_bot_403": 6,
+            "anti_bot_page": 5,
+            "iframe_blocked": 4,
+            "parser_no_match": 3,
+            "html_without_cards": 2,
+            "true_zero_results": 1,
+        }
+        return ranking.get((tag or "").strip(), 0)
+
+    def _group_diagnostic_summary(make: str, model: str) -> dict[str, str | int | None]:
+        latest = (
+            FailedSearch.query.filter(
+                FailedSearch.make == make,
+                FailedSearch.model == model,
+            )
+            .order_by(FailedSearch.created_at.desc(), FailedSearch.id.desc())
+            .first()
+        )
+        if not latest or not latest.search_log:
+            return {
+                "diagnostic_tag": None,
+                "diagnostic_reason": None,
+                "diagnostic_http_status": None,
+            }
+
+        try:
+            search_log = json.loads(latest.search_log) or []
+        except (json.JSONDecodeError, TypeError):
+            search_log = []
+
+        best_step = None
+        best_rank = -1
+        for step in search_log:
+            if not isinstance(step, dict):
+                continue
+            rank = _diagnostic_rank(step.get("diagnostic_tag"))
+            if rank > best_rank:
+                best_step = step
+                best_rank = rank
+
+        if not best_step:
+            best_step = next((step for step in search_log if isinstance(step, dict)), None)
+
+        return {
+            "diagnostic_tag": best_step.get("diagnostic_tag") if best_step else None,
+            "diagnostic_reason": best_step.get("reason") if best_step else None,
+            "diagnostic_http_status": best_step.get("http_status") if best_step else None,
+        }
+
+    groups = [
+        {
+            **dict(g._mapping),
+            **_group_diagnostic_summary(g.make, g.model),
+        }
+        for g in groups
+    ]
+
     # Listes pour les filtres dropdown
     make_list = [
         r[0]
@@ -2477,7 +2538,9 @@ def add_failed_search_note(fs_id):
 @login_required
 def bulk_failed_search_action():
     """Action en masse sur les recherches echouees."""
+
     from app.models.failed_search import FailedSearch
+    from app.services.collection_job_lc_service import expand_collection_jobs_lc
 
     action = request.form.get("action", "")
     ids = request.form.getlist("fs_ids")
@@ -2486,21 +2549,88 @@ def bulk_failed_search_action():
         flash("Aucun element selectionne.", "warning")
         return redirect(url_for("admin.failed_searches"))
 
-    count = 0
-    for fs_id_str in ids:
-        fs = db.session.get(FailedSearch, int(fs_id_str))
-        if not fs:
+    def _records_from_selector(selector: str) -> list[FailedSearch]:
+        selector = (selector or "").strip()
+        if not selector:
+            return []
+        if "|" in selector:
+            make, model = selector.split("|", 1)
+            return (
+                FailedSearch.query.filter(
+                    FailedSearch.make == make,
+                    FailedSearch.model == model,
+                )
+                .order_by(FailedSearch.created_at.desc(), FailedSearch.id.desc())
+                .all()
+            )
+        fs = db.session.get(FailedSearch, int(selector))
+        return [fs] if fs else []
+
+    def _is_lacentrale_record(fs: FailedSearch) -> bool:
+        search_log = fs.get_search_log() or []
+        for step in search_log:
+            if not isinstance(step, dict):
+                continue
+            if "lacentrale.fr" in str(step.get("url") or "").lower():
+                return True
+        return False
+
+    updated_records = 0
+    requeued_groups = 0
+    skipped_groups = 0
+
+    for selector in ids:
+        records = _records_from_selector(selector)
+        if not records:
+            skipped_groups += 1
             continue
-        if action == "resolve":
-            fs.set_status("resolved", "Resolution en masse")
-        elif action == "wont_fix":
-            fs.set_status("wont_fix", "Won't fix en masse")
-        elif action == "investigating":
-            fs.set_status("investigating", "Prise en charge en masse")
-        count += 1
+
+        latest = records[0]
+
+        if action == "retry_lacentrale":
+            if not _is_lacentrale_record(latest):
+                skipped_groups += 1
+                continue
+
+            created = expand_collection_jobs_lc(
+                make=latest.make,
+                model=latest.model,
+                year=latest.year,
+                fuel=latest.fuel,
+                hp_range=latest.hp_range,
+            )
+
+            note = (
+                f"Recollecte La Centrale reprogrammee depuis Monitoring Recherches "
+                f"({len(created)} job(s) cree(s))."
+            )
+            for fs in records:
+                fs.set_status("investigating", note)
+            requeued_groups += 1
+            updated_records += len(records)
+            continue
+
+        for fs in records:
+            if action == "resolve":
+                fs.set_status("resolved", "Resolution en masse")
+            elif action == "wont_fix":
+                fs.set_status("wont_fix", "Won't fix en masse")
+            elif action == "investigating":
+                fs.set_status("investigating", "Prise en charge en masse")
+            else:
+                continue
+            updated_records += 1
 
     db.session.commit()
-    flash(f"{count} element(s) mis a jour ({action}).", "success")
+
+    if action == "retry_lacentrale":
+        flash(
+            f"{requeued_groups} groupe(s) La Centrale reprogramme(s), {skipped_groups} ignore(s).",
+            "success" if requeued_groups else "warning",
+        )
+    else:
+        flash(f"{updated_records} element(s) mis a jour ({action}).", "success")
+
     return redirect(url_for("admin.failed_searches"))
 
 

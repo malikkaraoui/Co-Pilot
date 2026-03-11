@@ -33,6 +33,15 @@ _EXCLUDED_CATEGORIES = frozenset({"motos", "equipement_moto", "caravaning", "nau
 # Modeles generiques LBC : pas un vrai modele, melange de vehicules differents
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
+_LACENTRALE_DIAGNOSTIC_PRIORITY = {
+    "anti_bot_403": 6,
+    "anti_bot_page": 5,
+    "iframe_blocked": 4,
+    "parser_no_match": 3,
+    "html_without_cards": 2,
+    "true_zero_results": 1,
+}
+
 
 def _lookup_site_tokens(make: str, model: str) -> dict:
     """Retourne les tokens LBC et slugs AS24 stockes pour un vehicule (ou dict vide)."""
@@ -148,6 +157,14 @@ class SearchStep(BaseModel):
     reason: str = Field(default="", max_length=200)
     # Label optionnel pour lisibilite UI (pas utilise cote backend)
     label: str | None = Field(default=None, max_length=100)
+    diagnostic_tag: str | None = Field(default=None, max_length=40)
+    fetch_mode: str | None = Field(default=None, max_length=20)
+    http_status: int | None = Field(default=None, ge=0, le=599)
+    body_excerpt: str | None = Field(default=None, max_length=400)
+    html_title: str | None = Field(default=None, max_length=160)
+    resource_sample: str | None = Field(default=None, max_length=500)
+    response_bytes: int | None = Field(default=None, ge=0)
+    anti_bot_detected: bool = False
 
 
 class MarketPricesRequest(BaseModel):
@@ -413,6 +430,143 @@ def _persist_as24_slugs(
             slug_make,
             slug_model,
         )
+
+
+def _is_lacentrale_failed_search(site: str | None, search_log: list[dict] | None) -> bool:
+    """Determine si le failed-search concerne La Centrale."""
+    site_norm = (site or "").strip().lower()
+    if site_norm == "lacentrale":
+        return True
+
+    for step in search_log or []:
+        if not isinstance(step, dict):
+            continue
+        url = str(step.get("url") or "").lower()
+        if "lacentrale.fr" in url:
+            return True
+    return False
+
+
+def _best_lacentrale_diagnostic_tag(search_log: list[dict] | None) -> str | None:
+    """Retourne le diagnostic LC le plus significatif du search_log."""
+    best_tag = None
+    best_rank = -1
+    for step in search_log or []:
+        if not isinstance(step, dict):
+            continue
+        tag = step.get("diagnostic_tag")
+        rank = _LACENTRALE_DIAGNOSTIC_PRIORITY.get(tag, 0)
+        if rank > best_rank:
+            best_rank = rank
+            best_tag = tag
+    return best_tag
+
+
+def _queue_lacentrale_market_fallback(
+    make: str,
+    model: str,
+    year: int,
+    region: str,
+    fuel: str | None,
+    gearbox: str | None,
+    hp_range: str | None,
+    country: str,
+    payload: dict,
+    search_log: list[dict] | None,
+) -> dict:
+    """Cree des jobs de fallback LBC/AS24 pour un echec La Centrale.
+
+    Idee produit : si LC ne donne rien (ou reste peu fiable), pousser ce vehicule
+    dans les files des autres sites plus exploitables.
+    """
+    from app.services.collection_job_as24_service import enqueue_collection_job_as24
+    from app.services.collection_job_service import (
+        POST_2016_REGIONS,
+        enqueue_collection_job,
+        expand_collection_jobs,
+    )
+    from app.services.vehicle_lookup import find_vehicle
+
+    country_upper = (country or "FR").upper().strip()
+    if country_upper != "FR":
+        return {
+            "triggered": False,
+            "reason": "country_not_supported",
+            "diagnostic_tag": _best_lacentrale_diagnostic_tag(search_log),
+        }
+
+    source_vehicle = f"{make} {model} {year} {fuel or ''} {gearbox or ''}".strip()
+    clean_region = (region or "").strip()
+
+    lbc_job = None
+    lbc_mode = "exact"
+    if clean_region in POST_2016_REGIONS:
+        lbc_job = enqueue_collection_job(
+            make=make,
+            model=model,
+            year=year,
+            region=clean_region,
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            priority=0,
+            source_vehicle=source_vehicle,
+            country="FR",
+        )
+        lbc_count = 1 if lbc_job else 0
+    else:
+        lbc_mode = "regional_fallback"
+        lbc_jobs = expand_collection_jobs(
+            make=make,
+            model=model,
+            year=year,
+            region=clean_region or "France",
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            country="FR",
+        )
+        lbc_count = len(lbc_jobs)
+
+    vehicle = find_vehicle(make, model)
+    slug_make = (payload.get("as24_slug_make") or "").strip()
+    slug_model = (payload.get("as24_slug_model") or "").strip()
+    if not slug_make and vehicle and vehicle.as24_slug_make:
+        slug_make = vehicle.as24_slug_make.strip()
+    if not slug_model and vehicle and vehicle.as24_slug_model:
+        slug_model = vehicle.as24_slug_model.strip()
+
+    as24_reason = None
+    as24_job = None
+    if slug_make and slug_model:
+        as24_job = enqueue_collection_job_as24(
+            make=make,
+            model=model,
+            year=year,
+            region="national",
+            fuel=fuel,
+            gearbox=gearbox,
+            hp_range=hp_range,
+            priority=0,
+            source_vehicle=source_vehicle,
+            country="FR",
+            tld="fr",
+            slug_make=slug_make,
+            slug_model=slug_model,
+        )
+    else:
+        as24_reason = "slugs_manquants"
+
+    return {
+        "triggered": True,
+        "diagnostic_tag": _best_lacentrale_diagnostic_tag(search_log),
+        "lbc_jobs": lbc_count,
+        "lbc_mode": lbc_mode,
+        "as24_jobs": 1 if as24_job else 0,
+        "as24_reason": as24_reason,
+        "slug_make": slug_make or None,
+        "slug_model": slug_model or None,
+    }
 
 
 @api_bp.route("/market-prices/job-done", methods=["POST"])
@@ -783,10 +937,15 @@ def report_failed_search():
 
     severity = FailedSearch.compute_severity(occurrence_count + 1, severity_source)
 
+    try:
+        year_int = int(year) if year else 0
+    except (TypeError, ValueError):
+        year_int = 0
+
     entry = FailedSearch(
         make=make,
         model=model_name,
-        year=int(year) if year else 0,
+        year=year_int,
         region=region,
         fuel=data.get("fuel"),
         hp_range=data.get("hp_range"),
@@ -812,6 +971,51 @@ def report_failed_search():
     _as24_smod = data.get("as24_slug_model")
     if _as24_sm or _as24_smod:
         _persist_as24_slugs(make, model_name, _as24_sm, _as24_smod)
+
+    if _is_lacentrale_failed_search(site, search_log) and 1990 <= year_int <= 2030:
+        try:
+            fallback = _queue_lacentrale_market_fallback(
+                make=make,
+                model=model_name,
+                year=year_int,
+                region=region,
+                fuel=data.get("fuel"),
+                gearbox=data.get("gearbox"),
+                hp_range=data.get("hp_range"),
+                country=data.get("country", "FR"),
+                payload=data,
+                search_log=search_log,
+            )
+            if fallback.get("triggered"):
+                lbc_label = (
+                    f"{fallback['lbc_jobs']} job(s) LBC"
+                    if fallback.get("lbc_mode") == "exact"
+                    else f"{fallback['lbc_jobs']} job(s) LBC regionaux"
+                )
+                if fallback.get("as24_reason") == "slugs_manquants":
+                    as24_label = "AS24 ignore (slugs manquants)"
+                else:
+                    as24_label = f"{fallback['as24_jobs']} job(s) AS24"
+
+                note = (
+                    f"Fallback automatique La Centrale → autres sites : {lbc_label}, {as24_label}."
+                )
+                if fallback.get("diagnostic_tag"):
+                    note += f" Diagnostic={fallback['diagnostic_tag']}."
+
+                if fallback.get("lbc_jobs") or fallback.get("as24_jobs"):
+                    entry.set_status("investigating", note)
+                else:
+                    entry.add_note("auto_fallback", note)
+                db.session.commit()
+        except (ValueError, TypeError, SQLAlchemyError):
+            db.session.rollback()
+            logger.warning(
+                "Failed to queue La Centrale fallback jobs for %s %s",
+                make,
+                model_name,
+                exc_info=True,
+            )
 
     logger.warning(
         "Failed search logged: %s %s %d %s (token_source=%s, total_ads=%d, severity=%s)",

@@ -308,6 +308,71 @@ def _try_create_job_as24(
     return job
 
 
+def enqueue_collection_job_as24(
+    make: str,
+    model: str,
+    year: int,
+    region: str,
+    fuel: str | None = None,
+    gearbox: str | None = None,
+    hp_range: str | None = None,
+    priority: int = 1,
+    source_vehicle: str | None = None,
+    country: str = "CH",
+    tld: str = "ch",
+    slug_make: str = "",
+    slug_model: str = "",
+) -> CollectionJobAS24 | None:
+    """Cree un job explicite pour un vehicule/region AS24 precise."""
+    make = make.strip()
+    model = model.strip()
+    region = region.strip()
+    country = country.upper().strip()
+    tld = tld.lower().strip()
+    slug_make = slug_make.strip()
+    slug_model = slug_model.strip()
+    if fuel:
+        fuel = fuel.strip().lower()
+    if gearbox:
+        gearbox = gearbox.strip().lower()
+
+    if not slug_make or not slug_model:
+        logger.warning(
+            "AS24 enqueue: slugs manquants pour %s %s, skip",
+            make,
+            model,
+        )
+        return None
+
+    valid_regions = _get_regions_for_country_as24(country)
+    if region not in valid_regions:
+        if country != "CH":
+            region = "national"
+        else:
+            logger.debug("AS24 enqueue: skip unknown region '%s'", region)
+            return None
+
+    source_vehicle = source_vehicle or f"{make} {model} {year} {fuel or ''} {gearbox or ''}".strip()
+    job = _try_create_job_as24(
+        make,
+        model,
+        year,
+        region,
+        fuel,
+        gearbox,
+        hp_range,
+        priority=priority,
+        source_vehicle=source_vehicle,
+        country=country,
+        tld=tld,
+        slug_make=slug_make,
+        slug_model=slug_model,
+        search_strategy=_get_search_strategy(country, region),
+    )
+    db.session.commit()
+    return job
+
+
 # ---------------------------------------------------------------------------
 # Low-data detection & zombie cleanup
 # ---------------------------------------------------------------------------

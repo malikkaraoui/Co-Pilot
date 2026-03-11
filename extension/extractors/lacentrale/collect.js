@@ -13,7 +13,7 @@
 import { isBenignRuntimeTeardownError } from '../../utils/fetch.js';
 import { shouldSkipCollection, markCollected } from '../../shared/cooldown.js';
 import { LC_MIN_PRICES, LC_MAX_PRICES } from './constants.js';
-import { buildLcSearchUrl, getLcMileageRange, fetchLcSearchPrices } from './search.js';
+import { buildLcSearchUrl, getLcMileageRange, fetchLcSearchPrices, fetchLcSearchPricesDetailed } from './search.js';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -82,6 +82,33 @@ function _buildLcModelVariants(baseModel, adData) {
   }
 
   return variants.filter(Boolean).slice(0, 6);
+}
+
+function _lcDiagnosticRank(tag) {
+  switch (tag) {
+    case 'anti_bot_403':
+      return 6;
+    case 'anti_bot_page':
+      return 5;
+    case 'iframe_blocked':
+      return 4;
+    case 'parser_no_match':
+      return 3;
+    case 'html_without_cards':
+      return 2;
+    case 'true_zero_results':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function _pickBestLcDiagnostic(current, candidate) {
+  if (!candidate) return current || null;
+  if (!current) return candidate;
+  return _lcDiagnosticRank(candidate.reasonTag) >= _lcDiagnosticRank(current.reasonTag)
+    ? candidate
+    : current;
 }
 
 // ── Bonus Jobs ──────────────────────────────────────────────────
@@ -202,6 +229,87 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
     console.log('[OKazCar] LC collect: missing make/model/year, skip');
     return { submitted: false, isCurrentVehicle: false };
   }
+
+  if (progress) {
+    progress.update('job', 'done', 'Collecte marché LC désactivée');
+  }
+
+  if (shouldSkipCollection()) {
+    if (progress) {
+      progress.update('collect', 'skip', 'Relance externe déjà demandée récemment');
+      progress.update('submit', 'skip', 'Cooldown 24h');
+      progress.update('bonus', 'skip');
+    }
+    return { submitted: false, isCurrentVehicle: false };
+  }
+
+  if (progress) {
+    progress.update('collect', 'skip', 'Pas de listing LC : délégation vers LBC/AS24');
+    progress.update('submit', 'running', 'Création des relances automatiques');
+  }
+
+  try {
+    const failedUrl = apiUrl.replace('/analyze', '/market-prices/failed-search');
+    const searchLog = [{
+      step: 1,
+      precision: 0,
+      location_type: 'delegated',
+      year_spread: 1,
+      filters_applied: [],
+      ads_found: 0,
+      url: (typeof window !== 'undefined' && window.location?.href) ? window.location.href : 'https://www.lacentrale.fr/',
+      was_selected: false,
+      label: 'LC désactivé',
+      diagnostic_tag: 'strategy_disabled',
+      reason: 'Collecte listing La Centrale désactivée : fallback automatique vers LBC/AS24.',
+      fetch_mode: 'disabled',
+      anti_bot_detected: false,
+    }];
+
+    const resp = await backendFetch(failedUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        make,
+        model,
+        year: parseInt(year, 10) || year,
+        region: 'France',
+        fuel,
+        gearbox,
+        hp_range: adData?.hp_range || null,
+        site: 'lacentrale',
+        country: 'FR',
+        search_log: searchLog,
+      }),
+    });
+
+    if (resp.ok) {
+      if (progress) {
+        progress.update('submit', 'done', 'Relance LBC/AS24 demandée');
+        progress.update('bonus', 'skip', 'LC non utilisé pour les bonus');
+      }
+      markCollected();
+      return { submitted: false, isCurrentVehicle: false };
+    }
+
+    console.warn('[OKazCar] LC delegated failed-search POST failed:', resp.status);
+    if (progress) {
+      progress.update('submit', 'warning', 'Relance externe non confirmée');
+      progress.update('bonus', 'skip');
+    }
+  } catch (err) {
+    if (isBenignRuntimeTeardownError(err)) {
+      console.info('[OKazCar] LC delegated collection interrompue: extension rechargee');
+    } else {
+      console.warn('[OKazCar] LC delegated failed-search error:', err);
+    }
+    if (progress) {
+      progress.update('submit', 'warning', 'Relance externe interrompue');
+      progress.update('bonus', 'skip');
+    }
+  }
+
+  return { submitted: false, isCurrentVehicle: false };
 
   const targetYear = parseInt(year, 10) || 0;
 
@@ -332,6 +440,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
       const triedModels = [];
       let searchUrl = null;
       let newPrices = [];
+      let bestDiagnostic = null;
 
       for (const modelVariant of modelVariants) {
         searchUrl = buildLcSearchUrl({
@@ -346,7 +455,9 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
         });
 
         triedModels.push(modelVariant || '(brand-only)');
-        newPrices = await fetchLcSearchPrices(searchUrl, tYear, s.yearSpread);
+        const searchResult = await fetchLcSearchPricesDetailed(searchUrl, tYear, s.yearSpread);
+        newPrices = searchResult.prices;
+        bestDiagnostic = _pickBestLcDiagnostic(bestDiagnostic, searchResult.diagnostic);
         if (newPrices.length > 0) break;
       }
 
@@ -390,10 +501,18 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
         total_accumulated: prices.length,
         url: searchUrl,
         model_variants: triedModels,
+        diagnostic_tag: bestDiagnostic?.reasonTag || null,
+        fetch_mode: bestDiagnostic?.fetchMode || null,
+        http_status: bestDiagnostic?.httpStatus || null,
+        body_excerpt: bestDiagnostic?.bodyExcerpt || null,
+        html_title: bestDiagnostic?.htmlTitle || null,
+        resource_sample: bestDiagnostic?.resourceSample || null,
+        response_bytes: bestDiagnostic?.responseBytes || null,
+        anti_bot_detected: Boolean(bestDiagnostic?.antiBotDetected),
         was_selected: enoughPrices,
         reason: enoughPrices
           ? `total ${prices.length} annonces >= ${LC_MIN_PRICES} minimum`
-          : `total ${prices.length} annonces < ${LC_MIN_PRICES} minimum`,
+          : (bestDiagnostic?.reason || `total ${prices.length} annonces < ${LC_MIN_PRICES} minimum`),
       });
 
       if (enoughPrices && collectedPrecision === null) {
@@ -480,6 +599,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
             year: tYear,
             region: 'France',
             fuel: targetFuel || null,
+            site: 'lacentrale',
             search_log: searchLog,
           }),
         });

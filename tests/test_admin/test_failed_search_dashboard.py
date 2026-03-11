@@ -1,6 +1,7 @@
 """Tests pour le dashboard admin des recherches echouees."""
 
 import json
+from unittest.mock import patch
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -248,3 +249,59 @@ class TestFailedSearchDashboard:
         db.session.refresh(fs)
         assert fs.status == "resolved"
         assert fs.resolved is True
+
+    def test_bulk_action_investigating_accepts_grouped_make_model_values(self, admin_client, db):
+        fs1 = FailedSearch(make="CADILLAC", model="ESCALADE", year=2017, region="France")
+        fs2 = FailedSearch(make="CADILLAC", model="ESCALADE", year=2018, region="France")
+        db.session.add_all([fs1, fs2])
+        db.session.commit()
+
+        resp = admin_client.post(
+            "/admin/failed-searches/bulk-action",
+            data={"action": "investigating", "fs_ids": ["CADILLAC|ESCALADE"]},
+            follow_redirects=True,
+        )
+
+        assert resp.status_code == 200
+        db.session.refresh(fs1)
+        db.session.refresh(fs2)
+        assert fs1.status == "investigating"
+        assert fs2.status == "investigating"
+
+    def test_bulk_action_can_requeue_lacentrale_groups(self, admin_client, db):
+        fs = FailedSearch(
+            make="CADILLAC",
+            model="ESCALADE",
+            year=2017,
+            region="France",
+            fuel="essence",
+            search_log=json.dumps(
+                [
+                    {
+                        "step": 1,
+                        "precision": 5,
+                        "ads_found": 0,
+                        "url": "https://www.lacentrale.fr/listing?makesModelsCommercialNames=CADILLAC::ESCALADE",
+                        "diagnostic_tag": "parser_no_match",
+                    }
+                ]
+            ),
+        )
+        db.session.add(fs)
+        db.session.commit()
+
+        with patch(
+            "app.services.collection_job_lc_service.expand_collection_jobs_lc",
+            return_value=[object(), object()],
+        ):
+            resp = admin_client.post(
+                "/admin/failed-searches/bulk-action",
+                data={"action": "retry_lacentrale", "fs_ids": ["CADILLAC|ESCALADE"]},
+                follow_redirects=True,
+            )
+
+        assert resp.status_code == 200
+        db.session.refresh(fs)
+        assert fs.status == "investigating"
+        notes = fs.get_notes()
+        assert any("Recollecte La Centrale reprogrammee" in n["message"] for n in notes)

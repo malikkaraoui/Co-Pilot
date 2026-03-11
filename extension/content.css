@@ -2247,9 +2247,26 @@
   color: #92400e;
 }
 
+.okazcar-l4-src-lc {
+  background: #e0f2fe;
+  color: #075985;
+}
+
 .okazcar-l4-src-default {
   background: #e5e7eb;
   color: #6b7280;
+}
+
+.okazcar-l4-secondary-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.okazcar-l4-secondary-value {
+  font-size: 11px;
+  color: var(--okazcar-text-secondary);
 }
 
 .okazcar-l4-samples {
