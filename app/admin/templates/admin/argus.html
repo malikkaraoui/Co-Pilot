@@ -613,6 +613,85 @@
   <small class="text-muted mt-2 d-block">Laissez vide et cliquez OK pour remettre en mode automatique. Le seuil effectif = override si defini, sinon calcul dynamique par puissance.</small>
 </div>
 
+<!-- ── Carte Europe des prix par pays ────────────────────────── -->
+<div class="stat-card mt-4">
+  <h5 class="mb-3">
+    Carte des prix par pays
+    <small class="text-muted ms-2" style="font-size:12px">
+      Selectionnez un vehicule pour visualiser les prix collectes en Europe.
+    </small>
+  </h5>
+
+  <form method="get" class="row g-2 align-items-end mb-3">
+    <input type="hidden" name="make" value="{{ make_filter }}">
+    <input type="hidden" name="region" value="{{ region_filter }}">
+    <input type="hidden" name="page" value="{{ page }}">
+
+    <div class="col-md-2">
+      <label class="form-label mb-1" style="font-size:13px">Marque</label>
+      <select name="map_make" class="form-select form-select-sm" onchange="this.form.map_model.value='';this.form.map_year.value='';this.form.map_fuel.value='';this.form.submit()">
+        <option value="">--</option>
+        {% for m in make_list %}
+        <option value="{{ m }}" {% if m == map_make %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label mb-1" style="font-size:13px">Modele</label>
+      <select name="map_model" class="form-select form-select-sm" {% if not map_make %}disabled{% endif %} onchange="this.form.map_year.value='';this.form.map_fuel.value='';this.form.submit()">
+        <option value="">--</option>
+        {% for m in map_models %}
+        <option value="{{ m }}" {% if m == map_model %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label mb-1" style="font-size:13px">Annee</label>
+      <select name="map_year" class="form-select form-select-sm" {% if not map_model %}disabled{% endif %} onchange="this.form.map_fuel.value='';this.form.submit()">
+        <option value="">--</option>
+        {% for y in map_years %}
+        <option value="{{ y }}" {% if y == map_year %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label mb-1" style="font-size:13px">Carburant</label>
+      <select name="map_fuel" class="form-select form-select-sm" {% if not map_year %}disabled{% endif %}>
+        <option value="">--</option>
+        {% for f in map_fuels %}
+        <option value="{{ f }}" {% if f == map_fuel %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button type="submit" class="btn btn-sm btn-primary" {% if not map_fuel %}disabled{% endif %}>
+        Voir sur la carte
+      </button>
+    </div>
+  </form>
+
+  {% if map_json %}
+  <div id="chart-europe-prices" style="height:500px"></div>
+  {% elif map_make and map_model and map_year and map_fuel %}
+  <p class="text-muted text-center py-4">
+    Aucune donnee trouvee pour {{ map_make }} {{ map_model }} {{ map_year }} {{ map_fuel }}.
+  </p>
+  {% else %}
+  <p class="text-muted text-center py-4">
+    Selectionnez un vehicule ci-dessus pour afficher la carte des prix.
+  </p>
+  {% endif %}
+</div>
+
+{% if map_json %}
+<script>
+(function() {
+  var figData = {{ map_json | safe }};
+  Plotly.react("chart-europe-prices", figData.data, figData.layout, {responsive: true});
+})();
+</script>
+{% endif %}
+
 {% if get_flashed_messages() %}
 <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
   {% for category, message in get_flashed_messages(with_categories=true) %}

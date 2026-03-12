@@ -1413,6 +1413,12 @@ def argus():
     region_filter = request.args.get("region", "").strip()
     page = request.args.get("page", 1, type=int)
 
+    # ── Filtres carte choropleth ─────────────────────────────────
+    map_make = request.args.get("map_make", "").strip()
+    map_model = request.args.get("map_model", "").strip()
+    map_year = request.args.get("map_year", "").strip()
+    map_fuel = request.args.get("map_fuel", "").strip()
+
     # Stats resume
     total_refs = db.session.query(db.func.count(MarketPrice.id)).scalar() or 0
     fresh_refs = (
@@ -1553,6 +1559,183 @@ def argus():
     total_with_lbc = sum(1 for r in all_market if r.lbc_estimate_low and r.lbc_estimate_high)
     validation_rate = round(validated / total_with_lbc * 100) if total_with_lbc > 0 else 0
 
+    # ── Carte choropleth Europe ──────────────────────────────────
+    map_json = None
+    map_models: list[str] = []
+    map_years: list[str] = []
+    map_fuels: list[str] = []
+
+    # Listes dynamiques pour les selects en cascade
+    if map_make:
+        map_models = [
+            r.model
+            for r in db.session.query(MarketPrice.model)
+            .filter(MarketPrice.make == map_make)
+            .distinct()
+            .order_by(MarketPrice.model)
+            .all()
+        ]
+    if map_make and map_model:
+        map_years = [
+            str(r.year)
+            for r in db.session.query(MarketPrice.year)
+            .filter(MarketPrice.make == map_make, MarketPrice.model == map_model)
+            .distinct()
+            .order_by(MarketPrice.year.desc())
+            .all()
+        ]
+    if map_make and map_model and map_year:
+        map_fuels = [
+            r.fuel
+            for r in db.session.query(MarketPrice.fuel)
+            .filter(
+                MarketPrice.make == map_make,
+                MarketPrice.model == map_model,
+                MarketPrice.year == int(map_year),
+                MarketPrice.fuel.isnot(None),
+            )
+            .distinct()
+            .order_by(MarketPrice.fuel)
+            .all()
+        ]
+
+    # Generer la carte si les 4 filtres sont remplis
+    if map_make and map_model and map_year and map_fuel:
+        import pandas as pd
+        import plotly.express as px
+
+        iso2_to_iso3 = {
+            "FR": "FRA",
+            "DE": "DEU",
+            "ES": "ESP",
+            "IT": "ITA",
+            "BE": "BEL",
+            "NL": "NLD",
+            "PT": "PRT",
+            "AT": "AUT",
+            "CH": "CHE",
+            "GB": "GBR",
+            "PL": "POL",
+            "CZ": "CZE",
+            "LU": "LUX",
+            "IE": "IRL",
+            "SE": "SWE",
+            "DK": "DNK",
+            "NO": "NOR",
+            "FI": "FIN",
+            "RO": "ROU",
+            "HU": "HUN",
+            "HR": "HRV",
+            "SK": "SVK",
+            "SI": "SVN",
+            "BG": "BGR",
+            "GR": "GRC",
+            "LT": "LTU",
+            "LV": "LVA",
+            "EE": "EST",
+        }
+        iso3_to_name = {
+            "FRA": "France",
+            "DEU": "Allemagne",
+            "ESP": "Espagne",
+            "ITA": "Italie",
+            "BEL": "Belgique",
+            "NLD": "Pays-Bas",
+            "PRT": "Portugal",
+            "AUT": "Autriche",
+            "CHE": "Suisse",
+            "GBR": "Royaume-Uni",
+            "POL": "Pologne",
+            "CZE": "Tchequie",
+            "LUX": "Luxembourg",
+            "IRL": "Irlande",
+            "SWE": "Suede",
+            "DNK": "Danemark",
+            "NOR": "Norvege",
+            "FIN": "Finlande",
+            "ROU": "Roumanie",
+            "HUN": "Hongrie",
+            "HRV": "Croatie",
+            "SVK": "Slovaquie",
+            "SVN": "Slovenie",
+            "BGR": "Bulgarie",
+            "GRC": "Grece",
+            "LTU": "Lituanie",
+            "LVA": "Lettonie",
+            "EST": "Estonie",
+        }
+
+        country_stats = (
+            db.session.query(
+                MarketPrice.country,
+                db.func.round(db.func.avg(MarketPrice.price_iqr_mean)).label("avg_price"),
+                db.func.count(MarketPrice.id).label("ref_count"),
+                db.func.sum(MarketPrice.sample_count).label("total_samples"),
+            )
+            .filter(
+                MarketPrice.make == map_make,
+                MarketPrice.model == map_model,
+                MarketPrice.year == int(map_year),
+                MarketPrice.fuel == map_fuel,
+                MarketPrice.country.isnot(None),
+                MarketPrice.price_iqr_mean.isnot(None),
+            )
+            .group_by(MarketPrice.country)
+            .all()
+        )
+
+        if country_stats:
+            data = []
+            for row in country_stats:
+                iso3 = iso2_to_iso3.get(row.country)
+                if iso3:
+                    data.append(
+                        {
+                            "iso3": iso3,
+                            "pays": iso3_to_name.get(iso3, row.country),
+                            "prix_moyen": int(row.avg_price),
+                            "references": row.ref_count,
+                            "annonces": int(row.total_samples),
+                        }
+                    )
+
+            if data:
+                df = pd.DataFrame(data)
+                fig = px.choropleth(
+                    df,
+                    locations="iso3",
+                    color="prix_moyen",
+                    hover_name="pays",
+                    hover_data={
+                        "iso3": False,
+                        "prix_moyen": ":,.0f",
+                        "references": True,
+                        "annonces": True,
+                    },
+                    scope="europe",
+                    color_continuous_scale="RdYlGn_r",
+                    labels={
+                        "prix_moyen": "Prix moyen (EUR)",
+                        "references": "References",
+                        "annonces": "Annonces",
+                    },
+                    title=f"{map_make} {map_model} {map_year} — {map_fuel}",
+                )
+                fig.update_layout(
+                    margin=dict(l=0, r=0, t=40, b=0),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    geo=dict(
+                        bgcolor="rgba(0,0,0,0)",
+                        showframe=False,
+                    ),
+                    height=500,
+                    coloraxis_colorbar=dict(
+                        title="Prix (EUR)",
+                        tickformat=",",
+                    ),
+                )
+                map_json = fig.to_json()
+
     return render_template(
         "admin/argus.html",
         total_refs=total_refs,
@@ -1574,6 +1757,14 @@ def argus():
         vehicle_thresholds=vehicle_thresholds,
         validation_rate=validation_rate,
         total_with_lbc=total_with_lbc,
+        map_json=map_json,
+        map_make=map_make,
+        map_model=map_model,
+        map_year=map_year,
+        map_fuel=map_fuel,
+        map_models=map_models,
+        map_years=map_years,
+        map_fuels=map_fuels,
     )
 
 
