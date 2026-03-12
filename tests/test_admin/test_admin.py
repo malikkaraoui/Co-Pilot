@@ -1,10 +1,13 @@
 """Tests du blueprint admin : authentification, dashboard, vehicules, erreurs, pipelines."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from werkzeug.security import generate_password_hash
 
 from app.models.filter_result import FilterResultDB
 from app.models.log import AppLog
+from app.models.market_price import MarketPrice
 from app.models.scan import ScanLog
 from app.models.user import User
 from app.models.vehicle import Vehicle, VehicleSpec
@@ -1082,3 +1085,58 @@ class TestQuickAddEdgeCases:
         )
         assert resp.status_code == 200
         assert b"Caracteres invalides" in resp.data
+
+
+# ── Carte choropleth Europe (Argus) ──────────────────────────
+
+
+class TestArgusMap:
+    """Tests de la carte choropleth Europe dans la page Argus."""
+
+    def test_argus_map_no_params_shows_placeholder(self, client, admin_user, app):
+        """Sans filtres carte, on voit le placeholder 'Selectionnez un vehicule'."""
+        _login(client)
+        resp = client.get("/admin/argus")
+        assert resp.status_code == 200
+        assert "Selectionnez un vehicule" in resp.data.decode()
+
+    def test_argus_map_with_params_shows_chart(self, client, admin_user, app):
+        """Avec les 4 filtres carte remplis et des donnees, on voit le chart Plotly."""
+        from app.extensions import db
+
+        with app.app_context():
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            mp = MarketPrice(
+                make="Renault",
+                model="Clio",
+                year=2022,
+                region="Ile-de-France",
+                country="FR",
+                fuel="diesel",
+                price_min=8000,
+                price_median=12000,
+                price_mean=12500,
+                price_max=18000,
+                price_iqr_mean=12200,
+                sample_count=15,
+                collected_at=now,
+                refresh_after=now + timedelta(hours=24),
+            )
+            db.session.add(mp)
+            db.session.commit()
+
+        _login(client)
+        resp = client.get(
+            "/admin/argus?map_make=Renault&map_model=Clio&map_year=2022&map_fuel=Diesel"
+        )
+        assert resp.status_code == 200
+        assert "chart-europe-prices" in resp.data.decode()
+
+    def test_argus_map_no_data_shows_message(self, client, admin_user, app):
+        """Avec les 4 filtres mais aucune donnee, message 'aucune donnee'."""
+        _login(client)
+        resp = client.get(
+            "/admin/argus?map_make=Ferrari&map_model=F40&map_year=1990&map_fuel=Essence"
+        )
+        assert resp.status_code == 200
+        assert "Aucune donnee" in resp.data.decode() or "Selectionnez" in resp.data.decode()

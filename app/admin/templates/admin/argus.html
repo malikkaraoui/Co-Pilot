@@ -656,7 +656,8 @@
     </div>
     <div class="col-md-2">
       <label class="form-label mb-1" style="font-size:13px">Carburant</label>
-      <select name="map_fuel" class="form-select form-select-sm" {% if not map_year %}disabled{% endif %}>
+      <select name="map_fuel" id="map-fuel-select" class="form-select form-select-sm" {% if not map_year %}disabled{% endif %}
+              onchange="document.getElementById('map-submit-btn').disabled=!this.value">
         <option value="">--</option>
         {% for f in map_fuels %}
         <option value="{{ f }}" {% if f == map_fuel %}selected{% endif %}>{{ f }}</option>
@@ -664,7 +665,7 @@
       </select>
     </div>
     <div class="col-md-2">
-      <button type="submit" class="btn btn-sm btn-primary" {% if not map_fuel %}disabled{% endif %}>
+      <button type="submit" id="map-submit-btn" class="btn btn-sm btn-primary" {% if not map_fuel %}disabled{% endif %}>
         Voir sur la carte
       </button>
     </div>

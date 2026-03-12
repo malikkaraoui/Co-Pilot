@@ -1419,6 +1419,33 @@ def argus():
     map_year = request.args.get("map_year", "").strip()
     map_fuel = request.args.get("map_fuel", "").strip()
 
+    # Normalisation des carburants pour affichage lisible
+    _fuel_display = {
+        "d": "Diesel",
+        "diesel": "Diesel",
+        "b": "Essence",
+        "e": "Essence",
+        "essence": "Essence",
+        "petrol": "Essence",
+        "mhev-petrol": "Essence (mild-hybrid)",
+        "benzina 91": "Essence",
+        "normal/benzin 91": "Essence",
+        "super 95": "Essence",
+        "super e10 95": "Essence",
+        "super plus 98": "Essence",
+        "l": "GPL",
+        "electrique": "Electrique",
+        "hybride": "Hybride",
+        "hybride rechargeable": "Hybride rechargeable",
+        "hybride rechargeable essence/electrique": "Hybride rechargeable",
+        "hybride_diesel_electrique": "Hybride diesel",
+        "hybride leger essence/electrique": "Essence (mild-hybrid)",
+    }
+    # Mapping inverse : label normalisé → liste de valeurs brutes en DB
+    _fuel_groups: dict[str, list[str]] = {}
+    for raw, label in _fuel_display.items():
+        _fuel_groups.setdefault(label, []).append(raw)
+
     # Stats resume
     total_refs = db.session.query(db.func.count(MarketPrice.id)).scalar() or 0
     fresh_refs = (
@@ -1585,7 +1612,7 @@ def argus():
             .all()
         ]
     if map_make and map_model and map_year:
-        map_fuels = [
+        raw_fuels = [
             r.fuel
             for r in db.session.query(MarketPrice.fuel)
             .filter(
@@ -1598,11 +1625,22 @@ def argus():
             .order_by(MarketPrice.fuel)
             .all()
         ]
+        # Regrouper par label normalisé (dédupliqué, trié)
+        seen_labels: set[str] = set()
+        for rf in raw_fuels:
+            label = _fuel_display.get(rf, rf.capitalize())
+            if label not in seen_labels:
+                seen_labels.add(label)
+                map_fuels.append(label)
+        map_fuels.sort()
 
     # Generer la carte si les 4 filtres sont remplis
     if map_make and map_model and map_year and map_fuel:
         import pandas as pd
         import plotly.express as px
+
+        # Résoudre le label normalisé → valeurs brutes DB
+        fuel_raw_values = _fuel_groups.get(map_fuel, [map_fuel])
 
         iso2_to_iso3 = {
             "FR": "FRA",
@@ -1676,7 +1714,7 @@ def argus():
                 MarketPrice.make == map_make,
                 MarketPrice.model == map_model,
                 MarketPrice.year == int(map_year),
-                MarketPrice.fuel == map_fuel,
+                MarketPrice.fuel.in_(fuel_raw_values),
                 MarketPrice.country.isnot(None),
                 MarketPrice.price_iqr_mean.isnot(None),
             )
