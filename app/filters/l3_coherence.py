@@ -9,7 +9,6 @@ from app.filters.base import BaseFilter, FilterResult
 from app.filters.vehicle_categories import (
     get_expected_km_per_year,
     get_vehicle_category,
-    is_sportive,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +109,9 @@ class L3CoherenceFilter(BaseFilter):
         is_pro = owner_type == "pro"
 
         # Sportive/super-sportive : km faible = normal et positif
-        vehicle_is_sportive = is_sportive(power_din_hp=power_din_hp, fiscal_hp=fiscal_power_cv)
+        # On utilise la catégorie (pas la puissance brute) pour ne pas classer
+        # un Cayenne 440cv comme "sportive" alors qu'il est mappé suv_premium.
+        vehicle_is_sportive = category == "sportive"
 
         warnings = []
         expected_km = age * avg_km_per_year

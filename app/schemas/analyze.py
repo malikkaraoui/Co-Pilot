@@ -29,3 +29,4 @@ class AnalyzeResponse(BaseModel):
     vehicle: dict[str, Any] | None = None
     featured_video: dict[str, Any] | None = None
     tire_sizes: dict[str, Any] | None = None
+    engine_reliability: dict[str, Any] | None = None

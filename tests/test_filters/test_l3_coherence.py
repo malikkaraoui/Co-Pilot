@@ -191,3 +191,80 @@ class TestL3CoherenceFilter:
         assert result.status == "warning"
         assert "bas pour l'année" in result.message
         assert result.details["is_sportive"] is False
+
+    def test_porsche_cayenne_high_km_is_normal(self):
+        """Cayenne 7 ans, 57 914 km = 8 273 km/an → sous la moyenne suv_premium (22k), PASS."""
+        data = {
+            "make": "Porsche",
+            "model": "Cayenne",
+            "year_model": "2019",
+            "mileage_km": 57914,
+            "price_eur": 55000,
+            "power_din_hp": 340,
+        }
+        result = self.filt.run(data)
+        assert result.details["category"] == "suv_premium"
+        assert result.details["avg_km_per_year"] == 22000
+        # 57 914 km pour 7 ans (7 × 22 000 = 154 000) → ratio ~0.37, très bas
+        # → warning km bas, pas km élevé
+        assert result.status == "warning"
+        assert "bas" in result.message.lower()
+
+    def test_porsche_cayenne_high_power_not_classified_sportive(self):
+        """Cayenne 400 CV → suv_premium (mapping statique), PAS sportive (loisir 5k km/an)."""
+        data = {
+            "make": "Porsche",
+            "model": "Cayenne",
+            "year_model": "2020",
+            "mileage_km": 120000,
+            "price_eur": 60000,
+            "power_din_hp": 440,
+        }
+        result = self.filt.run(data)
+        assert result.details["category"] == "suv_premium"
+        assert result.details["is_sportive"] is False
+        assert result.details["avg_km_per_year"] == 22000
+
+    def test_porsche_911_still_sportive(self):
+        """Porsche 911 n'est pas dans le mapping statique → détection par puissance → sportive."""
+        data = {
+            "make": "Porsche",
+            "model": "911",
+            "year_model": "2016",
+            "mileage_km": 20000,
+            "price_eur": 95000,
+            "power_fiscal_cv": 48,
+        }
+        result = self.filt.run(data)
+        assert result.details["is_sportive"] is True
+        assert result.details["category"] == "sportive"
+
+    def test_bmw_x5_high_km_passes(self):
+        """BMW X5 avec km élevé → suv_premium, attendu 22k/an → normal."""
+        data = {
+            "make": "BMW",
+            "model": "X5",
+            "year_model": "2018",
+            "mileage_km": 180000,
+            "price_eur": 35000,
+            "power_din_hp": 265,
+        }
+        result = self.filt.run(data)
+        assert result.details["category"] == "suv_premium"
+        assert result.details["avg_km_per_year"] == 22000
+        # 180k / (8 ans × 22k = 176k) → ratio ~1.02, dans la tolérance → pass
+        assert result.status == "pass"
+
+    def test_vw_touareg_suv_premium(self):
+        """Touareg → suv_premium même si puissance élevée."""
+        data = {
+            "make": "Volkswagen",
+            "model": "Touareg",
+            "year_model": "2020",
+            "mileage_km": 100000,
+            "price_eur": 45000,
+            "power_din_hp": 310,
+        }
+        result = self.filt.run(data)
+        assert result.details["category"] == "suv_premium"
+        assert result.details["avg_km_per_year"] == 22000

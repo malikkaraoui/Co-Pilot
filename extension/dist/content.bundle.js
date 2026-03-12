@@ -6276,7 +6276,7 @@
   }
 
   // extension/ui/filters/index.js
-  var SIMULATED_FILTERS = ["L4", "L5"];
+  var SIMULATED_FILTERS = ["L4"];
   var FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
   function buildFilterBody(f, vehicle, allFilters) {
     const d = f.details || {};
@@ -6320,7 +6320,8 @@
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
-      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4" ? '<span class="okazcar-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
+      const isL5Simulated = f.filter_id === "L5" && (f.details || {}).source === "argus_seed";
+      const simulatedBadge = isL5Simulated ? '<span class="okazcar-badge-simulated">Donn\xE9es simul\xE9es</span>' : "";
       const scoreBarHTML = f.filter_id === "L9" && f.status !== "skip" && f.status !== "neutral" ? buildScoreBar({ ...f, score: Math.min(f.score, l9CoverageRatio) }) : buildScoreBar(f);
       const bodyHTML = buildFilterBody(f, vehicle, sorted);
       return `
@@ -6408,8 +6409,32 @@
   }
 
   // extension/ui/popups.js
+  function buildEngineReliabilityPanel(engineReliability) {
+    if (!engineReliability) return "";
+    if (!engineReliability.matched) {
+      return `
+      <div style="margin:10px 0;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+        <div style="font-weight:600;font-size:12px;color:#64748b;margin-bottom:4px;">&#x1F527; Fiabilit&eacute; moteur</div>
+        <div style="font-size:12px;color:#94a3b8;font-style:italic;">Les experts &eacute;valuent actuellement la fiabilit&eacute; de ce moteur.</div>
+      </div>`;
+    }
+    const relScore = engineReliability.score || 0;
+    const stars = engineReliability.stars || "";
+    const starColor = relScore >= 4.5 ? "#16a34a" : relScore >= 4 ? "#65a30d" : relScore >= 3 ? "#d97706" : "#dc2626";
+    const label = escapeHTML(engineReliability.engine_code || "");
+    const noteHTML = engineReliability.note ? `<div style="font-size:11px;color:#64748b;margin-top:4px;">${escapeHTML(engineReliability.note)}</div>` : "";
+    return `
+    <div style="margin:10px 0;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+      <div style="font-weight:600;font-size:12px;color:#64748b;margin-bottom:6px;">&#x1F527; Fiabilit&eacute; moteur</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;color:#334155;font-weight:500;">${label}</span>
+        <span style="font-size:15px;font-weight:700;color:${starColor};">${escapeHTML(stars)}</span>
+      </div>
+      ${noteHTML}
+    </div>`;
+  }
   function buildResultsPopup(data, options = {}) {
-    const { score, is_partial, filters, vehicle, featured_video, tire_sizes } = data;
+    const { score, is_partial, filters, vehicle, featured_video, tire_sizes, engine_reliability } = data;
     const { autovizaUrl, bonusSignals } = options;
     const color = scoreColor(score);
     const vehicleInfo = vehicle ? `${vehicle.make || ""} ${vehicle.model || ""} ${vehicle.year || ""}`.trim() : "V\xE9hicule";
@@ -6481,6 +6506,7 @@
         <h3 class="okazcar-section-title">D\xE9tails de l'analyse</h3>
         ${buildFiltersList(filters, vehicle)}
         ${buildTiresPanel(tire_sizes)}
+        ${buildEngineReliabilityPanel(engine_reliability)}
       </div>
       ${bonusHTML}
       ${buildAutovizaBanner(autovizaUrl)}

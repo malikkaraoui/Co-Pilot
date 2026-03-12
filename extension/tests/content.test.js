@@ -729,10 +729,10 @@ describe('Constants', () => {
     expect(COLLECT_COOLDOWN_MS).toBe(24 * 60 * 60 * 1000);
   });
 
-  it('SIMULATED_FILTERS contient L4 et L5 uniquement', () => {
+  it('SIMULATED_FILTERS contient L4 uniquement (L5 gère son badge via details.source)', () => {
     expect(SIMULATED_FILTERS).toContain('L4');
-    expect(SIMULATED_FILTERS).toContain('L5');
-    expect(SIMULATED_FILTERS).toHaveLength(2);
+    expect(SIMULATED_FILTERS).not.toContain('L5');
+    expect(SIMULATED_FILTERS).toHaveLength(1);
   });
 
   it('API_URL pointe vers /api/analyze sur localhost:5001', () => {

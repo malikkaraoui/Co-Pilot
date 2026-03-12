@@ -28,11 +28,7 @@ services:
         value: "50"
       - key: LOG_LEVEL
         value: INFO
-      - key: RENDER_DB_SYNC_URL
-        sync: false
-      - key: RENDER_DB_SYNC_VERSION
-        sync: false
-      - key: RENDER_DB_SYNC_SHA256
+      - key: RENDER_DB_SYNC_METADATA_URL
         sync: false
       - key: RENDER_DB_SYNC_TIMEOUT
         value: "180"

@@ -332,6 +332,43 @@ def _do_analyze():
         except (OSError, ValueError, TypeError) as exc:
             logger.debug("Background tire fill failed: %s", exc)
 
+    # Fiabilite moteur (best-effort)
+    engine_reliability_data = None
+    if make and model:
+        try:
+            from app.models.vehicle import VehicleSpec
+            from app.services.engine_reliability_service import get_engine_reliability
+            from app.services.vehicle_lookup import find_vehicle
+
+            veh = find_vehicle(make, model)
+            if veh:
+                fuel_raw = (ad_data.get("fuel") or "").lower()
+                specs = VehicleSpec.query.filter_by(vehicle_id=veh.id).all()
+                matched_spec = None
+                if specs:
+                    for s in specs:
+                        ft = (s.fuel_type or "").lower()
+                        if fuel_raw and (fuel_raw in ft or ft in fuel_raw):
+                            matched_spec = s
+                            break
+                    if not matched_spec:
+                        matched_spec = specs[0]
+                if matched_spec and matched_spec.engine:
+                    rel = get_engine_reliability(matched_spec.engine, matched_spec.fuel_type)
+                    if rel:
+                        engine_reliability_data = {
+                            "score": rel.score,
+                            "stars": rel.stars,
+                            "engine_code": rel.engine_code,
+                            "brand": rel.brand,
+                            "note": rel.note,
+                            "matched": True,
+                        }
+                    else:
+                        engine_reliability_data = {"matched": False}
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            logger.debug("Engine reliability lookup failed: %s", exc)
+
     vehicle_info: dict[str, Any] = {
         "make": make,
         "model": model,
@@ -352,6 +389,7 @@ def _do_analyze():
         vehicle=vehicle_info,
         featured_video=featured_video,
         tire_sizes=tire_sizes_data,
+        engine_reliability=engine_reliability_data,
     )
 
     return jsonify(

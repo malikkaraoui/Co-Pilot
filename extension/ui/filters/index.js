@@ -15,7 +15,7 @@ import { buildL9Body } from './l9.js';
 import { buildL10Body } from './l10.js';
 import { buildGenericBody } from './generic.js';
 
-export const SIMULATED_FILTERS = ["L4", "L5"];
+export const SIMULATED_FILTERS = ["L4"];
 export const FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
 
 export function buildFilterBody(f, vehicle, allFilters) {
@@ -54,7 +54,9 @@ export function buildFiltersList(filters, vehicle) {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
-      const simulatedBadge = SIMULATED_FILTERS.includes(f.filter_id) && f.filter_id !== "L4"
+      // L5 : badge "Données simulées" uniquement si source=argus_seed (pas de vraies données marché)
+      const isL5Simulated = f.filter_id === "L5" && (f.details || {}).source === "argus_seed";
+      const simulatedBadge = isL5Simulated
         ? '<span class="okazcar-badge-simulated">Données simulées</span>'
         : "";
       const scoreBarHTML = f.filter_id === "L9" && f.status !== "skip" && f.status !== "neutral"

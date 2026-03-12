@@ -20,6 +20,9 @@ KM_PER_YEAR = {
     "utilitaire": 20000,
     "voiture_sans_permis": 6000,
     "sportive": 5000,
+    # SUVs premium / grands routiers : conçus pour avaler les km
+    # Cayenne, Touareg, X5, X6, Q7, GLE... font 20-25 000 km/an sans problème
+    "suv_premium": 22000,
 }
 
 # Seuils de puissance pour considerer un vehicule comme sportive/super-sportive.
@@ -124,6 +127,23 @@ VEHICLE_CATEGORY: dict[tuple[str, str], str] = {
     ("ford", "transit custom"): "utilitaire",
     ("ford", "transit connect"): "utilitaire",
     ("ford", "transit courier"): "utilitaire",
+    # --- SUVs premium / grands routiers ---
+    ("porsche", "cayenne"): "suv_premium",
+    ("porsche", "macan"): "suv_familial",
+    ("volkswagen", "touareg"): "suv_premium",
+    ("bmw", "x5"): "suv_premium",
+    ("bmw", "x6"): "suv_premium",
+    ("bmw", "x7"): "suv_premium",
+    ("audi", "q7"): "suv_premium",
+    ("audi", "q8"): "suv_premium",
+    ("mercedes", "gle"): "suv_premium",
+    ("mercedes", "gls"): "suv_premium",
+    ("mercedes", "glc"): "suv_familial",
+    ("land rover", "range rover"): "suv_premium",
+    ("land rover", "discovery"): "suv_premium",
+    ("volvo", "xc90"): "suv_premium",
+    ("lexus", "rx"): "suv_premium",
+    ("lexus", "nx"): "suv_familial",
 }
 
 
@@ -165,16 +185,26 @@ def get_vehicle_category(
     fiscal_hp: int | None = None,
     power_din_hp: int | None = None,
 ) -> str | None:
-    """Retourne la categorie du vehicule ou None si inconnu."""
+    """Retourne la categorie du vehicule ou None si inconnu.
+
+    Ordre de priorite :
+    1. VSP (marque ou puissance fiscale <= 1 CV)
+    2. Mapping statique (Cayenne → suv_premium, pas sportive, même à 400 CV)
+    3. Détection sportive par puissance (fallback pour véhicules non mappés)
+    """
     if is_voiture_sans_permis(make, fiscal_hp):
         return "voiture_sans_permis"
 
-    # Sportive detectee par puissance (priorite sur le mapping statique)
+    # Mapping statique en priorité : un Cayenne reste un SUV même à 400+ CV
+    key = (make.lower().strip(), model.lower().strip())
+    if key in VEHICLE_CATEGORY:
+        return VEHICLE_CATEGORY[key]
+
+    # Fallback : détection sportive par puissance pour les véhicules non mappés
     if is_sportive(power_din_hp=power_din_hp, fiscal_hp=fiscal_hp):
         return "sportive"
 
-    key = (make.lower().strip(), model.lower().strip())
-    return VEHICLE_CATEGORY.get(key)
+    return None
 
 
 def get_expected_km_per_year(
