@@ -7,6 +7,53 @@ import { buildFiltersList, SIMULATED_FILTERS } from './filters/index.js';
 import { buildAutovizaBanner, buildYouTubeBanner, buildEmailBanner } from './banners.js';
 import { buildTiresPanel } from './tires.js';
 
+const RELIABILITY_STAR_PATH = 'M12 1.6l3.22 6.53 7.2 1.05-5.21 5.08 1.23 7.17L12 18.14 5.56 21.43l1.23-7.17L1.58 9.18l7.2-1.05L12 1.6z';
+
+function buildReliabilityStars(score, color) {
+  const numericScore = Number(score);
+  if (!Number.isFinite(numericScore)) {
+    return "";
+  }
+
+  const normalizedScore = Math.max(0, Math.min(5, numericScore));
+  const label = normalizedScore.toFixed(1).replace('.', ',');
+  const emptyColor = '#cbd5e1';
+  let starsMarkup = '';
+
+  for (let index = 0; index < 5; index += 1) {
+    const fillRatio = Math.max(0, Math.min(1, normalizedScore - index));
+    const fillPercent = Math.round(fillRatio * 100);
+    const fillType = fillPercent === 100 ? 'full' : fillPercent >= 50 ? 'half' : 'empty';
+    const clipId = `okazcar-star-clip-${index}-${fillPercent}`;
+
+    starsMarkup += `
+      <svg
+        data-star-fill="${fillType}"
+        viewBox="0 0 24 24"
+        width="16"
+        height="16"
+        aria-hidden="true"
+        style="display:block;flex:none;"
+      >
+        <defs>
+          <clipPath id="${clipId}">
+            <rect x="0" y="0" width="${24 * fillRatio}" height="24"></rect>
+          </clipPath>
+        </defs>
+        <path d="${RELIABILITY_STAR_PATH}" fill="${emptyColor}"></path>
+        <path d="${RELIABILITY_STAR_PATH}" fill="${color}" clip-path="url(#${clipId})"></path>
+      </svg>`;
+  }
+
+  return `
+    <span
+      aria-label="Note fiabilité ${label} sur 5"
+      title="${label}/5"
+      style="display:inline-flex;align-items:center;gap:2px;vertical-align:middle;"
+    >${starsMarkup}
+    </span>`;
+}
+
 function buildEngineReliabilityPanel(engineReliability) {
   if (!engineReliability) return "";
   if (!engineReliability.matched) {
@@ -17,9 +64,10 @@ function buildEngineReliabilityPanel(engineReliability) {
       </div>`;
   }
   const relScore = engineReliability.score || 0;
-  const stars = engineReliability.stars || "";
   const starColor = relScore >= 4.5 ? "#16a34a" : relScore >= 4.0 ? "#65a30d" : relScore >= 3.0 ? "#d97706" : "#dc2626";
   const label = escapeHTML(engineReliability.engine_code || "");
+  const starsHTML = buildReliabilityStars(relScore, starColor)
+    || `<span style="font-size:15px;font-weight:700;color:${starColor};">${escapeHTML(engineReliability.stars || "")}</span>`;
   const noteHTML = engineReliability.note
     ? `<div style="font-size:11px;color:#64748b;margin-top:4px;">${escapeHTML(engineReliability.note)}</div>`
     : "";
@@ -28,7 +76,7 @@ function buildEngineReliabilityPanel(engineReliability) {
       <div style="font-weight:600;font-size:12px;color:#64748b;margin-bottom:6px;">&#x1F527; Fiabilit&eacute; moteur</div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <span style="font-size:12px;color:#334155;font-weight:500;">${label}</span>
-        <span style="font-size:15px;font-weight:700;color:${starColor};">${escapeHTML(stars)}</span>
+        <span style="font-size:15px;font-weight:700;color:${starColor};">${starsHTML}</span>
       </div>
       ${noteHTML}
     </div>`;
