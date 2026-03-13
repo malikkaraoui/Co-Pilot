@@ -20,6 +20,7 @@ FILTER_WEIGHTS: dict[str, float] = {
     "L8": 1.0,  # Detection import
     "L9": 1.5,  # Evaluation globale
     "L10": 1.0,  # Anciennete annonce
+    "L11": 1.0,  # Rappel constructeur
 }
 
 

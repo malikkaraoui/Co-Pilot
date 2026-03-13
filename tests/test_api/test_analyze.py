@@ -57,8 +57,8 @@ class TestAnalyzeEndpoint:
         assert body["success"] is False
         assert body["error"] == "EXTRACTION_ERROR"
 
-    def test_ten_filters_registered(self, client):
-        """Les 10 filtres L1-L10 tournent sur une annonce valide."""
+    def test_eleven_filters_registered(self, client):
+        """Les 11 filtres L1-L11 tournent sur une annonce valide."""
         resp = client.post(
             "/api/analyze",
             data=json.dumps({"next_data": VALID_AD_NEXT_DATA}),
@@ -67,8 +67,8 @@ class TestAnalyzeEndpoint:
         body = resp.get_json()
         data = body["data"]
         filter_ids = [f["filter_id"] for f in data["filters"]]
-        assert len(filter_ids) == 10
-        for lid in ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"]:
+        assert len(filter_ids) == 11
+        for lid in ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11"]:
             assert lid in filter_ids
 
     def test_degradation_gracieuse_partial_score(self, client):

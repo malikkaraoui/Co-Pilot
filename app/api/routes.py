@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from flask import current_app, jsonify, request
+from flask import current_app, jsonify, make_response, request
+from fpdf.errors import FPDFException
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
@@ -403,7 +404,7 @@ def _do_analyze():
 
 
 def _build_engine() -> FilterEngine:
-    """Construit et retourne un FilterEngine avec les 10 filtres enregistres."""
+    """Construit et retourne un FilterEngine avec les 11 filtres enregistres."""
     from app.filters.l1_extraction import L1ExtractionFilter
     from app.filters.l2_referentiel import L2ReferentielFilter
     from app.filters.l3_coherence import L3CoherenceFilter
@@ -414,6 +415,7 @@ def _build_engine() -> FilterEngine:
     from app.filters.l8_reputation import L8ImportDetectionFilter
     from app.filters.l9_score import L9GlobalAssessmentFilter
     from app.filters.l10_listing_age import L10ListingAgeFilter
+    from app.filters.l11_recall import L11RecallFilter
 
     engine = FilterEngine()
     engine.register(L1ExtractionFilter())
@@ -426,6 +428,7 @@ def _build_engine() -> FilterEngine:
     engine.register(L8ImportDetectionFilter())
     engine.register(L9GlobalAssessmentFilter())
     engine.register(L10ListingAgeFilter())
+    engine.register(L11RecallFilter())
     return engine
 
 
@@ -496,3 +499,63 @@ def email_draft():
             },
         }
     )
+
+
+@api_bp.route("/scan-report", methods=["POST"])
+def scan_report():
+    """Genere et retourne le rapport PDF d'un scan existant."""
+    data = request.get_json(silent=True) or {}
+    scan_id = data.get("scan_id")
+
+    if scan_id is None:
+        return jsonify(
+            {
+                "success": False,
+                "error": "VALIDATION_ERROR",
+                "message": "scan_id requis",
+                "data": None,
+            }
+        ), 400
+
+    try:
+        scan_id_int = int(scan_id)
+    except (TypeError, ValueError):
+        return jsonify(
+            {
+                "success": False,
+                "error": "VALIDATION_ERROR",
+                "message": "scan_id invalide",
+                "data": None,
+            }
+        ), 400
+
+    try:
+        from app.services.report_service import generate_scan_report_pdf
+
+        pdf_bytes = generate_scan_report_pdf(scan_id_int)
+    except ValueError as exc:
+        return jsonify(
+            {
+                "success": False,
+                "error": "NOT_FOUND",
+                "message": str(exc),
+                "data": None,
+            }
+        ), 404
+    except (RuntimeError, FPDFException) as exc:
+        logger.error("PDF generation failed for scan_id=%s: %s", scan_id_int, exc)
+        return jsonify(
+            {
+                "success": False,
+                "error": "PDF_GENERATION_ERROR",
+                "message": str(exc),
+                "data": None,
+            }
+        ), 500
+
+    response = make_response(pdf_bytes)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="okazcar-rapport-{scan_id_int}.pdf"'
+    )
+    return response
