@@ -23,6 +23,7 @@ _FILTER_NAMES = {
     "L8": "Detection import",
     "L9": "Qualite annonce",
     "L10": "Anciennete annonce",
+    "L11": "Rappel constructeur",
 }
 
 # Overrides par pays
@@ -147,6 +148,17 @@ def _extract_detail_text(filter_id: str, details: dict) -> str:
         incoherences = details.get("incoherences") or details.get("issues") or []
         if incoherences:
             parts.append(f"incoherences: {', '.join(str(i) for i in incoherences[:3])}")
+
+    elif filter_id == "L11":
+        description = details.get("description")
+        if description:
+            parts.append(f"rappel: {description}")
+        gov_url = details.get("gov_url")
+        if gov_url:
+            parts.append(f"info: {gov_url}")
+        severity = details.get("severity")
+        if severity == "critical":
+            parts.append("DEMANDEZ IMPERATIVEMENT au vendeur si le rappel a ete effectue")
 
     return f" ({', '.join(parts)})" if parts else ""
 
