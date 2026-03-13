@@ -60,7 +60,7 @@ class L11RecallFilter(BaseFilter):
     def run(self, data: dict[str, Any]) -> FilterResult:
         make = data.get("make") or data.get("brand")
         model = data.get("model")
-        year = data.get("year")
+        year = data.get("year") or data.get("year_model")
 
         if not make or not model or not year:
             return self.neutral("Donnees insuffisantes pour verifier les rappels")

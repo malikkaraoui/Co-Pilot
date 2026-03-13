@@ -43,3 +43,19 @@ class TestL11RecallFilter:
         """Marque manquante → neutral."""
         result = self.filt.run({"year": 2010})
         assert result.status == "neutral"
+
+    @patch("app.filters.l11_recall._find_recalls")
+    def test_year_model_key_works(self, mock_find):
+        """LBC envoie year_model au lieu de year → doit quand meme fonctionner."""
+        mock_find.return_value = [
+            {
+                "recall_type": "takata_airbag",
+                "description": "Airbag Takata defectueux",
+                "gov_url": "https://www.ecologie.gouv.fr/rappel-airbag-takata",
+                "severity": "critical",
+            }
+        ]
+        result = self.filt.run({"make": "Audi", "model": "A3", "year_model": "2006"})
+        assert result.status == "fail"
+        assert result.score == 0.0
+        mock_find.assert_called_once_with("Audi", "A3", 2006)
