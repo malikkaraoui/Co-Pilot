@@ -1,7 +1,12 @@
 "use strict";
 
-// Barrel re-export — every public symbol from the LeBonCoin extractor modules.
-// Consumers (content.js, extractors/index.js, tests) import from here.
+/**
+ * Barrel re-export — point d'entree unique pour tous les symboles publics
+ * du module LeBonCoin.
+ *
+ * Les consommateurs (content.js, extractors/index.js, tests) importent depuis ici
+ * sans avoir a connaitre la structure interne des sous-modules.
+ */
 
 export { initLbcDeps, lbcDeps } from './_deps.js';
 

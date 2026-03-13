@@ -1,4 +1,18 @@
-"""Service de scoring -- calcule le score global pondere a partir des resultats des filtres."""
+"""Service de scoring -- calcule le score global pondere a partir des resultats des filtres.
+
+Le score OKazCar (0-100) est LA metrique visible par l'utilisateur dans l'extension
+et le rapport PDF. Il doit refleter la confiance globale dans l'annonce.
+
+Principe : chaque filtre (L1-L11) a un poids proportionnel a son importance.
+Les filtres critiques (L2 modele reconnu, L4 prix vs marche) pesent x2 car
+un vehicule inconnu ou un prix aberrant sont des signaux forts.
+
+Le traitement des status "neutral" et "skip" est volontairement asymetrique :
+- neutral = filtre non applicable (ex: L11 rappels sur un vehicule sans rappel)
+  -> exclu du calcul pour ne pas penaliser
+- skip = donnees manquantes (ex: pas de prix marche pour comparer)
+  -> penalise car l'absence de donnee est un signal negatif
+"""
 
 import logging
 
@@ -36,6 +50,8 @@ def calculate_score(filter_results: list[FilterResult]) -> tuple[int, bool]:
 
     Returns:
         Tuple (score 0-100, is_partial).
+        is_partial vaut True si au moins un filtre etait skip ou neutral,
+        ce qui signifie que le score est base sur des donnees incompletes.
     """
     if not filter_results:
         return 0, True
@@ -67,6 +83,7 @@ def calculate_score(filter_results: list[FilterResult]) -> tuple[int, bool]:
         logger.warning("All filters were skipped")
         return 0, True
 
+    # Normalisation : weighted_sum est entre 0 et total_weight (si tous les scores sont 1.0)
     normalized = weighted_sum / total_weight
     score = round(normalized * 100)
     score = max(0, min(100, score))

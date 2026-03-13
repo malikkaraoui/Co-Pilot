@@ -3,6 +3,11 @@
 Utilise les scans (ScanLog) et les prix marche (MarketPrice) pour creer
 automatiquement les vehicules qui ne sont pas encore dans le referentiel.
 Evite les "coquilles vides" : un vehicule n'est cree que s'il a des donnees.
+
+Le principe : quand L2 detecte un vehicule inconnu, la factory verifie si on a
+assez d'evidence pour le creer (scans multiples ET/OU specs CSV disponibles).
+Ca permet de faire grandir le referentiel organiquement sans intervention manuelle,
+tout en evitant de creer des vehicules fantomes.
 """
 
 import logging
@@ -19,7 +24,9 @@ from app.services.vehicle_lookup import find_vehicle, is_generic_model
 
 logger = logging.getLogger(__name__)
 
-# Seuils d'auto-creation
+# Seuils d'auto-creation -- adaptatifs selon les sources disponibles.
+# Avec un CSV (fiable, donnees structurees), on cree au premier scan.
+# Sans CSV, on attend 3 scans pour confirmer que le vehicule est reel.
 MIN_SCANS_WITH_CSV = 0  # CSV = source fiable, creation immediate au premier scan
 MIN_SCANS_WITHOUT_CSV = 3  # 3 scans si pas de CSV (confirmation par repetition)
 MIN_MARKET_SAMPLES = 20  # Nombre minimum d'annonces marche collectees
@@ -48,7 +55,7 @@ def can_auto_create(make: str, model: str) -> dict:
         "csv_available": False,
     }
 
-    # 1. Pas un modele generique
+    # 1. Pas un modele generique (ex: "Autres", "Divers")
     if is_generic_model(model, make):
         result["reason"] = "Modele generique"
         return result
@@ -129,6 +136,7 @@ def auto_create_vehicle(make: str, model: str, *, commit: bool = True) -> Vehicl
         return None
 
     # Normalisation canonique (memes fonctions que l'extraction et quick-add)
+    # pour garantir la coherence des noms en base
     from app.services.vehicle_lookup import (
         build_vehicle_lookup_keys,
         display_brand,
@@ -139,7 +147,7 @@ def auto_create_vehicle(make: str, model: str, *, commit: bool = True) -> Vehicl
     model_clean = display_model(model)
     brand_key, model_key = build_vehicle_lookup_keys(make, model)
 
-    # Dedup check (race condition) -- via normalisation canonique
+    # Dedup check (race condition) -- un autre thread a pu creer le vehicule entre-temps
     existing = Vehicle.query.filter(
         Vehicle.brand_lookup_key == brand_key,
         Vehicle.model_lookup_key == model_key,
@@ -171,7 +179,8 @@ def auto_create_vehicle(make: str, model: str, *, commit: bool = True) -> Vehicl
     db.session.add(vehicle)
     db.session.flush()  # Obtenir l'ID pour les specs
 
-    # Enrichir depuis le CSV si disponible
+    # Enrichir depuis le CSV si disponible -- ca donne au vehicule
+    # ses specs techniques des la creation, pas besoin d'attendre les collectes
     specs_created = 0
     csv_specs = lookup_specs(make, model)
     if csv_specs:

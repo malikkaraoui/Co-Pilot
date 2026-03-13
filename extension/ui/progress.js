@@ -1,12 +1,21 @@
-"use strict";
+/**
+ * Systeme de progression en temps reel de l'analyse.
+ * Affiche chaque etape (extraction, collecte prix, analyse serveur) avec
+ * des icones animees et des sous-etapes detaillees.
+ *
+ * NOTE : l'usage de innerHTML est intentionnel — tout le contenu est soit
+ * du HTML statique, soit escape via escapeHTML().
+ */
 
-// NOTE: innerHTML usage below is intentional — all content is either
-// hardcoded static HTML or escaped via escapeHTML(). No user input
-// is injected raw. This is the same pattern as the original content.js.
+"use strict";
 
 import { scoreColor, statusColor, statusIcon, filterLabel } from '../utils/styles.js';
 import { showPopup, removePopup } from './dom.js';
 
+/**
+ * Detecte sur quel site on se trouve (pour adapter certains labels).
+ * @returns {string|null} 'autoscout24', 'leboncoin' ou null
+ */
 function detectCurrentSite() {
   try {
     const host = String(window.location.hostname || '').toLowerCase();
@@ -18,7 +27,13 @@ function detectCurrentSite() {
   return null;
 }
 
+/**
+ * Cree un tracker de progression qui expose des methodes pour mettre a jour
+ * chaque etape de l'analyse en temps reel dans la popup.
+ * @returns {{update: Function, addSubStep: Function, showFilters: Function, showScore: Function}}
+ */
 export function createProgressTracker() {
+  /** Retourne l'icone HTML correspondant a un statut d'etape. */
   function stepIconHTML(status) {
     switch (status) {
       case 'running': return '<div class="okazcar-mini-spinner"></div>';
@@ -30,6 +45,12 @@ export function createProgressTracker() {
     }
   }
 
+  /**
+   * Met a jour l'icone et le detail d'une etape existante.
+   * @param {string} stepId - Identifiant de l'etape (ex: 'extract', 'phone')
+   * @param {string} status - 'running', 'done', 'warning', 'error', 'skip'
+   * @param {string} [detail] - Texte complementaire optionnel
+   */
   function update(stepId, status, detail) {
     const el = document.getElementById(`okazcar-step-${stepId}`);
     if (!el) return;
@@ -55,6 +76,13 @@ export function createProgressTracker() {
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  /**
+   * Ajoute une sous-etape sous une etape parente (ex: detail de collecte LBC/AS24).
+   * @param {string} parentId - ID de l'etape parente
+   * @param {string} text - Label de la sous-etape
+   * @param {string} status - Statut de la sous-etape
+   * @param {string} [detail] - Detail complementaire
+   */
   function addSubStep(parentId, text, status, detail) {
     const parentEl = document.getElementById(`okazcar-step-${parentId}`);
     if (!parentEl) return;
@@ -79,6 +107,11 @@ export function createProgressTracker() {
     subEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  /**
+   * Affiche les resultats de chaque filtre dans la zone de progression.
+   * Pour L4 (prix), on affiche aussi les details de la cascade de sources.
+   * @param {Array} filters - Tableau de filtres retournes par le backend
+   */
   function showFilters(filters) {
     const container = document.getElementById('okazcar-progress-filters');
     if (!container || !filters) return;
@@ -119,6 +152,11 @@ export function createProgressTracker() {
     container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  /**
+   * Affiche les details de la cascade de prix (quelle source a ete utilisee,
+   * quelles sources ont ete tentees, references secondaires).
+   * Specifique a L4 — c'est le filtre le plus complexe cote sources.
+   */
   function appendCascadeDetails(container, details) {
     const lines = [];
     if (details.source === 'marche_leboncoin' || details.source === 'marche_autoscout24') {
@@ -135,6 +173,7 @@ export function createProgressTracker() {
       lines.push('Source : cote La Centrale');
     }
 
+    // Fallback : si pas de ref secondaires mais qu'on a une cote LC, on la cree
     let secondaryRefs = Array.isArray(details.reference_secondary) ? details.reference_secondary : [];
     if (secondaryRefs.length === 0 && details.source !== 'cote_lacentrale' && details.lc_quotation) {
       secondaryRefs = [{ source: 'cote_lacentrale', price: details.lc_quotation, trust_index: details.lc_trust_index }];
@@ -146,6 +185,7 @@ export function createProgressTracker() {
       }
     });
 
+    // Affiche l'historique de la cascade : quelles sources ont ete testees et leur resultat
     if (details.cascade_tried) {
       details.cascade_tried.forEach((tier) => {
         const result = details[`cascade_${tier}_result`] || 'non essayé';
@@ -170,6 +210,11 @@ export function createProgressTracker() {
     });
   }
 
+  /**
+   * Affiche le score final et le verdict dans la zone de progression.
+   * @param {number} score - Score global 0-100
+   * @param {string} verdict - Texte du verdict ("Annonce fiable", etc.)
+   */
   function showScore(score, verdict) {
     const container = document.getElementById('okazcar-progress-score');
     if (!container) return;

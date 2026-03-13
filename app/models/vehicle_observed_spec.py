@@ -1,4 +1,11 @@
-"""Specs observees sur le marche pour un vehicule (motorisations, boites, puissances)."""
+"""Specs observees sur le marche pour un vehicule (motorisations, boites, puissances).
+
+Complementaire a ObservedMotorization mais plus granulaire : ici on stocke
+chaque valeur individuellement (ex: fuel="diesel", gearbox="automatique",
+hp="150"). Ca sert a construire les filtres intelligents dans les jobs
+de collecte : on sait quelles valeurs existent pour chaque vehicule
+et on les utilise pour affiner les recherches.
+"""
 
 from datetime import datetime, timezone
 
@@ -10,6 +17,9 @@ class VehicleObservedSpec(db.Model):
 
     Chaque ligne = une valeur vue pour un type de spec (fuel, gearbox, hp)
     avec le nombre d'occurrences. Enrichi automatiquement a chaque collecte.
+
+    Le count permet de distinguer les specs courantes (diesel 150ch = 200 occurrences)
+    des specs rares (hybride 204ch = 3 occurrences) pour ponderer les jobs de collecte.
     """
 
     __tablename__ = "vehicle_observed_specs"

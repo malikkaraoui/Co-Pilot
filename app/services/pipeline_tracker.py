@@ -1,4 +1,12 @@
-"""Utilitaire de suivi des executions de pipeline."""
+"""Utilitaire de suivi des executions de pipeline.
+
+Chaque pipeline (import CSV, collecte marche, enrichissement, etc.) est trace
+dans la table PipelineRun. Ce module fournit un context manager pour simplifier
+le tracking : on entre avec status "running", on sort avec "success" ou "failure".
+
+Ca permet de monitorer en admin quels pipelines tournent, lesquels ont plante,
+et combien d'elements ont ete traites.
+"""
 
 import logging
 from contextlib import contextmanager
@@ -24,6 +32,8 @@ def track_pipeline(name: str):
     et finished_at. En cas d'exception, status='failure' et
     error_message est renseigne.
     """
+    # On persiste tout de suite pour que le run soit visible en admin
+    # meme si le pipeline est encore en cours
     run = PipelineRun(
         name=name,
         status="running",
@@ -39,6 +49,7 @@ def track_pipeline(name: str):
         db.session.commit()
         logger.info("Pipeline '%s' termine avec succes (%d elements)", name, run.count or 0)
     except (KeyError, ValueError, AttributeError, TypeError, OSError, IOError) as exc:
+        # On catch les erreurs "metier" mais pas SystemExit / KeyboardInterrupt
         run.status = "failure"
         run.error_message = f"{type(exc).__name__}: {exc}"
         run.finished_at = datetime.now(timezone.utc)

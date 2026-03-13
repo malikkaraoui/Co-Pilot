@@ -1,4 +1,14 @@
-"""Modeles Vehicle et VehicleSpec."""
+"""Modeles Vehicle et VehicleSpec.
+
+Vehicle est la table centrale du systeme : chaque vehicule connu (marque + modele)
+a une fiche ici. VehicleSpec detaille les motorisations possibles avec les specs
+techniques et les infos de fiabilite.
+
+Les lookup keys sont des versions normalisees de brand/model pour le matching
+flou avec les annonces (pas de casse, pas d'accents, pas de tirets).
+Les tokens LBC/AS24 sont appris automatiquement depuis le DOM des annonces
+pour construire les URLs de recherche correctes sur chaque site.
+"""
 
 from datetime import datetime, timezone
 
@@ -8,7 +18,12 @@ from app.extensions import db
 
 
 class Vehicle(db.Model):
-    """Vehicule connu dans la base de reference (144+ modeles, objectif 200+)."""
+    """Vehicule connu dans la base de reference (144+ modeles, objectif 200+).
+
+    La contrainte d'unicite sur (brand, model) evite les doublons.
+    L'index composite sur les lookup keys accelere le matching
+    qui est execute a chaque scan (chemin critique).
+    """
 
     __tablename__ = "vehicles"
     __table_args__ = (
@@ -19,6 +34,7 @@ class Vehicle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     brand = db.Column(db.String(80), nullable=False, index=True)
     model = db.Column(db.String(120), nullable=False, index=True)
+    # Cles de recherche normalisees pour le matching flou avec les annonces
     brand_lookup_key = db.Column(db.String(80), nullable=True, index=True)
     model_lookup_key = db.Column(db.String(120), nullable=True, index=True)
     generation = db.Column(db.String(80))
@@ -43,7 +59,12 @@ class Vehicle(db.Model):
     specs = db.relationship("VehicleSpec", backref="vehicle", lazy="select")
 
     def sync_lookup_keys(self) -> None:
-        """Synchronise les lookup keys persistées à partir de la marque/modèle."""
+        """Synchronise les lookup keys persistées à partir de la marque/modèle.
+
+        Appele automatiquement avant chaque insert/update via l'event listener.
+        Les lookup keys sont recalculees a chaque fois pour rester en phase
+        avec les eventuelles corrections de brand/model.
+        """
         from app.services.vehicle_lookup import build_vehicle_lookup_keys
 
         self.brand_lookup_key, self.model_lookup_key = build_vehicle_lookup_keys(
@@ -56,7 +77,13 @@ class Vehicle(db.Model):
 
 
 class VehicleSpec(db.Model):
-    """Specifications techniques et informations de fiabilite pour un vehicule."""
+    """Specifications techniques et informations de fiabilite pour un vehicule.
+
+    Chaque VehicleSpec represente une motorisation (fuel + transmission + puissance).
+    Un Vehicle peut avoir plusieurs specs (ex: Golf diesel manuelle 115ch,
+    Golf essence auto 150ch, etc). Les champs de fiabilite (reliability_rating,
+    known_issues, expected_costs) sont remplis manuellement ou via seed.
+    """
 
     __tablename__ = "vehicle_specs"
 
@@ -87,6 +114,9 @@ class VehicleSpec(db.Model):
         return f"<VehicleSpec {self.vehicle_id} {self.fuel_type}>"
 
 
+# Hook SQLAlchemy pour recalculer les lookup keys a chaque modification de Vehicle.
+# Sans ca, un changement de brand/model via le dashboard admin ne serait pas
+# repercute dans les lookup keys et le matching serait casse.
 @event.listens_for(Vehicle, "before_insert")
 @event.listens_for(Vehicle, "before_update")
 def _sync_vehicle_lookup_keys(_mapper, _connection, target: Vehicle) -> None:

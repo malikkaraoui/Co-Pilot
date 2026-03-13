@@ -1,4 +1,12 @@
-"""Service CollectionJobAS24 -- gestion de la file d'attente pour AutoScout24."""
+"""Service CollectionJobAS24 -- gestion de la file d'attente pour AutoScout24.
+
+Meme logique que collection_job_service.py (LBC/France) mais adapte
+aux specificites d'AutoScout24 :
+- Multi-pays (CH, DE, FR, IT, AT, ES, BE, NL, LU, PL, SE)
+- Multi-devises (CHF, PLN, SEK... convertis en EUR)
+- Granularite regionale : CH = 26 cantons, autres pays = national uniquement
+- Slugs obligatoires pour construire les URLs de recherche AS24
+"""
 
 import logging
 import time
@@ -14,12 +22,15 @@ from app.services.market_service import market_text_key, market_text_key_expr
 
 logger = logging.getLogger(__name__)
 
+# Parametres de fraicheur et de retry
 FRESHNESS_DAYS = 7
 MAX_ATTEMPTS = 3
 ASSIGNMENT_TIMEOUT_MINUTES = 30
 LOW_DATA_FAIL_THRESHOLD = 3
 
 # Cache en memoire pour eviter de re-expand le meme vehicule a chaque requete.
+# Chaque scan declenche un expand, et sans ce cooldown on ferait ~128 queries
+# a chaque fois pour verifier les doublons.
 _expand_cache: dict[str, float] = {}
 _EXPAND_COOLDOWN_SECONDS = 300  # 5 minutes
 
@@ -53,14 +64,14 @@ SWISS_CANTONS = [
     "Jura",
 ]
 
-# Mapping TLD → currency (omitted = EUR by default)
+# Mapping TLD -> currency (omitted = EUR by default)
 TLD_TO_CURRENCY = {
     "ch": "CHF",
     "pl": "PLN",
     "se": "SEK",
 }
 
-# Mapping TLD → country code ISO
+# Mapping TLD -> country code ISO
 TLD_TO_COUNTRY = {
     "ch": "CH",
     "de": "DE",
@@ -76,6 +87,8 @@ TLD_TO_COUNTRY = {
     "com": "INT",
 }
 
+# Tables de variantes pour l'expansion : on cree des jobs pour
+# la variante opposee (diesel<->essence, manuelle<->automatique)
 FUEL_OPPOSITES = {"diesel": "essence", "essence": "diesel"}
 GEARBOX_OPPOSITES = {
     "manual": "automatique",
@@ -98,7 +111,8 @@ def _get_currency(tld: str) -> str:
 def _get_regions_for_country_as24(country: str) -> list[str]:
     """Retourne la liste de regions pour l'expansion AS24.
 
-    CH = 26 cantons, autres pays = juste ['national'] (pas de granularite).
+    CH = 26 cantons (granularite fine car le marche suisse est petit),
+    autres pays = juste ['national'] (AS24 ne permet pas le filtre region).
     """
     if country.upper() == "CH":
         return SWISS_CANTONS
@@ -106,7 +120,11 @@ def _get_regions_for_country_as24(country: str) -> list[str]:
 
 
 def _get_search_strategy(country: str, region: str) -> str:
-    """Determine la search_strategy selon le contexte."""
+    """Determine la search_strategy selon le contexte.
+
+    En Suisse, si la region est un canton, on fait une recherche par canton.
+    Sinon, recherche nationale (la granularite regionale n'est pas supportee).
+    """
     if country.upper() == "CH" and region != "national":
         return "canton"
     return "national"
@@ -121,7 +139,10 @@ def _has_fresh_market_price_as24(
     hp_range: str | None,
     country: str,
 ) -> bool:
-    """Verifie si un MarketPrice frais (< FRESHNESS_DAYS) existe pour ce combo."""
+    """Verifie si un MarketPrice frais (< FRESHNESS_DAYS) existe pour ce combo.
+
+    Si oui, inutile de creer un job de collecte : on a deja les donnees.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
 
     filters = [
@@ -157,7 +178,13 @@ def _job_exists_as24(
     country: str,
     tld: str,
 ) -> bool:
-    """Verifie si un CollectionJobAS24 identique existe deja (actif OU failed recent)."""
+    """Verifie si un CollectionJobAS24 identique existe deja (actif OU failed recent).
+
+    Bloque la creation si :
+    - un job pending/assigned existe deja, OU
+    - un job failed recent (< FRESHNESS_DAYS) existe
+    Un failed ancien sera recycle par _find_old_failed_job_as24.
+    """
     failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
 
     filters = [
@@ -200,7 +227,11 @@ def _find_old_failed_job_as24(
     country: str,
     tld: str,
 ) -> CollectionJobAS24 | None:
-    """Cherche un job failed ancien (> FRESHNESS_DAYS) pour le recycler."""
+    """Cherche un job failed ancien (> FRESHNESS_DAYS) pour le recycler.
+
+    Plutot que de creer un nouveau job (ce qui violerait la UniqueConstraint),
+    on remet a zero le job existant.
+    """
     failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
 
     filters = [
@@ -243,7 +274,14 @@ def _try_create_job_as24(
     slug_model: str,
     search_strategy: str | None = None,
 ) -> CollectionJobAS24 | None:
-    """Tente de creer un CollectionJobAS24. Retourne None si doublon ou deja frais."""
+    """Tente de creer un CollectionJobAS24. Retourne None si doublon ou deja frais.
+
+    Ordre de verification :
+    1. MarketPrice frais existe -> skip (on a deja les donnees)
+    2. Job identique actif/failed recent existe -> skip
+    3. Vieux job failed existe -> on le recycle
+    4. Sinon -> creation dans un savepoint (rollback safe)
+    """
     country = country.upper()
 
     if _has_fresh_market_price_as24(make, model, year, region, fuel, hp_range, country):
@@ -252,7 +290,7 @@ def _try_create_job_as24(
     if _job_exists_as24(make, model, year, region, fuel, gearbox, hp_range, country, tld):
         return None
 
-    # Recycler un vieux job failed
+    # Recycler un vieux job failed plutot que d'en creer un nouveau
     old = _find_old_failed_job_as24(
         make,
         model,
@@ -297,6 +335,7 @@ def _try_create_job_as24(
         currency=currency,
     )
 
+    # Savepoint pour que l'IntegrityError ne rollback pas les autres jobs
     nested = db.session.begin_nested()
     try:
         db.session.add(job)
@@ -323,7 +362,11 @@ def enqueue_collection_job_as24(
     slug_make: str = "",
     slug_model: str = "",
 ) -> CollectionJobAS24 | None:
-    """Cree un job explicite pour un vehicule/region AS24 precise."""
+    """Cree un job explicite pour un vehicule/region AS24 precise.
+
+    Point d'entree direct quand on veut ajouter un job specifique
+    sans passer par l'expansion multi-variantes.
+    """
     make = make.strip()
     model = model.strip()
     region = region.strip()
@@ -336,6 +379,7 @@ def enqueue_collection_job_as24(
     if gearbox:
         gearbox = gearbox.strip().lower()
 
+    # Sans slugs, impossible de construire les URLs AS24
     if not slug_make or not slug_model:
         logger.warning(
             "AS24 enqueue: slugs manquants pour %s %s, skip",
@@ -344,6 +388,7 @@ def enqueue_collection_job_as24(
         )
         return None
 
+    # Valider la region pour ce pays
     valid_regions = _get_regions_for_country_as24(country)
     if region not in valid_regions:
         if country != "CH":
@@ -384,6 +429,10 @@ def _get_low_data_vehicles_as24(
 ) -> set[tuple[str, str, str, str]]:
     """Identifie les vehicules AS24 avec >= LOW_DATA_FAIL_THRESHOLD fails recents.
 
+    Un vehicule "low-data" est un vehicule pour lequel on echoue systematiquement
+    a collecter des prix (trop peu d'annonces sur AS24). Inutile de continuer
+    a envoyer des jobs pour ces vehicules.
+
     Retourne un set de (make_lower, model_lower, country, tld).
     """
     failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
@@ -422,7 +471,11 @@ def _get_low_data_vehicles_as24(
 def _cancel_low_data_pending_as24(
     low_data: set[tuple[str, str, str, str]],
 ) -> int:
-    """Annule les jobs pending/assigned pour les vehicules AS24 low-data."""
+    """Annule les jobs pending/assigned pour les vehicules AS24 low-data.
+
+    Evite que des dizaines de jobs P2/P3/P4 restent en queue sans fin
+    pour des vehicules manifestement introuvables sur AS24.
+    """
     if not low_data:
         return 0
 
@@ -474,7 +527,9 @@ def expand_collection_jobs_as24(
 ) -> list[CollectionJobAS24]:
     """Expand un vehicule scanne sur AS24 en jobs de collecte (variantes x regions).
 
-    Priorites :
+    A partir d'un seul scan, on genere des jobs pour couvrir le marche
+    le plus largement possible. Les priorites controlent l'ordre de traitement :
+
     - P1 : meme vehicule x N-1 autres regions (CH=25 cantons, autres=national)
     - P2 : variante carburant (diesel<->essence) x toutes regions
     - P3 : variante boite (si renseignee) x toutes regions
@@ -501,7 +556,7 @@ def expand_collection_jobs_as24(
         )
         return []
 
-    # Skip si ce vehicule est low-data
+    # Skip si ce vehicule est low-data (trop de fails recents)
     low_data = _get_low_data_vehicles_as24(country=country, tld=tld)
     if (make.strip().lower(), model.strip().lower(), country, tld) in low_data:
         logger.info(
@@ -513,7 +568,7 @@ def expand_collection_jobs_as24(
         )
         return []
 
-    # Cache cooldown
+    # Cache cooldown : evite de re-expand le meme vehicule dans les 5 min
     cache_key = market_text_key(f"{make}:{model}:{year}:{country}:{tld}")
     now_mono = time.monotonic()
     if cache_key in _expand_cache:
@@ -597,6 +652,7 @@ def expand_collection_jobs_as24(
                 created.append(job)
 
     # --- P4 : annee +/-1 x region courante seulement ---
+    # Limite a la region courante pour ne pas exploser la queue
     for y in [year - 1, year + 1]:
         job = _try_create_job_as24(
             make,
@@ -634,7 +690,11 @@ def expand_collection_jobs_as24(
 
 
 def _reclaim_stale_jobs_as24() -> int:
-    """Remet en pending les jobs assigned depuis trop longtemps."""
+    """Remet en pending les jobs assigned depuis trop longtemps.
+
+    Securite : si l'extension crash ou ne callback jamais, les jobs
+    ne restent pas bloques en 'assigned' indefiniment.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=ASSIGNMENT_TIMEOUT_MINUTES)
     stale = CollectionJobAS24.query.filter(
         CollectionJobAS24.status == "assigned",
@@ -650,13 +710,18 @@ def _reclaim_stale_jobs_as24() -> int:
 
 
 def pick_bonus_jobs_as24(country: str, tld: str, max_jobs: int = 3) -> list[CollectionJobAS24]:
-    """Selectionne les N jobs AS24 pending pour le bon pays/tld."""
+    """Selectionne les N jobs AS24 pending pour le bon pays/tld.
+
+    Appele par l'extension Chrome quand elle visite une page AS24 :
+    elle recupere des jobs bonus a traiter en arriere-plan.
+    """
     _reclaim_stale_jobs_as24()
 
-    # Detecter et annuler les vehicules low-data
+    # Detecter et annuler les vehicules low-data avant de picker
     low_data = _get_low_data_vehicles_as24(country=country, tld=tld)
     _cancel_low_data_pending_as24(low_data)
 
+    # ORDER BY priority ASC (P1 d'abord), created_at ASC (FIFO)
     jobs = (
         CollectionJobAS24.query.filter(
             CollectionJobAS24.status == "pending",
@@ -668,6 +733,7 @@ def pick_bonus_jobs_as24(country: str, tld: str, max_jobs: int = 3) -> list[Coll
         .all()
     )
 
+    # Marquer comme assigned pour eviter qu'un autre worker les prenne
     now = datetime.now(timezone.utc)
     for job in jobs:
         job.status = "assigned"
@@ -678,7 +744,12 @@ def pick_bonus_jobs_as24(country: str, tld: str, max_jobs: int = 3) -> list[Coll
 
 
 def mark_job_done_as24(job_id: int, success: bool = True) -> None:
-    """Marque un job AS24 comme done ou failed."""
+    """Marque un job AS24 comme done ou failed.
+
+    En cas d'echec, incremente le compteur d'attempts. Si on atteint
+    MAX_ATTEMPTS, le job passe en failed definitif. Sinon, il repasse
+    en pending pour un retry automatique.
+    """
     job = db.session.get(CollectionJobAS24, job_id)
     if job is None:
         raise ValueError(f"AS24 Job {job_id} not found")

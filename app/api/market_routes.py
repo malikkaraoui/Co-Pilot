@@ -1,4 +1,14 @@
-"""Route API pour les prix du marche crowdsources."""
+"""Route API pour les prix du marche crowdsources.
+
+Ce module gere tout le cycle de collecte de l'argus maison :
+- /market-prices : reception des prix collectes par l'extension
+- /market-prices/next-job : indique a l'extension quel vehicule collecter ensuite
+- /market-prices/job-done : callback quand un job de collecte est termine
+- /market-prices/failed-search : rapport de recherche echouee (0 resultats)
+
+Le systeme fonctionne en crowdsourcing : chaque extension Chrome active
+collecte des prix sur LBC/AS24/La Centrale et les remonte ici.
+"""
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -23,16 +33,21 @@ from app.services.market_service import (
     store_market_prices,
 )
 
+# Duree de fraicheur d'un prix marche avant qu'il soit considere "stale"
 FRESHNESS_DAYS = 7
 
 logger = logging.getLogger(__name__)
 
 
+# Categories LBC qu'on refuse pour eviter de polluer l'argus avec des non-voitures
 _EXCLUDED_CATEGORIES = frozenset({"motos", "equipement_moto", "caravaning", "nautisme"})
 
-# Modeles generiques LBC : pas un vrai modele, melange de vehicules differents
+# Modeles generiques LBC ("Autres", "Autre") : pas un vrai modele,
+# c'est un fourre-tout qui melange des vehicules differents → on refuse.
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
+# Classement de severite des diagnostics La Centrale :
+# plus c'est haut, plus c'est bloquant (anti-bot > parser_no_match > true_zero)
 _LACENTRALE_DIAGNOSTIC_PRIORITY = {
     "anti_bot_403": 6,
     "anti_bot_page": 5,
@@ -44,7 +59,11 @@ _LACENTRALE_DIAGNOSTIC_PRIORITY = {
 
 
 def _lookup_site_tokens(make: str, model: str) -> dict:
-    """Retourne les tokens LBC et slugs AS24 stockes pour un vehicule (ou dict vide)."""
+    """Retourne les tokens LBC et slugs AS24 stockes pour un vehicule (ou dict vide).
+
+    Ces tokens sont auto-appris depuis le DOM des annonces et servent
+    a construire les URLs de recherche avec les bons accents/slugs.
+    """
     from app.services.vehicle_lookup import find_vehicle
 
     vehicle = find_vehicle(make, model)
@@ -64,7 +83,12 @@ def _lookup_site_tokens(make: str, model: str) -> dict:
 def _pick_and_serialize_bonus(
     site: str = "lbc", country: str = "FR", tld: str = "", max_jobs: int = 3
 ) -> list[dict]:
-    """Pick pending jobs from the queue and serialize them for the API response."""
+    """Pioche des jobs bonus dans la file d'attente et les serialise pour la reponse API.
+
+    Les jobs bonus sont des collectes "piggyback" : pendant que l'extension
+    est en train de collecter pour le vehicule courant, on lui donne 1-3
+    vehicules supplementaires a collecter au passage.
+    """
     if site == "as24":
         from app.services.collection_job_as24_service import pick_bonus_jobs_as24
 
@@ -110,7 +134,7 @@ def _pick_and_serialize_bonus(
             for j in picked
         ]
 
-    # LBC (default) — filter by country to avoid serving CH jobs to FR extension
+    # LBC (default) — on filtre par pays pour ne pas servir des jobs CH a une extension FR
     picked = pick_bonus_jobs(max_jobs=max_jobs, country=country)
     result = []
     for j in picked:
@@ -125,10 +149,15 @@ def _pick_and_serialize_bonus(
             "country": j.country or "FR",
             "job_id": j.id,
         }
+        # On ajoute les tokens LBC pour que l'extension puisse construire
+        # les URLs de recherche avec les bons accents
         tokens = _lookup_site_tokens(j.make, j.model)
         entry.update(tokens)
         result.append(entry)
     return result
+
+
+# ── Schemas Pydantic pour la validation des payloads entrants ──
 
 
 class PriceDetail(BaseModel):
@@ -144,7 +173,12 @@ class PriceDetail(BaseModel):
 
 
 class SearchStep(BaseModel):
-    """Un pas de la cascade de recherche argus."""
+    """Un pas de la cascade de recherche argus.
+
+    L'extension tente plusieurs strategies de recherche en cascade
+    (par region, national, annee +/-1, etc.) et enregistre chaque etape
+    pour le debug et l'optimisation des recherches.
+    """
 
     step: int = Field(ge=1, le=15)
     precision: int = Field(ge=0, le=5)
@@ -168,7 +202,12 @@ class SearchStep(BaseModel):
 
 
 class MarketPricesRequest(BaseModel):
-    """Schema de validation pour les prix du marche envoyes par l'extension."""
+    """Schema de validation pour les prix du marche envoyes par l'extension.
+
+    Champs obligatoires : make, model, year, region, prices.
+    Le reste est optionnel et sert a enrichir les donnees ou a ajuster
+    le seuil minimum d'annonces requis.
+    """
 
     make: str = Field(min_length=1, max_length=80)
     model: str = Field(min_length=1, max_length=80)
@@ -220,7 +259,7 @@ def submit_market_prices():
         req = MarketPricesRequest.model_validate(json_data)
     except PydanticValidationError as exc:
         logger.warning("Market prices validation error: %s", exc)
-        # Extraire les champs en erreur pour le debug
+        # On extrait les 5 premiers champs en erreur pour faciliter le debug
         field_errors = [
             f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
         ]
@@ -233,7 +272,8 @@ def submit_market_prices():
             }
         ), 400
 
-    # Rejeter les modeles generiques ("Autres") qui melangent des vehicules differents
+    # Rejeter les modeles generiques ("Autres") — ils melangent des vehicules differents
+    # et fausseraient completement la mediane des prix.
     if req.model.strip().lower() in _GENERIC_MODELS:
         logger.info("Market prices rejected: generic model '%s' (%s)", req.model, req.make)
         return jsonify(
@@ -245,7 +285,7 @@ def submit_market_prices():
             }
         ), 400
 
-    # Rejeter les categories non-voiture (motos, etc.)
+    # Rejeter les categories non-voiture (motos, nautisme, etc.)
     if req.category and req.category in _EXCLUDED_CATEGORIES:
         logger.info(
             "Market prices rejected: category=%s (%s %s)", req.category, req.make, req.model
@@ -259,10 +299,12 @@ def submit_market_prices():
             }
         ), 400
 
-    # Filtrer les prix aberrants (< 500 EUR probablement des erreurs)
+    # Filtrer les prix aberrants : en dessous de 500 EUR c'est probablement
+    # une erreur de parsing ou un "prix sur demande" a 1 EUR.
     valid_prices = [p for p in req.prices if p >= 500]
 
-    # Seuil dynamique selon la puissance du vehicule et le pays (niche / petit marche)
+    # Seuil dynamique : les vehicules de niche (>300ch) ou ultra-niche (>420ch)
+    # ont des seuils plus bas car le volume d'annonces est naturellement faible.
     min_required = get_min_sample_count(req.make, req.model, country=req.country or "FR")
     if len(valid_prices) < min_required:
         return jsonify(
@@ -274,7 +316,7 @@ def submit_market_prices():
             }
         ), 400
 
-    # Convertir price_details et search_log en liste de dicts pour le stockage JSON
+    # Serialiser les details et le search_log en dicts pour le stockage JSON
     raw_details = None
     if req.price_details:
         raw_details = [d.model_dump() for d in req.price_details]
@@ -308,8 +350,8 @@ def submit_market_prices():
             }
         ), 500
     except SQLAlchemyError as exc:
-        # Typiquement: DB lock/timeout/constraint. On rollback pour ne pas laisser
-        # une session en etat invalide, puis on renvoie un JSON (pas une page HTML 500).
+        # DB lock/timeout/constraint — on rollback pour ne pas laisser
+        # la session SQLAlchemy dans un etat invalide.
         try:
             db.session.rollback()
         except Exception:  # rollback best-effort
@@ -324,9 +366,9 @@ def submit_market_prices():
             }
         ), 503
 
-    # Auto-apprendre les tokens LBC depuis le DOM de l'extension.
+    # Auto-apprentissage des tokens LBC depuis le DOM de l'extension.
     # Ces tokens contiennent les accents corrects (ex: "BMW_Série 3")
-    # et sont necessaires pour construire les URLs de recherche LBC.
+    # et sont indispensables pour construire les URLs de recherche LBC.
     if req.site_brand_token or req.site_model_token:
         _persist_site_tokens(req.make, req.model, req.site_brand_token, req.site_model_token)
 
@@ -396,7 +438,12 @@ def _persist_site_tokens(
 def _persist_as24_slugs(
     make: str, model: str, slug_make: str | None, slug_model: str | None
 ) -> None:
-    """Persiste les slugs AS24 canoniques sur le Vehicle correspondant."""
+    """Persiste les slugs AS24 canoniques sur le Vehicle correspondant.
+
+    Meme logique que les tokens LBC mais pour AutoScout24 : les slugs
+    viennent des URLs de recherche reelles et servent a construire
+    les futures URLs de collecte.
+    """
     from app.services.vehicle_lookup import find_vehicle
 
     vehicle = find_vehicle(make, model)
@@ -433,7 +480,11 @@ def _persist_as24_slugs(
 
 
 def _is_lacentrale_failed_search(site: str | None, search_log: list[dict] | None) -> bool:
-    """Determine si le failed-search concerne La Centrale."""
+    """Determine si un echec de recherche concerne La Centrale.
+
+    On verifie le champ site explicite, ou a defaut on scanne les URLs
+    du search_log pour detecter "lacentrale.fr".
+    """
     site_norm = (site or "").strip().lower()
     if site_norm == "lacentrale":
         return True
@@ -448,7 +499,11 @@ def _is_lacentrale_failed_search(site: str | None, search_log: list[dict] | None
 
 
 def _best_lacentrale_diagnostic_tag(search_log: list[dict] | None) -> str | None:
-    """Retourne le diagnostic LC le plus significatif du search_log."""
+    """Retourne le diagnostic LC le plus significatif du search_log.
+
+    On priorise par severite : anti_bot_403 > anti_bot_page > iframe_blocked > ...
+    pour que le dashboard affiche le probleme le plus critique.
+    """
     best_tag = None
     best_rank = -1
     for step in search_log or []:
@@ -476,8 +531,9 @@ def _queue_lacentrale_market_fallback(
 ) -> dict:
     """Cree des jobs de fallback LBC/AS24 pour un echec La Centrale.
 
-    Idee produit : si LC ne donne rien (ou reste peu fiable), pousser ce vehicule
-    dans les files des autres sites plus exploitables.
+    Idee produit : si LC ne donne rien (anti-bot, parser casse, etc.),
+    on pousse ce vehicule dans les files LBC et AS24 qui sont plus
+    fiables. Ca garantit que le vehicule aura quand meme un argus.
     """
     from app.services.collection_job_as24_service import enqueue_collection_job_as24
     from app.services.collection_job_service import (
@@ -487,6 +543,7 @@ def _queue_lacentrale_market_fallback(
     )
     from app.services.vehicle_lookup import find_vehicle
 
+    # Le fallback LC ne fonctionne que pour la France (pas de LC hors FR)
     country_upper = (country or "FR").upper().strip()
     if country_upper != "FR":
         return {
@@ -498,6 +555,7 @@ def _queue_lacentrale_market_fallback(
     source_vehicle = f"{make} {model} {year} {fuel or ''} {gearbox or ''}".strip()
     clean_region = (region or "").strip()
 
+    # Job LBC : soit exact (region post-2016) soit regional_fallback (expansion)
     lbc_job = None
     lbc_mode = "exact"
     if clean_region in POST_2016_REGIONS:
@@ -515,6 +573,7 @@ def _queue_lacentrale_market_fallback(
         )
         lbc_count = 1 if lbc_job else 0
     else:
+        # Region pas dans le nouveau format → on expand en plusieurs jobs regionaux
         lbc_mode = "regional_fallback"
         lbc_jobs = expand_collection_jobs(
             make=make,
@@ -528,9 +587,11 @@ def _queue_lacentrale_market_fallback(
         )
         lbc_count = len(lbc_jobs)
 
+    # Job AS24 : on a besoin des slugs pour construire l'URL
     vehicle = find_vehicle(make, model)
     slug_make = (payload.get("as24_slug_make") or "").strip()
     slug_model = (payload.get("as24_slug_model") or "").strip()
+    # Fallback sur les slugs deja enregistres dans le referentiel
     if not slug_make and vehicle and vehicle.as24_slug_make:
         slug_make = vehicle.as24_slug_make.strip()
     if not slug_model and vehicle and vehicle.as24_slug_model:
@@ -555,6 +616,7 @@ def _queue_lacentrale_market_fallback(
             slug_model=slug_model,
         )
     else:
+        # Sans slugs, impossible de construire l'URL AS24
         as24_reason = "slugs_manquants"
 
     return {
@@ -575,7 +637,7 @@ def mark_job_complete():
     """Callback de l'extension pour signaler qu'un job de collecte est termine.
 
     Body JSON :
-        { job_id: int, success: bool, site: "lbc"|"as24" (default "lbc") }
+        { job_id: int, success: bool, site: "lbc"|"as24"|"lacentrale" (default "lbc") }
     """
     from app.services.collection_job_as24_service import mark_job_done_as24
     from app.services.collection_job_service import mark_job_done
@@ -616,7 +678,9 @@ def mark_job_complete():
             try:
                 mark_job_done(job_id, success=success)
             except (ValueError, TypeError):
-                # Fallback : tenter la table AS24 si le job n'est pas dans LBC
+                # Fallback : le job n'est pas dans la table LBC,
+                # on tente la table AS24 (peut arriver si l'extension
+                # n'a pas precise le site correctement).
                 mark_job_done_as24(job_id, success=success)
     except (ValueError, TypeError) as exc:
         return jsonify(
@@ -643,15 +707,13 @@ def mark_job_complete():
 def next_market_job():
     """Indique a l'extension quel vehicule collecter pour l'argus maison.
 
-    Si le vehicule courant a besoin d'un rafraichissement (> 7 jours ou absent),
-    on le retourne. Sinon, on cherche un autre vehicule du referentiel qui a
-    besoin de mise a jour dans la meme region.
+    Logique en 3 etapes :
+    1. Si le vehicule courant a besoin d'un refresh (> 7 jours ou absent) → le retourner
+    2. Sinon, trouver un autre vehicule du referentiel stale dans la meme region
+    3. Si tout est a jour, renvoyer collect=false + bonus_jobs eventuels
 
     Query params :
-        make, model, year (int), region
-
-    Retourne :
-        { success: true, data: { collect: bool, vehicle?: {make, model, year}, region?: str } }
+        make, model, year (int), region, fuel, gearbox, hp_range, country, site, tld
     """
     make = request.args.get("make")
     model = request.args.get("model")
@@ -667,22 +729,22 @@ def next_market_job():
     if not all([make, model, year, region]):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
-    # Ne pas collecter de prix pour les modeles generiques
+    # Ne pas collecter de prix pour les modeles generiques ("Autres")
     if model and model.strip().lower() in _GENERIC_MODELS:
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
     if not (1990 <= year <= 2030):
         return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": []}})
 
-    # Canonicaliser make/model pour les comparaisons DB (meme aliases que store/get).
-    # IMPORTANT: on conserve make/model bruts pour la reponse API vers l'extension,
-    # afin de ne pas casser la construction d'URL cote navigateur.
+    # Canonicaliser make/model pour les lookups DB (memes aliases que store/get).
+    # IMPORTANT: on garde les valeurs brutes pour la reponse API vers l'extension,
+    # sinon on casserait la construction d'URL cote navigateur.
     from app.services.vehicle_lookup import display_brand, display_model
 
     lookup_make = display_brand(make)
     lookup_model = display_model(model)
 
-    # Expand collection jobs pour ce vehicule (dedup gere les repetitions)
+    # Creer des jobs de collecte pour ce vehicule (la dedup gere les repetitions)
     if site == "as24":
         from app.services.collection_job_as24_service import expand_collection_jobs_as24
 
@@ -728,10 +790,10 @@ def next_market_job():
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff = now - timedelta(days=FRESHNESS_DAYS)
 
-    # 1. Le vehicule courant a-t-il besoin d'un refresh ?
-    # Priorite absolue au vehicule scanne : si l'extension fournit fuel/hp_range,
-    # on exige cette variante exacte (sinon un record generique frais pourrait
-    # masquer l'absence de donnees reellement utiles pour L4).
+    # --- Etape 1 : Le vehicule courant a-t-il besoin d'un refresh ? ---
+    # Si l'extension fournit fuel/hp_range, on exige cette variante exacte.
+    # Sinon un record generique "frais" pourrait masquer l'absence de la
+    # variante reellement utile pour L4.
     country_upper = country.upper().strip()
     current_filters = [
         market_text_key_expr(MarketPrice.make) == market_text_key(lookup_make),
@@ -776,7 +838,7 @@ def next_market_job():
             }
         )
 
-    # 2. Trouver un autre vehicule qui a besoin de mise a jour dans cette region
+    # --- Etape 2 : Trouver un autre vehicule stale dans la meme region ---
     # Sous-requete : dernier collected_at par (make, model) dans cette region
     from sqlalchemy import case
 
@@ -797,8 +859,7 @@ def next_market_job():
         .subquery()
     )
 
-    # LEFT JOIN Vehicle avec la sous-requete pour trouver les vehicules stale/absents
-    # Exclure les modeles generiques ("Autres") qui ne sont pas de vrais modeles
+    # LEFT JOIN avec le referentiel Vehicle pour trouver les vehicules stale ou jamais collectes
     candidates = (
         db.session.query(
             Vehicle.brand,
@@ -821,9 +882,9 @@ def next_market_job():
         .order_by(
             # Priorite 1 : jamais collecte (NULL) d'abord
             case((latest_mp.c.latest_at.is_(None), 0), else_=1),
-            # Priorite 2 : vehicules partial (enrichment en cours) avant complete
+            # Priorite 2 : vehicules en cours d'enrichissement avant les complets
             case((Vehicle.enrichment_status == "partial", 0), else_=1),
-            # Priorite 3 : le plus ancien
+            # Priorite 3 : le plus ancien en date de collecte
             latest_mp.c.latest_at.asc(),
             Vehicle.id.asc(),
         )
@@ -833,8 +894,8 @@ def next_market_job():
 
     best_candidate = None
     for c in candidates:
-        # Verifier que le candidat est stale ou absent
         if c.latest_at is None or c.latest_at < cutoff:
+            # On prend l'annee du milieu de la plage de production
             mid_year = (c.year_start + (c.year_end or c.year_start)) // 2
             best_candidate = (c.brand, c.model, mid_year)
 
@@ -867,7 +928,7 @@ def next_market_job():
             }
         )
 
-    # 3. Tout est a jour dans cette region
+    # --- Etape 3 : Tout est a jour dans cette region ---
     bonus = _pick_and_serialize_bonus(site=site, country=country_upper, tld=tld)
     logger.info("next-job: tout est a jour pour la region %s (+%d bonus)", region, len(bonus))
     return jsonify({"success": True, "data": {"collect": False, "bonus_jobs": bonus}})
@@ -879,7 +940,8 @@ def report_failed_search():
     """Recoit un rapport de recherche echouee (0 annonces sur toutes les strategies).
 
     Permet d'identifier les URLs mal construites (tokens manquants, accents, etc.)
-    et d'apprendre rapidement des erreurs.
+    et d'apprendre rapidement des erreurs. Alimente aussi le dashboard admin
+    "Monitoring Recherches" pour investiguer les patterns d'echec.
 
     Body JSON :
         { make, model, year, region, search_log: [...], brand_token_used, model_token_used, token_source }
@@ -912,7 +974,8 @@ def report_failed_search():
     search_log = data.get("search_log")
     total_ads = sum(s.get("ads_found", 0) for s in search_log) if search_log else 0
 
-    # Compter les occurrences precedentes pour auto-calculer la severite
+    # Compter les occurrences precedentes pour ce vehicule :
+    # la severite augmente automatiquement si le meme vehicule echoue souvent.
     from sqlalchemy import func as sqla_func
 
     occurrence_count = FailedSearch.query.filter(
@@ -920,9 +983,8 @@ def report_failed_search():
         sqla_func.lower(FailedSearch.model) == model_name.strip().lower(),
     ).count()
 
-    # Compat LBC + AS24:
-    # - LBC legacy: brand_token_used/model_token_used/token_source
-    # - AS24: slug_make_used/slug_model_used/slug_source + site/tld
+    # Compat multi-sites : LBC utilise brand_token_used/model_token_used,
+    # AS24 utilise slug_make_used/slug_model_used. On normalise.
     site = (data.get("site") or "").strip().lower()
     brand_token_used = data.get("brand_token_used") or data.get("slug_make_used")
     model_token_used = data.get("model_token_used") or data.get("slug_model_used")
@@ -931,6 +993,8 @@ def report_failed_search():
     if not token_source and site == "as24":
         token_source = "as24_generated_url"
 
+    # Les tokens "fallback" indiquent qu'on a utilise un slug genere
+    # plutot qu'un slug appris → severite plus haute car plus fragile.
     severity_source = token_source
     if token_source and "fallback" in token_source.lower():
         severity_source = "fallback"
@@ -960,8 +1024,8 @@ def report_failed_search():
     db.session.add(entry)
     db.session.commit()
 
-    # Auto-learn tokens meme en echec (le DOM peut avoir les bons tokens
-    # meme si la recherche n'a rien retourne — ex: vehicule niche, annee rare)
+    # Auto-learn tokens meme en echec : le DOM peut avoir les bons tokens
+    # meme si la recherche n'a rien retourne (ex: vehicule niche, annee rare)
     _site_bt = data.get("site_brand_token")
     _site_mt = data.get("site_model_token")
     if _site_bt or _site_mt:
@@ -972,6 +1036,8 @@ def report_failed_search():
     if _as24_sm or _as24_smod:
         _persist_as24_slugs(make, model_name, _as24_sm, _as24_smod)
 
+    # Si l'echec vient de La Centrale, on lance un fallback automatique
+    # vers LBC/AS24 pour ne pas rester sans argus.
     if _is_lacentrale_failed_search(site, search_log) and 1990 <= year_int <= 2030:
         try:
             fallback = _queue_lacentrale_market_fallback(

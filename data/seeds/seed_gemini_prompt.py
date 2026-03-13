@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Seed du prompt Gemini par defaut pour la generation d'emails vendeur.
 
+Ce script insere la configuration de prompt utilisee par le service Gemini
+pour generer des emails de prise de contact avec les vendeurs.
+Le prompt est structure en 3 parties :
+- system_prompt : le role et les regles de l'IA
+- task_prompt_template : le template avec les variables du vehicule
+- hallucination_guard : le garde-fou contre les inventions
+
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_gemini_prompt.py
 """
@@ -16,6 +23,7 @@ from app.models.gemini_config import GeminiPromptConfig  # noqa: E402
 
 DEFAULT_PROMPT_NAME = "email_vendeur_v1"
 
+# Le system prompt pose le cadre : acheteur averti, pas d'IA visible
 SYSTEM_PROMPT = """Tu es un assistant specialise dans la redaction d'emails \
 pour l'achat de vehicules d'occasion en France.
 
@@ -28,6 +36,8 @@ Regles absolues:
 - Ecris en francais courant, sans fautes, sans emojis
 - Ton: acheteur averti, direct, sans etre agressif"""
 
+# Le template de tache injecte les donnees du vehicule et les signaux d'analyse
+# Les variables entre {accolades} sont remplacees a l'execution
 TASK_PROMPT_TEMPLATE = """Redige un email au vendeur pour le vehicule suivant.
 
 VEHICULE:
@@ -57,6 +67,8 @@ CONSIGNES:
 - Termine par une proposition de rendez-vous ou appel
 - Maximum {max_sentences} phrases"""
 
+# Ce garde-fou est ajoute en fin de prompt pour limiter les hallucinations
+# C'est critique : sans ca, Gemini invente des defauts ou de l'historique
 HALLUCINATION_GUARD = """RAPPEL CRITIQUE: tu ne dois inventer AUCUNE donnee.
 Si une information est manquante (marquee '?' ou vide), \
 ne la mentionne pas dans l'email.
@@ -76,6 +88,7 @@ def seed():
         system_prompt=SYSTEM_PROMPT,
         task_prompt_template=TASK_PROMPT_TEMPLATE,
         max_output_tokens=500,
+        # temperature basse pour rester factuel et eviter la creativite excessive
         temperature=0.3,
         top_p=0.9,
         response_format_hint="email_text",

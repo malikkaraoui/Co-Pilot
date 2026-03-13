@@ -1,14 +1,25 @@
 "use strict";
 
-// ── URL patterns ────────────────────────────────────────────────────
+/**
+ * Constantes specifiques a AutoScout24.
+ *
+ * AS24 est un site multi-pays (CH, DE, FR, IT...) avec des structures d'URL
+ * differentes selon le TLD et la plateforme (SMG pour .ch, GmbH pour les autres).
+ * D'ou la profusion de mappings TLD → pays, devises, codes canton, etc.
+ */
 
+// ── Patterns de detection d'URL ─────────────────────────────────
+// Couvre tous les TLD et toutes les langues d'interface d'AS24
 export const AS24_URL_PATTERNS = [
   /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\//i,
 ];
 
+// Pattern plus strict pour identifier une page d'annonce individuelle
+// (vs une page de listing de resultats)
 export const AD_PAGE_PATTERN = /autoscout24\.\w+\/(?:(?:fr|de|it|en|nl|es|pl|sv)\/)?(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/[a-z0-9][\w-]*?[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i;
 
-// TLD → country mapping for region field
+// ── Mappings TLD → metadonnees pays ─────────────────────────────
+// Chaque TLD d'AS24 correspond a un pays, une devise, un code ISO
 export const TLD_TO_COUNTRY = {
   ch: 'Suisse',
   de: 'Allemagne',
@@ -24,21 +35,23 @@ export const TLD_TO_COUNTRY = {
   com: 'International',
 };
 
-// TLD → currency (omitted = EUR by default)
+// TLD → devise (omit = EUR par defaut)
 export const TLD_TO_CURRENCY = {
   ch: 'CHF',
   pl: 'PLN',
   se: 'SEK',
 };
 
-// TLD → ISO country code (for backend MarketPrice.country)
+// TLD → code ISO pays (pour le backend MarketPrice.country)
 export const TLD_TO_COUNTRY_CODE = {
   ch: 'CH', de: 'DE', fr: 'FR', it: 'IT',
   at: 'AT', be: 'BE', nl: 'NL', es: 'ES',
   pl: 'PL', lu: 'LU', se: 'SE', com: 'INT',
 };
 
-// Swiss ZIP prefix (2 digits) → canton name (French, matching backend SWISS_CANTONS)
+// ── Suisse : mapping code postal → canton ───────────────────────
+// Les 2 premiers chiffres du NPA suisse determinent le canton.
+// On utilise ca pour la granularite regionale de la collecte de prix.
 export const SWISS_ZIP_TO_CANTON = {
   '10': 'Vaud', '11': 'Vaud', '12': 'Geneve', '13': 'Vaud',
   '14': 'Vaud', '15': 'Vaud', '16': 'Fribourg', '17': 'Fribourg',
@@ -69,9 +82,11 @@ export const SWISS_ZIP_TO_CANTON = {
   '97': 'Saint-Gall',
 };
 
-// Minimum prices to submit
+// Nombre minimum de prix pour considerer la collecte exploitable
 export const MIN_PRICES = 10;
 
+// ── Normalisation carburant ─────────────────────────────────────
+// AS24 utilise des labels multilingues qu'on normalise en francais
 export const FUEL_MAP = {
   gasoline: 'Essence',
   benzin: 'Essence',
@@ -109,12 +124,15 @@ export const FUEL_MAP = {
   bifuel: 'Bicarburation',
 };
 
+// Normalisation transmission
 export const TRANSMISSION_MAP = {
   automatic: 'Automatique',
   manual: 'Manuelle',
   'semi-automatic': 'Automatique',
 };
 
+// ── Codes de filtre pour les URL de recherche AS24 ──────────────
+// Utilisés pour construire les URLs de recherche de prix
 export const AS24_GEAR_MAP = {
   automatic: 'A',
   automatique: 'A',
@@ -123,6 +141,7 @@ export const AS24_GEAR_MAP = {
   manuelle: 'M',
 };
 
+// Codes carburant AS24 : B=Benzin, D=Diesel, E=Electric, etc.
 export const AS24_FUEL_CODE_MAP = {
   gasoline: 'B', diesel: 'D', electric: 'E',
   benzin: 'B', benzine: 'B', benzyna: 'B', petrol: 'B', gasolina: 'B',
@@ -137,7 +156,8 @@ export const AS24_FUEL_CODE_MAP = {
   'hybride rechargeable': '2',
 };
 
-// Canton center ZIP codes for geo-targeted searches (chef-lieu)
+// Code postal du chef-lieu de chaque canton suisse
+// pour les recherches geolocalisees sur AS24.ch
 export const CANTON_CENTER_ZIP = {
   'Zurich': '8000', 'Berne': '3000', 'Lucerne': '6000', 'Uri': '6460',
   'Schwyz': '6430', 'Obwald': '6060', 'Nidwald': '6370', 'Glaris': '8750',
@@ -149,5 +169,5 @@ export const CANTON_CENTER_ZIP = {
   'Geneve': '1200', 'Jura': '2800',
 };
 
-// TLDs using the Swiss Marketplace Group platform (different URL structure)
+// TLDs qui utilisent la plateforme Swiss Marketplace Group (structure d'URL differente)
 export const SMG_TLDS = new Set(['ch']);

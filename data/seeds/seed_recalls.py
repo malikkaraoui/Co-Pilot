@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Seed des rappels constructeur -- Takata airbag.
 
+Les rappels constructeur sont utilises par le filtre L11 pour alerter
+l'utilisateur si le vehicule analyse est potentiellement concerne
+par un rappel de securite (ici les airbags Takata defectueux).
+
+On ne couvre ici que les vehicules deja presents dans le catalogue OKazCar.
+Les modeles hors catalogue sont ignores silencieusement.
+
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_recalls.py
 """
@@ -15,11 +22,13 @@ from app.extensions import db  # noqa: E402
 from app.models.manufacturer_recall import ManufacturerRecall  # noqa: E402
 from app.models.vehicle import Vehicle  # noqa: E402
 
+# Source officielle du rappel
 GOV_URL = "https://www.ecologie.gouv.fr/rappel-airbag-takata"
 RECALL_TYPE = "takata_airbag"
 DESCRIPTION = "Airbag Takata défectueux — gonfleur pouvant projeter des fragments métalliques"
 SEVERITY = "critical"
 
+# Liste des vehicules concernes par le rappel Takata
 # (marque catalogue, modele catalogue, year_start, year_end)
 # Seuls les vehicules du catalogue OKazCar sont inclus.
 TAKATA_RECALLS = [
@@ -47,7 +56,10 @@ TAKATA_RECALLS = [
 
 
 def seed():
-    """Insere les rappels Takata en base. Idempotent."""
+    """Insere les rappels Takata en base.
+
+    Idempotent : dedup sur (vehicle_id, recall_type, year_start, year_end).
+    """
     app = create_app()
 
     with app.app_context():

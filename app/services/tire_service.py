@@ -1,10 +1,19 @@
 """Service Dimensions Pneus.
 
 - Cache permanent en DB via TireSize
-- Scrape Allopneus en temps réel si absent
+- Scrape Allopneus en temps reel si absent
 - Remplit en fond via Wheel-Size API (quota journalier)
 
-Conçu pour être silencieux : en cas d'échec, retourne None (pas de crash côté API).
+Concu pour etre silencieux : en cas d'echec, retourne None (pas de crash cote API).
+
+Architecture en cascade :
+1. DB cache (gratuit, instantane)
+2. Wheel-Size API (fiable mais quota limite)
+3. Allopneus scraping (gratuit mais bloque par Cloudflare depuis le backend)
+4. Cache negatif si rien trouve (evite de re-tenter)
+
+Le fill_next_missing_vehicle() tourne en tache de fond pour remplir
+progressivement le cache des vehicules populaires via Wheel-Size.
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 ALLOPNEUS_BASE_URL = "https://www.allopneus.com"
 
+# Mapping marque normalisee -> slug Allopneus quand le nom differe
 ALLOPNEUS_BRAND_SLUGS: dict[str, str] = {
     "mercedes": "mercedes-benz",
     "alfa romeo": "alfa-romeo",
@@ -44,6 +54,7 @@ ALLOPNEUS_BRAND_SLUGS: dict[str, str] = {
     "lynk co": "lynk-co",
 }
 
+# Idem pour les modeles dont le slug Allopneus est specifique
 ALLOPNEUS_MODEL_SLUGS: dict[str, str] = {
     "serie 3": "serie-3",
     "classe a": "classe-a",
@@ -51,6 +62,7 @@ ALLOPNEUS_MODEL_SLUGS: dict[str, str] = {
     "id.3": "id.3",
 }
 
+# Headers navigateur pour passer le WAF Cloudflare d'Allopneus
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -66,7 +78,7 @@ _HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 
 # ── Wheel-Size config ───────────────────────────────────────────
 
-# Marques dont le nom normalise differe du nom Wheel-Size.
+# Mapping marque -> nom Wheel-Size.
 # Wheel-Size exige des tirets (pas d'espaces) pour les marques multi-mots.
 WHEEL_SIZE_BRAND_MAP: dict[str, str] = {
     "alfa romeo": "alfa-romeo",
@@ -139,7 +151,9 @@ def _wheel_size_daily_budget() -> int:
 
 
 def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
-    """Retourne les dimensions pneus pour un véhicule.
+    """Retourne les dimensions pneus pour un vehicule.
+
+    C'est le point d'entree principal appele par le filtre pneus et le rapport PDF.
 
     Cascade :
     1) Check DB (cache permanent)
@@ -185,8 +199,9 @@ def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
 def get_cached_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
     """Retourne les dimensions pneus depuis le cache DB uniquement.
 
-    Aucun appel réseau n'est effectué. Utilisé par la génération PDF pour
-    réutiliser les données déjà collectées lors de l'analyse initiale.
+    Aucun appel reseau n'est effectue. Utilise par la generation PDF pour
+    reutiliser les donnees deja collectees lors de l'analyse initiale.
+    Le rapport ne doit jamais attendre un scrape reseau.
     """
     if not make or not model or not year:
         return None
@@ -229,7 +244,10 @@ def _store_and_return(
 
 
 def fill_next_missing_vehicle(exclude_make_model: tuple[str, str] | None = None) -> bool:
-    """Pioche un véhicule du référentiel sans TireSize et le remplit via Wheel-Size API.
+    """Pioche un vehicule du referentiel sans TireSize et le remplit via Wheel-Size API.
+
+    Appele en tache de fond apres chaque scan. Priorise les vehicules les plus
+    scannes (populaires) pour maximiser l'utilite du budget API quotidien.
 
     - Respecte un budget journalier (WHEEL_SIZE_DAILY_BUDGET)
     - Exclut le véhicule courant (celui traité via Allopneus) pour éviter la double source
@@ -282,7 +300,10 @@ def store_tire_sizes(
     source: str,
     source_url: str | None = None,
 ) -> TireSize:
-    """Stocke ou met à jour les dimensions pneus pour un véhicule/génération."""
+    """Stocke ou met a jour les dimensions pneus pour un vehicule/generation.
+
+    Upsert par (make, model, generation). Dedup et tri des dimensions avant stockage.
+    """
     make_norm = (make or "").strip().lower()
     model_norm = (model or "").strip().lower()
     generation_norm = (generation or "").strip() or None
@@ -328,6 +349,7 @@ def store_tire_sizes(
 
 
 def _find_tire_size_in_db(make: str, model: str, year: int) -> TireSize | None:
+    """Cherche en DB un TireSize dont la plage year_start/year_end couvre l'annee demandee."""
     q = TireSize.query.filter(
         TireSize.make == make,
         TireSize.model == model,
@@ -403,7 +425,12 @@ _TIRE_TEXT_RE = re.compile(
 
 
 def _scrape_allopneus(make: str, model: str, year: int) -> dict[str, Any] | None:
-    """Scrape Allopneus en 2 étapes : page modèle → page génération."""
+    """Scrape Allopneus en 2 etapes : page modele -> page generation.
+
+    Etape 1 : on charge la page modele pour lister les generations disponibles.
+    Etape 2 : on charge la page generation qui correspond a l'annee pour extraire
+    les dimensions de pneus. Peut echouer si Cloudflare bloque (403).
+    """
     make_slug = _allopneus_make_slug(make)
     model_slug = _allopneus_model_slug(model)
 
@@ -605,7 +632,11 @@ def _extract_tire_dimensions_from_generation_page(soup: BeautifulSoup) -> list[d
 
 
 def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None:
-    """Appelle l'API Wheel-Size pour un véhicule."""
+    """Appelle l'API Wheel-Size pour un vehicule.
+
+    2 appels API : modifications (pour trouver la variante) puis search/by_model
+    (pour les dimensions). Le budget quotidien est controle par _wheel_size_budget_reached.
+    """
     key = _wheel_size_key()
     if not key:
         return None
@@ -728,6 +759,7 @@ def _fetch_wheel_size(make: str, model: str, year: int) -> dict[str, Any] | None
 
 
 def _wheel_size_budget_reached() -> bool:
+    """True si on a deja utilise tout le budget Wheel-Size pour aujourd'hui."""
     budget = _wheel_size_daily_budget()
     if budget <= 0:
         return True
@@ -749,7 +781,11 @@ def _wheel_size_budget_reached() -> bool:
 def _pick_next_missing_vehicle(
     exclude_make_model: tuple[str, str] | None,
 ) -> tuple[str, str, int] | None:
-    """Choisit le prochain Vehicle sans TireSize, trié par popularité (ScanLog) décroissante."""
+    """Choisit le prochain Vehicle sans TireSize, trie par popularite (ScanLog) decroissante.
+
+    On priorise les vehicules les plus scannes pour maximiser l'impact du budget API.
+    Les vehicules deja couverts par TireSize sont exclus via un LEFT JOIN / IS NULL.
+    """
     subq = db.session.query(TireSize.make.label("make"), TireSize.model.label("model")).subquery()
 
     # Compteur de demandes issu de l'historique de scans (meilleur proxy "popularité")
@@ -811,7 +847,11 @@ def _pick_next_missing_vehicle(
 
 
 def _dedup_dimensions(dimensions: list[dict]) -> list[dict[str, Any]]:
-    """Dedup par `size` (cle unique)."""
+    """Dedup par `size` (cle unique).
+
+    Fusionne les metadonnees (load_index, speed_index, is_stock) quand
+    une meme dimension apparait plusieurs fois avec des infos complementaires.
+    """
     seen: dict[str, dict[str, Any]] = {}
     for d in dimensions or []:
         if not isinstance(d, dict):
@@ -858,6 +898,7 @@ def _rim_diameter(size: str) -> int:
 
 
 def _sort_dimensions(dimensions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Trie les dimensions par diametre de jante croissant puis par taille."""
     return sorted(
         dimensions or [],
         key=lambda d: (

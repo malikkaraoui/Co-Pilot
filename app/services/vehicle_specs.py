@@ -1,4 +1,9 @@
-"""Service de fiches modele -- recupere les informations de fiabilite et couts."""
+"""Service de fiches modele -- recupere les informations de fiabilite et couts.
+
+Point d'entree simple pour les callers (API, rapport PDF) qui veulent
+les specs techniques d'un vehicule sans se soucier des jointures SQLAlchemy.
+Sert surtout dans le rapport PDF pour afficher fiabilite et couts connus.
+"""
 
 import logging
 
@@ -9,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 def get_vehicle_specs(vehicle_id: int, fuel_type: str | None = None) -> list[VehicleSpec]:
     """Recupere les fiches techniques d'un vehicule.
+
+    Filtre optionnellement par type de carburant pour ne retourner
+    que les variantes pertinentes (ex: Diesel uniquement pour un scan diesel).
 
     Args:
         vehicle_id: ID du vehicule dans la base de reference.
@@ -30,7 +38,8 @@ def get_vehicle_fiche(make: str, model: str) -> dict | None:
     """Recupere la fiche complete d'un vehicule (specs + fiabilite).
 
     Combine les informations du vehicule et de ses specs pour
-    construire une fiche lisible.
+    construire une fiche lisible. Utilise par l'API /fiche pour
+    l'affichage dans l'extension et le site.
 
     Args:
         make: Marque du vehicule.
@@ -47,6 +56,7 @@ def get_vehicle_fiche(make: str, model: str) -> dict | None:
 
     specs = get_vehicle_specs(vehicle.id)
     if not specs:
+        # Vehicule connu mais pas encore de specs enrichies
         return {
             "vehicle": {
                 "brand": vehicle.brand,

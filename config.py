@@ -1,4 +1,10 @@
-"""Classes de configuration pour l'application OKazCar."""
+"""Classes de configuration pour l'application OKazCar.
+
+Trois profils : production (Config), developpement (DevConfig), test (TestConfig).
+Toutes les valeurs sensibles viennent des variables d'environnement avec des
+fallbacks securitaires pour le dev local. En prod, create_app() refuse de
+demarrer si SECRET_KEY ou ADMIN_PASSWORD_HASH ne sont pas definis.
+"""
 
 import os
 import tempfile
@@ -6,15 +12,25 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Charge le .env avant toute lecture de os.environ
 load_dotenv()
 
+# Racine du projet — sert de base pour les chemins relatifs (DB, VERSION, etc.)
 basedir = Path(__file__).resolve().parent
 
 
 class Config:
-    """Configuration de base (production)."""
+    """Configuration de base (production).
+
+    Sert aussi de classe parente pour les autres profils.
+    Les valeurs par defaut sont pensees pour le dev local ; en prod,
+    les variables d'env surchargent tout.
+    """
 
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-insecure-key")
+
+    # SQLite par defaut — en prod sur Render on reste sur SQLite aussi
+    # (la DB est synchronisee via GitHub Release, pas un serveur PG)
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL",
         f"sqlite:///{basedir / 'data' / 'okazcar.db'}",
@@ -33,7 +49,7 @@ class Config:
     # API externes
     SIRET_API_TIMEOUT = int(os.environ.get("SIRET_API_TIMEOUT", "5"))
 
-    # Wheel-Size (dimensions pneus)
+    # Wheel-Size (dimensions pneus) — API payante, on limite les appels par jour
     WHEEL_SIZE_API_KEY = os.environ.get("WHEEL_SIZE_API_KEY", "")
     WHEEL_SIZE_BASE_URL = os.environ.get("WHEEL_SIZE_BASE_URL", "https://api.wheel-size.com/v2")
     WHEEL_SIZE_DAILY_BUDGET = int(os.environ.get("WHEEL_SIZE_DAILY_BUDGET", "50"))
@@ -44,14 +60,18 @@ class Config:
     # Ollama LLM local
     OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-    # Google Gemini LLM (cloud)
+    # Google Gemini LLM (cloud) — utilise pour l'analyse email rappels constructeur
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "30"))
 
 
 class DevConfig(Config):
-    """Configuration de developpement."""
+    """Configuration de developpement.
+
+    CORS ouvert a tout le monde pour faciliter le dev avec l'extension
+    non-packagee (chrome://extensions en mode developpeur).
+    """
 
     DEBUG = True
     LOG_LEVEL = "DEBUG"
@@ -59,12 +79,15 @@ class DevConfig(Config):
 
 
 class TestConfig(Config):
-    """Configuration de test."""
+    """Configuration de test.
+
+    Utilise un fichier SQLite temporaire plutot que :memory: parce que
+    le FilterEngine tourne des filtres en parallele via ThreadPoolExecutor.
+    SQLite in-memory ne supporte pas les acces multi-threads, meme avec
+    StaticPool — d'ou le fichier tmp.
+    """
 
     TESTING = True
-    # Fichier temporaire au lieu de :memory: car FilterEngine utilise
-    # ThreadPoolExecutor et SQLite in-memory ne supporte pas les acces
-    # concurrents meme avec StaticPool.
     _test_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{_test_db.name}"
     SQLALCHEMY_ENGINE_OPTIONS = {
@@ -75,6 +98,7 @@ class TestConfig(Config):
     LOG_LEVEL = "DEBUG"
 
 
+# Mapping utilise par create_app() pour selectionner le profil via FLASK_ENV
 config_by_name = {
     "development": DevConfig,
     "testing": TestConfig,

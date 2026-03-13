@@ -1,4 +1,15 @@
-"""Service d'extraction de sous-titres YouTube."""
+"""Service d'extraction de sous-titres YouTube.
+
+Pipeline complet : recherche de videos pertinentes pour un vehicule, scoring
+de pertinence, extraction des sous-titres (FR/EN), et stockage en base.
+
+Les transcripts servent ensuite a la synthese Gemini (fiabilite, problemes connus)
+qui alimente le rapport PDF et l'extension.
+
+Deux strategies d'extraction des sous-titres :
+- youtube-transcript-api (rapide, mais peut etre bloque par IP)
+- yt-dlp fallback (telecharge les fichiers VTT, plus resilient)
+"""
 
 import logging
 import os
@@ -24,11 +35,13 @@ from app.models.youtube import YouTubeTranscript, YouTubeVideo
 
 logger = logging.getLogger(__name__)
 
-# Delais entre requetes pour eviter le blocage IP
+# Delais entre requetes pour eviter le blocage IP par YouTube.
+# On espace les requetes pour ne pas declencher le rate-limiting.
 DELAY_BETWEEN_VIDEOS = 2.0  # secondes
 DELAY_BETWEEN_MODELS = 5.0  # secondes
 
-# Chaines YouTube de confiance (bonus de score)
+# Chaines YouTube de confiance (bonus de score dans le ranking).
+# Ce sont les chaines auto francaises qui produisent du contenu fiable.
 TRUSTED_CHANNELS = {
     "L'argus",
     "Fiches auto",
@@ -39,7 +52,8 @@ TRUSTED_CHANNELS = {
     "AutoPlus",
 }
 
-# Mots-cles a eviter dans les titres (presentations pre-sortie, salons)
+# Mots-cles a eviter dans les titres -- ces videos ne contiennent pas
+# de retour d'experience reel (presentations salons, teasers, etc.)
 EXCLUDED_TITLE_KEYWORDS = [
     "présentation mondiale",
     "salon de l'auto",
@@ -61,6 +75,9 @@ def build_search_query(
     keywords: str | None = None,
 ) -> str:
     """Construit une query YouTube precise a partir des parametres vehicule.
+
+    Les guillemets autour de marque+modele forcent YouTube a traiter ca
+    comme une expression exacte, ce qui ameliore beaucoup la pertinence.
 
     Exemples:
         ("Peugeot", "308", "II", 2019, "diesel", "130") ->
@@ -148,6 +165,10 @@ def _score_video_relevance(
     focus_channels: list[str] | None = None,
 ) -> float:
     """Calcule un score de pertinence (0-100) pour une video YouTube.
+
+    Le scoring est multi-criteres avec des poids calibres empiriquement.
+    L'objectif : privilegier les essais complets par des chaines serieuses
+    et filtrer le bruit (shorts, livestreams, presentations pre-sortie).
 
     Criteres:
     - Duree optimale (6-25 min = essai complet)
@@ -288,7 +309,12 @@ def filter_and_rank_videos(
 
 
 def _parse_vtt_to_text(vtt_content: str) -> str:
-    """Parse un fichier VTT et extrait le texte brut sans timestamps ni doublons."""
+    """Parse un fichier VTT et extrait le texte brut sans timestamps ni doublons.
+
+    Les fichiers VTT contiennent beaucoup de bruit (timestamps, tags HTML,
+    identifiants de cue). On nettoie tout ca pour obtenir du texte exploitable
+    par Gemini pour la synthese fiabilite.
+    """
     lines = vtt_content.splitlines()
     seen: set[str] = set()
     text_parts: list[str] = []
@@ -320,6 +346,9 @@ def _fetch_transcript_ytdlp(video_id: str) -> dict | None:
 
     Telecharge les fichiers VTT dans un dossier temporaire, parse le texte.
     Priorite : FR manual > FR auto > EN manual > EN auto.
+
+    Cette methode utilise un chemin reseau different de youtube-transcript-api,
+    ce qui la rend souvent accessible quand l'autre est bloquee par IP.
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -409,7 +438,11 @@ def _make_transcript_result(transcript, language_override: str | None = None) ->
 def fetch_transcript(video_id: str) -> dict | None:
     """Extrait le transcript d'une video YouTube.
 
-    Strategie (du plus fiable au moins fiable) :
+    Cascade de 4 strategies, du plus fiable au moins fiable.
+    Chaque echec declenche le fallback suivant. Si youtube-transcript-api
+    est bloque par IP, on passe directement a yt-dlp.
+
+    Strategie :
     1. Sous-titres FR directs (youtube-transcript-api)
     2. Sous-titres EN directs (youtube-transcript-api)
     3. Traduction vers FR (youtube-transcript-api)
@@ -469,7 +502,11 @@ def fetch_transcript(video_id: str) -> dict | None:
 def store_video(
     video_data: dict, vehicle_id: int | None = None, search_query: str = ""
 ) -> YouTubeVideo:
-    """Cree ou recupere un YouTubeVideo. Idempotent sur video_id."""
+    """Cree ou recupere un YouTubeVideo. Idempotent sur video_id.
+
+    Si la video existe deja en base, on la retourne telle quelle
+    sans la modifier (les metadonnees ne changent pas apres insertion).
+    """
     existing = YouTubeVideo.query.filter_by(video_id=video_data["id"]).first()
     if existing:
         return existing
@@ -490,7 +527,8 @@ def store_video(
 def extract_and_store_transcript(video: YouTubeVideo) -> YouTubeTranscript:
     """Fetch et stocke le transcript pour une video.
 
-    Met a jour le status du transcript (extracted / no_subtitles / error).
+    Idempotent : si le transcript est deja extrait, on le retourne sans refaire
+    l'extraction. Met a jour le status du transcript (extracted / no_subtitles / error).
     """
     # Si un transcript existe deja avec status extracted, on le retourne
     if video.transcript and video.transcript.status == "extracted":
@@ -537,7 +575,11 @@ def extract_and_store_transcript(video: YouTubeVideo) -> YouTubeTranscript:
 
 
 def search_and_extract_for_vehicle(vehicle, max_videos: int = 5) -> dict:
-    """Pipeline complet pour un vehicule : search → store → extract.
+    """Pipeline complet pour un vehicule : search -> store -> extract.
+
+    C'est le point d'entree principal pour l'enrichissement YouTube automatique.
+    On cherche 3x plus de videos que necessaire puis on filtre/score pour
+    garder les meilleures. Le sleep entre chaque video evite le ban YouTube.
 
     Retourne {videos_found, transcripts_ok, transcripts_failed, transcripts_skipped}.
     """
@@ -644,7 +686,8 @@ def search_and_extract_custom(
 def get_featured_video(make: str, model: str) -> dict | None:
     """Retourne la video featured pour un vehicule, ou None.
 
-    Cherche par vehicle_id via la table Vehicle, fallback sur brand/model.
+    La video featured est celle selectionnee manuellement en admin
+    pour etre affichee dans l'extension et le rapport PDF.
     """
     from app.models.vehicle import Vehicle
 

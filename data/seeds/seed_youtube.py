@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Seed YouTube -- recherche de videos de tests et extraction des sous-titres.
 
+Pour chaque vehicule du referentiel, on cherche sur YouTube des videos
+de tests/essais/avis et on extrait les sous-titres. Ces transcripts
+alimentent ensuite la synthese LLM (resume des points forts/faibles
+du vehicule base sur les avis de vrais testeurs).
+
 Script idempotent : ne re-telecharge pas les transcripts deja extraits.
 Usage : python data/seeds/seed_youtube.py
 """
@@ -23,7 +28,12 @@ from app.services.youtube_service import (  # noqa: E402
 
 
 def seed_youtube():
-    """Recherche et extrait les sous-titres YouTube pour tous les vehicules."""
+    """Recherche et extrait les sous-titres YouTube pour tous les vehicules.
+
+    On limite a 5 videos par vehicule pour ne pas surcharger l'API YouTube
+    et garder un volume de transcripts raisonnable pour la synthese LLM.
+    Le delai entre chaque modele evite le rate-limiting YouTube.
+    """
     vehicles = Vehicle.query.order_by(Vehicle.brand, Vehicle.model).all()
     total = len(vehicles)
 
@@ -41,7 +51,8 @@ def seed_youtube():
         for i, vehicle in enumerate(vehicles, 1):
             label = f"{vehicle.brand} {vehicle.model}"
 
-            # Compter les videos deja extraites pour ce vehicule
+            # Si on a deja 5+ videos traitees pour ce vehicule, on skip
+            # (statut "extracted" ou "no_subtitles" = traitement termine)
             existing = (
                 YouTubeVideo.query.filter_by(vehicle_id=vehicle.id)
                 .join(YouTubeVideo.transcript)
@@ -80,6 +91,7 @@ def seed_youtube():
                 f"{f', {failed} echecs' if failed else ''}"
             )
 
+            # Respecter le delai entre modeles pour eviter le rate-limiting
             if i < total:
                 time.sleep(DELAY_BETWEEN_MODELS)
 

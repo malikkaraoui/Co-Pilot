@@ -1,12 +1,31 @@
 /**
- * OKazCar Background Service Worker
+ * OKazCar Background Service Worker (Chrome MV3)
  *
- * Gere l'injection on-demand du content script,
- * les appels API LBC en contexte MAIN world,
- * et le proxy des appels backend (HTTP localhost depuis HTTPS).
+ * Ce fichier tourne dans le service worker de l'extension.
+ * Il a 3 roles principaux :
+ *
+ * 1. Proxy backend : le content script (HTTPS) ne peut pas fetch vers
+ *    HTTP localhost (mixed-content). Le service worker n'a pas cette
+ *    restriction, donc il sert de relai.
+ *
+ * 2. Execution MAIN world : pour acceder aux variables JS des sites
+ *    (window.__NEXT_DATA__ sur LBC, window.CLASSIFIED_GALLERY sur LC)
+ *    et utiliser leurs cookies de session (API LBC), on injecte du code
+ *    dans le "MAIN world" de la page via chrome.scripting.
+ *
+ * 3. Injection on-demand : le content script n'est pas injecte
+ *    automatiquement — c'est le popup qui declenche l'injection
+ *    pour eviter tout bruit sur les pages non-analysees.
  */
 
 // ── Icone adaptative dark/light mode ────────────────────────
+
+/**
+ * Met a jour l'icone de l'extension selon le theme de l'OS.
+ * On a deux jeux d'icones : classique (fond sombre) et "-light" (fond clair).
+ *
+ * @param {boolean} isDark - true si l'OS est en mode sombre
+ */
 function updateIcon(isDark) {
   const suffix = isDark ? "-light" : "";
   chrome.action.setIcon({
@@ -18,25 +37,29 @@ function updateIcon(isDark) {
   });
 }
 
-// Au demarrage, restaurer la preference stockee
+// Au demarrage du service worker, restaurer le dernier theme connu
+// (le service worker peut redemarrer a tout moment dans MV3)
 chrome.storage.local.get("isDarkMode", (result) => {
   if (result.isDarkMode != null) updateIcon(result.isDarkMode);
 });
+
+// ── Routeur de messages ─────────────────────────────────────
+// Tous les messages passent par ce listener unique.
+// Le `return true` est obligatoire pour les reponses asynchrones
+// dans chrome.runtime.onMessage (sinon le port se ferme).
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Mise a jour icone dark/light depuis popup ou content ──
   if (message.action === "update_icon_theme") {
     updateIcon(message.isDark);
     chrome.storage.local.set({ isDarkMode: message.isDark });
-    return false;
+    return false; // reponse synchrone, pas besoin de garder le port ouvert
   }
 
-  // ── Proxy backend API (content script → background → localhost) ─
-  // Chrome MV3 : un content script sur une page HTTPS ne peut pas
-  // fetch vers HTTP localhost (mixed-content). Le service worker
-  // n'a pas cette restriction.
+  // ── Proxy backend API (content script -> background -> backend) ──
+  // Whitelist stricte : on accepte uniquement localhost et *.onrender.com
+  // pour eviter qu'un site malveillant utilise le proxy comme open relay
   if (message.action === "backend_fetch") {
-    // Securite : seul le backend local est autorise via le proxy
     const url = String(message.url || "");
     if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(url) &&
         !/^https:\/\/[a-z0-9-]+\.onrender\.com\//i.test(url)) {
@@ -56,13 +79,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => {
         sendResponse({ ok: false, status: 0, body: null, error: err.message });
       });
-    return true;
+    return true; // reponse async
   }
 
-  // ── Recherche API LBC (content script → MAIN world) ──────────
-  // Le content script ne peut pas appeler l'API LBC directement
-  // (CORS + session cookies). On injecte le fetch dans le contexte
-  // MAIN de la page (meme session que le JavaScript LBC).
+  // ── Recherche API LBC via MAIN world ──────────────────────
+  // L'API LBC (api.leboncoin.fr/finder/search) exige les cookies
+  // de session de l'utilisateur. Seul un fetch execute dans le
+  // contexte MAIN de la page LBC peut les envoyer (credentials: "include").
   if (message.action === "lbc_api_search") {
     const tabId = sender.tab?.id;
     if (!tabId) {
@@ -105,10 +128,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ── Fetch HTML La Centrale depuis le MAIN world ──────────────
-  // Le fetch direct depuis le content script peut perdre le contexte
-  // anti-bot / cookies de premiere partie. On execute donc la requete
-  // dans le monde de la page, comme pour Leboncoin.
+  // ── Fetch HTML La Centrale via MAIN world ─────────────────
+  // Meme principe que LBC : le fetch doit se faire dans le
+  // contexte de la page pour garder les cookies anti-bot.
   if (message.action === "lc_listing_fetch") {
     const tabId = sender.tab?.id;
     if (!tabId) {
@@ -145,13 +167,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ── Injection content script (popup → background) ────────────
+  // ── Injection content script (popup -> background) ────────
+  // C'est ici que tout demarre : le popup demande d'injecter
+  // le content script dans l'onglet actif.
   if (message.action !== "inject_and_analyze") return false;
 
   const tabId = message.tabId;
 
-  // Etape 1 : Lire window.__NEXT_DATA__ dans le contexte MAIN (contourne le CSP)
-  // Etape 2 : Injecter le CSS puis le content script
+  // Pipeline d'injection en 3 etapes :
+  // 1. Extraire les donnees JS du site (MAIN world) et les stocker dans le DOM
+  //    pour que le content script puisse les lire (il n'a pas acces au MAIN world)
+  // 2. Injecter le CSS
+  // 3. Injecter le bundle JS du content script
   chrome.scripting
     .executeScript({
       target: { tabId },
@@ -161,7 +188,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const isLBC = host.includes("leboncoin.fr");
         const isLC = host.includes("lacentrale.fr");
 
-        // LeBonCoin: __NEXT_DATA__ (skip on other sites — can be huge)
+        // LBC : on extrait __NEXT_DATA__ (le blob JSON de Next.js avec toutes
+        // les donnees de l'annonce) et on le cache dans un div invisible
         if (isLBC) {
           let el = document.getElementById("__okazcar_next_data__");
           if (!el) {
@@ -173,7 +201,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           el.textContent = JSON.stringify(window.__NEXT_DATA__ || null);
         }
 
-        // La Centrale: CLASSIFIED_GALLERY + tc_vars (skip on other sites)
+        // La Centrale : on extrait la galerie d'images et les variables
+        // de tracking (tc_vars contient les specs du vehicule)
         if (isLC) {
           let lcEl = document.getElementById("__okazcar_lc_gallery__");
           if (!lcEl) {
@@ -211,6 +240,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: err.message });
     });
 
-  // Retourner true pour indiquer une reponse asynchrone
+  // return true = on va repondre de maniere asynchrone (via sendResponse)
   return true;
 });

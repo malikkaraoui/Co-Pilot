@@ -2,6 +2,10 @@
 
 Analyse le payload JSON __NEXT_DATA__ et extrait les champs de l'annonce vehicule.
 Base sur le script original lbc_extract.py, reecrit selon les patterns OKazCar.
+
+Le __NEXT_DATA__ est un blob JSON injecte par Next.js dans chaque page LBC.
+Sa structure change regulierement (LBC fait des A/B tests), d'ou les multiples
+fallbacks dans _find_ad_payload et _normalize_attributes.
 """
 
 import logging
@@ -15,7 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 def _deep_get(data: dict, path: str) -> Any:
-    """Parcourt un dictionnaire imbrique via un chemin separe par des points."""
+    """Parcourt un dictionnaire imbrique via un chemin separe par des points.
+
+    Equivalent simplifie de lodash.get() : retourne None si le chemin
+    n'existe pas, sans lever d'exception.
+    """
     current: Any = data
     for part in path.split("."):
         if isinstance(current, dict) and part in current:
@@ -91,7 +99,7 @@ def _normalize_attributes(ad: dict) -> dict[str, Any]:
             out[key.strip()] = val
             # Stocker aussi sous key_label pour que les lookups par nom francais marchent.
             # IMPORTANT : first-wins -- si un key_label est deja present (ex: deux attributs
-            # avec key_label="Modèle"), on garde la premiere valeur pour eviter qu'un
+            # avec key_label="Modele"), on garde la premiere valeur pour eviter qu'un
             # attribut secondaire (ex: modele detaille "A6 Allroad") ecrase le modele
             # de base ("A6") utilise par le reste du pipeline.
             key_label = attr.get("key_label")
@@ -107,7 +115,8 @@ def _normalize_attributes(ad: dict) -> dict[str, Any]:
 # ou LBC ne connait pas encore ce modele dans sa liste.
 _GENERIC_MODELS = frozenset({"autres", "autre", "other", "divers"})
 
-# Mots parasites a retirer du titre lors de l'extraction du modele
+# Mots parasites a retirer du titre lors de l'extraction du modele.
+# Ce sont des mots de finition/edition qui ne font pas partie du nom du modele.
 _TITLE_NOISE = frozenset(
     {
         "neuf",
@@ -153,10 +162,11 @@ def _extract_model_from_title(title: str, make: str) -> str | None:
     """Tente d'extraire le nom du modele depuis le titre de l'annonce.
 
     Quand LBC met 'Autres' comme modele, le vrai nom est souvent dans le titre :
-    'Renault Symbioz Esprit Alpine 2025' → 'Symbioz'
-    'Peugeot E-5008 GT 2025' → 'E-5008'
+    'Renault Symbioz Esprit Alpine 2025' -> 'Symbioz'
+    'Peugeot E-5008 GT 2025' -> 'E-5008'
 
-    Retourne le premier mot significatif apres la marque, ou None.
+    On retire la marque, l'annee, puis on prend le premier mot significatif
+    qui n'est pas un mot parasite (finition, edition, etc.).
     """
     if not title or not make:
         return None
@@ -185,7 +195,11 @@ def _extract_model_from_title(title: str, make: str) -> str | None:
 
 
 def _coerce_int(value: Any) -> int | None:
-    """Tente de convertir un entier depuis differents formats."""
+    """Tente de convertir un entier depuis differents formats.
+
+    Gere les cas courants LBC : "120 000 km" -> 120000,
+    "5" -> 5, None -> None.
+    """
     if value is None:
         return None
     if isinstance(value, int):
@@ -216,7 +230,8 @@ def _extract_publication_dates(ad: dict) -> dict:
     - ``index_date`` : date de derniere republication (ce que LBC affiche a l'utilisateur)
 
     Un vendeur peut republier son annonce pour apparaitre "frais". OKazCar
-    utilise first_publication_date pour calculer la vraie duree en vente.
+    utilise first_publication_date pour calculer la vraie duree en vente,
+    et detecte la republication via la difference entre les deux dates.
     """
     now = datetime.now(timezone.utc)
 
@@ -231,7 +246,7 @@ def _extract_publication_dates(ad: dict) -> dict:
     index_dt = _parse_date_str(index_date) if isinstance(index_date, str) else None
     days_since_refresh = max((now - index_dt).days, 0) if index_dt else None
 
-    # Detecter si l'annonce a ete republiee (dates differentes)
+    # Detecter si l'annonce a ete republiee (dates differentes de plus d'1 jour)
     republished = False
     if first_dt and index_dt and (index_dt - first_dt).days > 1:
         republished = True
@@ -246,7 +261,10 @@ def _extract_publication_dates(ad: dict) -> dict:
 
 
 def _extract_price(ad: dict) -> int | None:
-    """Extrait le prix depuis les donnees de premier niveau de l'annonce."""
+    """Extrait le prix depuis les donnees de premier niveau de l'annonce.
+
+    LBC peut envoyer le prix comme int, float, ou liste [prix].
+    """
     price = ad.get("price")
     if isinstance(price, (int, float)):
         return int(price)
@@ -260,6 +278,7 @@ def normalize_region(region: str | None) -> str | None:
 
     LBC envoie parfois les anciens noms (ex. 'Aquitaine' au lieu de
     'Nouvelle-Aquitaine'), ce qui casse le matching argus et market price.
+    Cette table de correspondance mappe les 22 anciennes regions vers les 13 nouvelles.
     """
     if not region:
         return None
@@ -304,7 +323,10 @@ def _extract_location(ad: dict) -> dict[str, Any]:
 
 
 def _extract_phone(ad: dict) -> str | None:
-    """Extrait le numero de telephone si disponible."""
+    """Extrait le numero de telephone si disponible.
+
+    Cherche dans le champ phone de premier niveau, puis dans owner.phone.
+    """
     phone = ad.get("phone")
     if isinstance(phone, str) and phone.strip():
         return phone.strip()
@@ -319,7 +341,8 @@ def _extract_lbc_estimation(ad: dict) -> dict | None:
     """Extrait l'estimation de prix LeBonCoin (fourchette argus affichee sur la page).
 
     LBC peut fournir un champ price_rating/estimation dans l'objet ad avec
-    les bornes low/high de la fourchette. Retourne None si absent.
+    les bornes low/high de la fourchette. Le nom du champ varie selon les
+    versions du payload (A/B tests LBC), d'ou les multiples cles testees.
     """
     for key in ("price_rating", "estimation", "price_tips", "price_estimate"):
         rating = ad.get(key)
@@ -336,6 +359,10 @@ def _extract_lbc_estimation(ad: dict) -> dict | None:
 
 def extract_ad_data(next_data: dict) -> dict[str, Any]:
     """Extrait les donnees structurees du vehicule depuis un payload __NEXT_DATA__ Leboncoin.
+
+    C'est la fonction principale de ce module. Elle orchestre l'extraction
+    complete : localisation du payload, normalisation des attributs,
+    extraction de chaque champ, et canonicalisation via vehicle_lookup.
 
     Args:
         next_data: L'objet JSON __NEXT_DATA__ analyse.
@@ -378,10 +405,11 @@ def extract_ad_data(next_data: dict) -> dict[str, Any]:
         image_count = 0
 
     # Telephone : LBC ne fournit pas le numero dans __NEXT_DATA__,
-    # seulement has_phone (bool). On l'extrait pour L9.
+    # seulement has_phone (bool). On l'extrait pour le filtre L9 (qualite annonce).
     has_phone = bool(ad.get("has_phone"))
 
     # Options payantes LBC (urgent, a la une, boost)
+    # Ces flags sont utilises par le filtre L9 pour evaluer la qualite de l'annonce
     options = ad.get("options") or ad.get("ad_options") or {}
     has_urgent = bool(options.get("urgent") or options.get("is_urgent") or ad.get("urgent"))
     has_highlight = bool(

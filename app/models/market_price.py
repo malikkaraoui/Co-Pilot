@@ -1,4 +1,10 @@
-"""Modele MarketPrice -- cache des prix du marche collectes par crowdsourcing."""
+"""Modele MarketPrice -- cache des prix du marche collectes par crowdsourcing.
+
+C'est le coeur du systeme de pricing : les extensions Chrome collectent
+les prix reels des annonces et le backend calcule les stats (median, IQR mean,
+percentiles). Ces prix sont ensuite utilises par le filtre L4 pour evaluer
+si une annonce est bien pricee ou non.
+"""
 
 import json
 from datetime import datetime, timezone
@@ -7,7 +13,16 @@ from app.extensions import db
 
 
 class MarketPrice(db.Model):
-    """Prix du marche collectes depuis les annonces LeBonCoin par les utilisateurs de l'extension."""
+    """Prix du marche collectes depuis les annonces LeBonCoin par les utilisateurs de l'extension.
+
+    L'IQR Mean (moyenne interquartile) est l'estimateur principal utilise par L4.
+    Il est plus robuste que la mediane (sensible aux variations reelles du marche)
+    tout en etant resistant aux outliers (annonces bidons, prix cassiers pro, etc).
+
+    La precision (1-5) indique la qualite de la collecte :
+    5 = geo precise + tous les filtres, 1 = national + filtres minimaux.
+    Le refresh_after indique quand les donnees doivent etre re-collectees.
+    """
 
     __tablename__ = "market_prices"
 
@@ -44,6 +59,7 @@ class MarketPrice(db.Model):
     fiscal_hp = db.Column(db.Integer, nullable=True)
 
     # Estimation LBC (fourchette basse/haute affichee par LeBonCoin)
+    # Utile comme point de comparaison supplementaire
     lbc_estimate_low = db.Column(db.Integer, nullable=True)
     lbc_estimate_high = db.Column(db.Integer, nullable=True)
 
@@ -55,6 +71,7 @@ class MarketPrice(db.Model):
     collected_at = db.Column(
         db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+    # Date apres laquelle les donnees sont considerees obsoletes et doivent etre rafraichies
     refresh_after = db.Column(db.DateTime, nullable=False)
 
     __table_args__ = (
@@ -71,7 +88,11 @@ class MarketPrice(db.Model):
     )
 
     def get_calculation_details(self) -> dict | None:
-        """Retourne les details du calcul en dict, ou None."""
+        """Retourne les details du calcul en dict, ou None.
+
+        Utile pour le dashboard admin qui affiche les prix bruts,
+        les prix gardes apres filtrage IQR, et les outliers exclus.
+        """
         if not self.calculation_details:
             return None
         return json.loads(self.calculation_details)

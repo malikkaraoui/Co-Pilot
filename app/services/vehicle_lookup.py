@@ -1,7 +1,14 @@
 """Service de recherche vehicule -- trouve un vehicule dans la base de reference.
 
+C'est LE module central de la reconnaissance vehicule. Quand l'extension envoie
+"VW Golf 7" ou "Mercedes Classe A", c'est ici qu'on resout ces noms vers un
+Vehicle en base.
+
 Gere les variantes courantes de noms de marques et modeles
 (ex. "Clio 5" -> "Clio V", "VW" -> "Volkswagen").
+Les tables d'alias sont la cle : elles couvrent les fautes de frappe,
+les noms anglais/francais, les generations (II, III, etc.) et les
+abbreviations courantes sur LBC et AS24.
 """
 
 import logging
@@ -89,8 +96,12 @@ INVALID_MODELS_BY_BRAND: dict[str, frozenset[str]] = {
 def is_generic_model(model: str, make: str = "") -> bool:
     """True si le modele est un placeholder generique ou un faux modele pour cette marque.
 
+    Utilise par L2 et la vehicle_factory pour eviter de creer des vehicules
+    fantomes a partir de donnees incompletes ou generiques.
+
     Verifie d'abord les generiques universels (Autres, Divers...),
-    puis les faux modeles specifiques a la marque (Serie 3 pour BMW, etc.).
+    puis les faux modeles specifiques a la marque (ex: "Benz" pour Mercedes,
+    "Multivan" pour VW qui est en fait la gamme T).
     """
     normalized = _strip_accents(model.strip().lower())
     if normalized in GENERIC_MODELS:
@@ -483,7 +494,12 @@ def _lookup_keys(text: str) -> tuple[str, ...]:
 
 
 def _build_alias_lookup(aliases: dict[str, str]) -> dict[str, str]:
-    """Construit un index d'alias robuste aux variantes typographiques."""
+    """Construit un index d'alias robuste aux variantes typographiques.
+
+    Pour chaque alias, on genere toutes les cles lookup possibles
+    (avec et sans separateurs) pour maximiser les chances de match.
+    L'index est calcule une seule fois grace au @lru_cache sur les callers.
+    """
     lookup: dict[str, str] = {}
     for raw_key, canonical in aliases.items():
         for variant in (raw_key, canonical):
@@ -536,6 +552,9 @@ def normalize_brand(brand: str) -> str:
 
     C'est la forme canonique pour les COMPARAISONS (lowercase).
     Pour l'affichage, utiliser ``display_brand()``.
+
+    Ex: "VW" -> "volkswagen", "Mercedes-Benz" -> "mercedes",
+    "Citroen" -> "citroen".
     """
     cleaned = normalize_canonical_text(brand)
     return _resolve_alias(brand, _brand_alias_lookup()) or cleaned
@@ -550,13 +569,18 @@ def normalize_model(model: str) -> str:
 
     C'est la forme canonique pour les COMPARAISONS (lowercase).
     Pour l'affichage, utiliser ``display_model()``.
+
+    Inclut une heuristique pour retirer les suffixes de generation
+    en chiffres romains (ex: "leon iv" -> "leon") quand aucun alias
+    explicite n'existe.
     """
     cleaned = normalize_canonical_text(model)
     aliased = _resolve_alias(model, _model_alias_lookup())
     if aliased:
         return aliased
 
-    # Heuristique légère: retirer un suffixe de génération en chiffres romains
+    # Heuristique legere : retirer un suffixe de generation en chiffres romains
+    # Ca gere les cas comme "Leon IV" -> "leon" sans avoir a lister chaque generation
     # (ex: "leon iv" -> "leon"), sans impacter les alias explicites ci-dessus.
     parts = cleaned.split()
     if len(parts) >= 2 and re.fullmatch(r"[ivx]{1,5}", parts[-1]):
@@ -571,9 +595,10 @@ def normalize_model(model: str) -> str:
 _normalize_model = normalize_model
 
 
-# ── Formes d'affichage canoniques ────────────────────────────────
+# -- Formes d'affichage canoniques --
 # Quand la conversion .title() ne suffit pas (sigles, casse mixte),
 # on utilise ces dicts pour produire la bonne forme visuelle.
+# Ex: "bmw" -> "BMW" (pas "Bmw"), "c-hr" -> "C-HR" (pas "C-Hr")
 
 BRAND_DISPLAY: dict[str, str] = {
     "bmw": "BMW",
@@ -684,6 +709,7 @@ def find_vehicle(make: str, model: str) -> Vehicle | None:
     model_norm = normalize_model(model)
     brand_key, model_key = build_vehicle_lookup_keys(make, model)
 
+    # Etape 1 : recherche rapide par lookup_key (index DB, O(1))
     vehicle = (
         Vehicle.query.filter(
             Vehicle.brand_lookup_key == brand_key,
@@ -696,6 +722,9 @@ def find_vehicle(make: str, model: str) -> Vehicle | None:
     if vehicle:
         logger.debug("Found vehicle: %s %s (id=%d)", vehicle.brand, vehicle.model, vehicle.id)
     else:
+        # Etape 2 : fallback resilient -- scan complet de la table Vehicle
+        # avec normalisation a la volee. Plus lent mais rattrape les cas
+        # ou les lookup_key en base ne sont pas encore migrees.
         brand_key = _match_key(brand_norm)
         model_key = _match_key(model_norm)
         for candidate in Vehicle.query.all():

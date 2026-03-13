@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Seed du referentiel vehicules -- Top 144+ modeles les plus vendus en France.
 
+C'est la base de tout : les filtres, l'argus, la fiabilite moteur, les rappels...
+tout repose sur ce referentiel. Chaque vehicule a un ou plusieurs specs
+(motorisations) avec les infos de fiabilite et couts d'entretien.
+
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_vehicles.py
 """
@@ -16,8 +20,8 @@ from app.models.vehicle import Vehicle, VehicleSpec  # noqa: E402
 from app.services.pipeline_tracker import track_pipeline  # noqa: E402
 
 # Top 144+ modeles les plus vendus en France (ventes 2024-2025 + parc occasion)
+# Format: (marque, modele, generation, annee_debut, annee_fin)
 VEHICLES = [
-    # (marque, modele, generation, annee_debut, annee_fin)
     # --- Existants (20 originaux) ---
     ("Peugeot", "208", "II", 2019, 2025),
     ("Peugeot", "3008", "II", 2016, 2023),
@@ -116,6 +120,9 @@ VEHICLES = [
 ]
 
 # Specs de base pour chaque modele (fuel, transmission, puissance)
+# Chaque spec represente une motorisation courante du modele.
+# Les champs reliability_rating, known_issues et expected_costs sont
+# des donnees editoriales qui alimentent directement le rapport PDF.
 # Format: (marque, modele, fuel_type, transmission, engine, power_hp,
 #           reliability_rating, known_issues, expected_costs)
 SPECS = [
@@ -1242,7 +1249,14 @@ SPECS = [
 
 
 def seed():
-    """Insere les vehicules et specs en base. Idempotent."""
+    """Insere les vehicules et specs en base.
+
+    Deux passes :
+    1. Creation des vehicules (dedup sur brand+model)
+    2. Creation des specs/motorisations (dedup sur vehicle_id+fuel_type+engine)
+
+    Idempotent : les vehicules et specs existants sont simplement ignores.
+    """
     app = create_app()
 
     with app.app_context():
@@ -1252,6 +1266,7 @@ def seed():
             created_vehicles = 0
             created_specs = 0
 
+            # Passe 1 : vehicules
             for brand, model, generation, year_start, year_end in VEHICLES:
                 existing = Vehicle.query.filter_by(brand=brand, model=model).first()
                 if existing:
@@ -1266,13 +1281,14 @@ def seed():
                     year_end=year_end,
                 )
                 db.session.add(v)
+                # flush pour avoir l'id avant le commit (necessaire pour les specs)
                 db.session.flush()
                 created_vehicles += 1
                 print(f"  [+] {brand} {model} ({generation})")
 
             db.session.commit()
 
-            # Ajout des specs
+            # Passe 2 : specs (motorisations)
             for brand, model, fuel, trans, engine, power, reliability, issues, costs in SPECS:
                 vehicle = Vehicle.query.filter_by(brand=brand, model=model).first()
                 if not vehicle:

@@ -1,4 +1,11 @@
-"""Modeles YouTubeVideo et YouTubeTranscript."""
+"""Modeles YouTubeVideo et YouTubeTranscript.
+
+On indexe des videos YouTube pertinentes pour chaque vehicule (essais,
+retours proprietaires, comparatifs) et on extrait leurs sous-titres.
+Les transcripts sont ensuite envoyes a Gemini pour generer les syntheses
+(voir VehicleSynthesis). Les videos archivees (is_archived) sont exclues
+du pipeline de synthese, les featured sont mises en avant dans le rapport.
+"""
 
 from datetime import datetime, timezone
 
@@ -6,7 +13,13 @@ from app.extensions import db
 
 
 class YouTubeVideo(db.Model):
-    """Video YouTube indexee pour un vehicule."""
+    """Video YouTube indexee pour un vehicule.
+
+    Le video_id est l'identifiant YouTube (11 caracteres). La relation 1:1
+    avec YouTubeTranscript est geree via uselist=False + cascade delete.
+    Le vehicle_id est nullable car on peut indexer une video avant de
+    l'avoir rattachee a un vehicule en base.
+    """
 
     __tablename__ = "youtube_videos"
     __table_args__ = (db.UniqueConstraint("video_id", name="uq_yt_video_id"),)
@@ -33,7 +46,15 @@ class YouTubeVideo(db.Model):
 
 
 class YouTubeTranscript(db.Model):
-    """Sous-titres extraits d'une video YouTube."""
+    """Sous-titres extraits d'une video YouTube.
+
+    Le full_text contient le transcript complet concatene.
+    Les snippets_json contiennent les segments avec timestamps
+    pour pouvoir citer des passages precis dans la synthese.
+    Le status suit le cycle : pending -> done | error.
+    is_generated indique si les sous-titres sont auto-generes par YouTube
+    (moins fiables) ou fournis manuellement par le createur.
+    """
 
     __tablename__ = "youtube_transcripts"
 

@@ -6,9 +6,15 @@ Sources km/an : moyennes nationales INSEE / SDES (enquete mobilite).
 Sportives/super-sportives : ~5 000 km/an.
 Ces vehicules sont utilises en loisir, pas au quotidien.
 Un km faible est normal et meme souhaitable.
+
+Ce module est utilise par L3 (coherence km) pour adapter les attentes
+de kilometrage a la categorie du vehicule. Ca evite de lever des faux
+positifs du type "Porsche 911 avec 20 000 km en 4 ans = suspect".
 """
 
 # km/an moyens par categorie
+# Ces valeurs sont des medianes observees, pas des bornes strictes.
+# L3 applique une tolerance de 50% autour de ces valeurs.
 KM_PER_YEAR = {
     "citadine": 10000,
     "compacte": 13000,
@@ -20,8 +26,8 @@ KM_PER_YEAR = {
     "utilitaire": 20000,
     "voiture_sans_permis": 6000,
     "sportive": 5000,
-    # SUVs premium / grands routiers : conçus pour avaler les km
-    # Cayenne, Touareg, X5, X6, Q7, GLE... font 20-25 000 km/an sans problème
+    # SUVs premium / grands routiers : concus pour avaler les km
+    # Cayenne, Touareg, X5, X6, Q7, GLE... font 20-25 000 km/an sans probleme
     "suv_premium": 22000,
 }
 
@@ -30,7 +36,8 @@ KM_PER_YEAR = {
 SPORTIVE_DIN_HP_THRESHOLD = 400
 SPORTIVE_FISCAL_HP_THRESHOLD = 45
 
-# Marques typiques de voitures sans permis (quadricycles légers).
+# Marques typiques de voitures sans permis (quadricycles legers).
+# Detection par marque car la puissance fiscale n'est pas toujours renseignee.
 VSP_BRANDS: frozenset[str] = frozenset(
     {
         "aixam",
@@ -43,7 +50,9 @@ VSP_BRANDS: frozenset[str] = frozenset(
 )
 
 # Mapping (marque, modele) -> categorie
-# Normalise en minuscules pour le matching
+# Normalise en minuscules pour le matching.
+# C'est la source de verite pour la categorisation : un Cayenne reste un SUV
+# meme s'il a 400+ CV, car il est mappe explicitement ici.
 VEHICLE_CATEGORY: dict[tuple[str, str], str] = {
     # --- Citadines ---
     ("peugeot", "208"): "citadine",
@@ -171,6 +180,9 @@ def is_sportive(
     Seuils : >400 CV DIN ou >45 CV fiscaux.
     Ces vehicules roulent peu (loisir, circuit, collection).
     Un km faible est normal et meme souhaitable.
+
+    Note : cette fonction est un FALLBACK. Si le vehicule est dans
+    VEHICLE_CATEGORY, c'est la categorie mappee qui prime.
     """
     if power_din_hp is not None and power_din_hp > SPORTIVE_DIN_HP_THRESHOLD:
         return True
@@ -189,18 +201,21 @@ def get_vehicle_category(
 
     Ordre de priorite :
     1. VSP (marque ou puissance fiscale <= 1 CV)
-    2. Mapping statique (Cayenne → suv_premium, pas sportive, même à 400 CV)
-    3. Détection sportive par puissance (fallback pour véhicules non mappés)
+    2. Mapping statique (Cayenne -> suv_premium, pas sportive, meme a 400 CV)
+    3. Detection sportive par puissance (fallback pour vehicules non mappes)
+
+    Le mapping statique est prioritaire car il encode du savoir metier :
+    un Cayenne est un SUV qui fait du km, pas une sportive de circuit.
     """
     if is_voiture_sans_permis(make, fiscal_hp):
         return "voiture_sans_permis"
 
-    # Mapping statique en priorité : un Cayenne reste un SUV même à 400+ CV
+    # Mapping statique en priorite : un Cayenne reste un SUV meme a 400+ CV
     key = (make.lower().strip(), model.lower().strip())
     if key in VEHICLE_CATEGORY:
         return VEHICLE_CATEGORY[key]
 
-    # Fallback : détection sportive par puissance pour les véhicules non mappés
+    # Fallback : detection sportive par puissance pour les vehicules non mappes
     if is_sportive(power_din_hp=power_din_hp, fiscal_hp=fiscal_hp):
         return "sportive"
 
@@ -213,7 +228,11 @@ def get_expected_km_per_year(
     fiscal_hp: int | None = None,
     power_din_hp: int | None = None,
 ) -> int:
-    """Retourne le km/an attendu pour ce vehicule selon sa categorie."""
+    """Retourne le km/an attendu pour ce vehicule selon sa categorie.
+
+    Si le vehicule n'est pas dans une categorie connue, on retourne
+    15 000 km/an (moyenne nationale francaise).
+    """
     category = get_vehicle_category(make, model, fiscal_hp=fiscal_hp, power_din_hp=power_din_hp)
     if category:
         return KM_PER_YEAR[category]

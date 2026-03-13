@@ -1,4 +1,14 @@
-"""Service CollectionJob -- expansion et gestion de la file d'attente argus."""
+"""Service CollectionJob -- expansion et gestion de la file d'attente LBC (France).
+
+Ce service gere la table CollectionJob qui est la file d'attente de scraping
+pour LeBonCoin. Quand un utilisateur scanne une annonce, on "expand" le vehicule
+en creant des jobs pour collecter les prix sur d'autres regions, variantes de
+carburant, de boite, et d'annees proches.
+
+L'extension Chrome pioche les jobs pending via pick_bonus_jobs() et les traite
+en arriere-plan en navigant sur LBC. Les resultats sont stockes dans MarketPrice
+via market_service.store_market_prices().
+"""
 
 import logging
 import time
@@ -23,6 +33,8 @@ ASSIGNMENT_TIMEOUT_MINUTES = 30
 _expand_cache: dict[str, float] = {}
 _EXPAND_COOLDOWN_SECONDS = 300  # 5 minutes
 
+# Les 13 regions metropolitaines francaises post-reforme 2016.
+# Utilisees pour l'expansion P1 (un job par region).
 POST_2016_REGIONS = [
     "Île-de-France",
     "Auvergne-Rhône-Alpes",
@@ -68,7 +80,7 @@ SWISS_CANTONS = [
     "Jura",
 ]
 
-# Mapping pays → liste de regions pour l'expansion des jobs
+# Mapping pays -> liste de regions pour l'expansion des jobs
 _COUNTRY_REGIONS: dict[str, list[str]] = {
     "FR": POST_2016_REGIONS,
     "CH": SWISS_CANTONS,
@@ -76,10 +88,14 @@ _COUNTRY_REGIONS: dict[str, list[str]] = {
 
 
 def _get_regions_for_country(country: str) -> list[str]:
-    """Retourne la liste de regions pour un pays (FR=regions, CH=cantons)."""
+    """Retourne la liste de regions pour un pays (FR=regions, CH=cantons).
+
+    Fallback sur POST_2016_REGIONS si le pays n'est pas configure.
+    """
     return _COUNTRY_REGIONS.get(country, POST_2016_REGIONS)
 
 
+# Tables de variantes pour l'expansion
 FUEL_OPPOSITES = {"diesel": "essence", "essence": "diesel"}
 GEARBOX_OPPOSITES = {
     "manual": "automatique",
@@ -98,7 +114,10 @@ def _has_fresh_market_price(
     hp_range: str | None,
     country: str = "FR",
 ) -> bool:
-    """Verifie si un MarketPrice frais (< FRESHNESS_DAYS) existe deja."""
+    """Verifie si un MarketPrice frais (< FRESHNESS_DAYS) existe deja.
+
+    Si oui, inutile de creer un job : on a deja les donnees.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
 
     filters = [
@@ -137,7 +156,7 @@ def _job_exists(
 
     Utilise func.lower() pour make/model (ASCII) et comparaison exacte
     pour region (vient de POST_2016_REGIONS), fuel/gearbox (deja normalises).
-    SQLite LOWER() ne gere pas les accents Unicode (Î, Ô, etc.),
+    SQLite LOWER() ne gere pas les accents Unicode (I, O, etc.),
     donc on evite func.lower() sur les colonnes avec accents.
 
     Bloque la creation si :
@@ -300,6 +319,7 @@ def enqueue_collection_job(
     if gearbox:
         gearbox = gearbox.strip().lower()
 
+    # Ce service ne gere que la France. Les autres pays passent par AS24.
     if country != "FR":
         logger.debug(
             "enqueue_collection_job: skip non-FR country %s (use AS24 enqueue)",
@@ -340,6 +360,10 @@ def expand_collection_jobs(
     country: str | None = None,
 ) -> list[CollectionJob]:
     """Expand un vehicule scanne en jobs de collecte (variantes x regions).
+
+    C'est la fonction cle du crowdsourcing : a partir d'un seul scan,
+    on genere des dizaines de jobs pour couvrir toutes les regions et
+    variantes du vehicule.
 
     Priorites :
     - P1 : meme vehicule x N-1 autres regions (13 FR, 26 cantons CH)
@@ -582,6 +606,9 @@ def _cancel_low_data_pending(low_data: set[tuple[str, str, str]]) -> int:
 
 def pick_bonus_jobs(max_jobs: int = 3, country: str = "FR") -> list[CollectionJob]:
     """Selectionne les N jobs pending les plus prioritaires et les assigne.
+
+    Appele par l'extension Chrome quand elle visite une page LBC :
+    elle recupere des jobs bonus a traiter en arriere-plan.
 
     Reclame d'abord les jobs stale (assigned > 30 min).
     Annule les jobs des vehicules low-data (>= LOW_DATA_FAIL_THRESHOLD fails recents).

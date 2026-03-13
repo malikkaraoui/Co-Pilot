@@ -1,4 +1,14 @@
-"""Agrégation métier du référentiel véhicule pour l'admin et futurs services API."""
+"""Agregation metier du referentiel vehicule pour l'admin et futurs services API.
+
+Ce module construit une vue synthetique du referentiel : pour chaque vehicule,
+on sait s'il a des specs, des pneus, des prix marche, des scans, etc.
+Ca permet a l'admin d'identifier les "trous" dans la couverture et de prioriser
+les enrichissements.
+
+Deux niveaux de detail :
+- build_referential_compact_profiles : profils legers pour la liste admin (1 query/source)
+- build_vehicle_business_snapshot : fiche detaillee pour un vehicule (toutes les jointures)
+"""
 
 from __future__ import annotations
 
@@ -19,13 +29,19 @@ from app.models.vehicle_synthesis import VehicleSynthesis
 from app.models.youtube import YouTubeTranscript, YouTubeVideo
 from app.services.market_service import get_min_sample_count, market_text_key, market_text_key_expr
 
+# Fenetres temporelles pour les stats de scans dans le snapshot vehicule
 _LOOKBACK_DAY = timedelta(days=1)
 _LOOKBACK_WEEK = timedelta(days=7)
 _LOOKBACK_MONTH = timedelta(days=30)
 
 
 def vehicle_pair_key(brand: str | None, model: str | None) -> tuple[str, str]:
-    """Retourne une clé stable make/model pour joindre les sources métier."""
+    """Retourne une cle stable make/model pour joindre les sources metier.
+
+    On normalise via market_text_key pour que "Mercedes-Benz" et "mercedes benz"
+    produisent la meme cle. Indispensable car chaque source (LBC, AS24, CSV)
+    ecrit les noms differemment.
+    """
     return market_text_key(brand or ""), market_text_key(model or "")
 
 
@@ -42,7 +58,11 @@ def _matching_pair_filters(
 
 
 def _compact_status(gap_count: int, has_market: bool, has_scans: bool) -> str:
-    """Convertit un nombre de gaps en niveau lisible pour l'admin."""
+    """Convertit un nombre de gaps en niveau lisible pour l'admin.
+
+    3 niveaux : critical (rouge), attention (jaune), healthy (vert).
+    Un vehicule sans aucun prix marche ni scan est directement critical.
+    """
     if gap_count >= 5 or (not has_market and not has_scans):
         return "critical"
     if gap_count >= 2:
@@ -51,7 +71,12 @@ def _compact_status(gap_count: int, has_market: bool, has_scans: bool) -> str:
 
 
 def build_referential_compact_profiles(vehicles: list[Vehicle]) -> dict[int, dict]:
-    """Construit des profils compacts pour toute la base, en lecture rapide."""
+    """Construit des profils compacts pour toute la base, en lecture rapide.
+
+    Strategie : on charge en batch les IDs/paires de chaque source (1 query par source)
+    puis on itere sur les vehicules pour calculer leur profil. O(n_vehicules) en memoire
+    mais O(n_sources) en queries, bien mieux que de faire une query par vehicule.
+    """
     spec_vehicle_ids = {vid for (vid,) in db.session.query(VehicleSpec.vehicle_id).distinct().all()}
     argus_vehicle_ids = {vid for (vid,) in db.session.query(ArgusPrice.vehicle_id).distinct().all()}
     transcript_vehicle_ids = {
@@ -128,6 +153,7 @@ def build_referential_compact_profiles(vehicles: list[Vehicle]) -> dict[int, dic
         .all()
     }
 
+    # Pour chaque vehicule, on calcule son profil en O(1) grace aux sets precharges
     profiles: dict[int, dict] = {}
     for vehicle in vehicles:
         pair = vehicle_pair_key(vehicle.brand, vehicle.model)
@@ -143,6 +169,8 @@ def build_referential_compact_profiles(vehicles: list[Vehicle]) -> dict[int, dic
         has_lbc_tokens = bool(vehicle.site_brand_token and vehicle.site_model_token)
         has_as24_tokens = bool(vehicle.as24_slug_make and vehicle.as24_slug_model)
 
+        # Le readiness score est base sur 8 criteres binaires.
+        # Chaque critere manquant est un "gap" qui fait baisser le pourcentage.
         gap_count = sum(
             int(not flag)
             for flag in [
@@ -179,7 +207,11 @@ def build_referential_compact_profiles(vehicles: list[Vehicle]) -> dict[int, dic
 
 
 def build_referential_summary(vehicles: list[Vehicle], profiles: dict[int, dict]) -> dict:
-    """Synthèse globale de la base pour la page admin."""
+    """Synthese globale de la base pour la page admin.
+
+    Agregation des profils individuels : combien de vehicules ont des specs,
+    des pneus, etc. Plus la moyenne de readiness pour jauger la sante globale.
+    """
     total = len(vehicles)
     status_counter = Counter(profile["status"] for profile in profiles.values())
 
@@ -207,6 +239,7 @@ def build_referential_summary(vehicles: list[Vehicle], profiles: dict[int, dict]
 
 
 def _job_status_counts(model_cls, vehicle: Vehicle) -> dict[str, int]:
+    """Compte les jobs de collecte par status pour un vehicule donne."""
     rows = (
         db.session.query(model_cls.status, func.count(model_cls.id))
         .filter(*_matching_pair_filters(model_cls, "make", "model", vehicle))
@@ -221,7 +254,15 @@ def _job_status_counts(model_cls, vehicle: Vehicle) -> dict[str, int]:
 
 
 def build_vehicle_business_snapshot(vehicle: Vehicle, now: datetime | None = None) -> dict:
-    """Construit la fiche métier détaillée d'un véhicule."""
+    """Construit la fiche metier detaillee d'un vehicule.
+
+    C'est la vue complete utilisee par la page admin vehicule :
+    specs, pneus, prix marche, argus seeds, YouTube, scans, jobs de collecte.
+    Tout est charge en memoire pour eviter les N+1 queries dans le template.
+
+    Le dict retourne contient aussi les "gaps" (donnees manquantes) et
+    un status readiness pour l'admin.
+    """
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)
 
     spec_rows = (
@@ -354,6 +395,8 @@ def build_vehicle_business_snapshot(vehicle: Vehicle, now: datetime | None = Non
     as24_jobs = _job_status_counts(CollectionJobAS24, vehicle)
     lc_jobs = _job_status_counts(CollectionJobLacentrale, vehicle)
 
+    # Identification des lacunes : chaque gap est un texte explicite
+    # affiche dans la page admin comme un warning
     gap_items: list[str] = []
     if not spec_rows:
         gap_items.append("Specs techniques absentes")

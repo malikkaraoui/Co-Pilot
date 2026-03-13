@@ -1,4 +1,16 @@
-"""Filtre L10 Anciennete annonce -- analyse la duree de mise en vente et detecte les annonces stagnantes."""
+"""Filtre L10 Anciennete annonce -- analyse la duree de mise en vente et detecte les annonces stagnantes.
+
+Le principe : si une annonce est en ligne depuis longtemps, c'est un signal.
+Soit le prix est trop haut (les acheteurs passent leur tour), soit il y a
+un probleme cache qui fait fuir les visiteurs en visite.
+
+Le seuil varie selon le segment du vehicule :
+- Un vehicule populaire a 8 000 EUR devrait partir en ~3 semaines
+- Un vehicule premium a 60 000 EUR peut rester 2-3 mois sans que ce soit anormal
+
+Quand on a assez de data historique (scans precedents), on utilise la mediane
+reelle du marche au lieu des seuils statiques.
+"""
 
 import logging
 import statistics
@@ -17,17 +29,22 @@ PRICE_THRESHOLDS: list[tuple[int, int]] = [
     (25_000, 35),  # Milieu de gamme
     (50_000, 50),  # Haut de gamme
 ]
-PREMIUM_THRESHOLD_DAYS = 75  # >50k EUR : premium/niche
+PREMIUM_THRESHOLD_DAYS = 75  # >50k EUR : premium/niche, temps de vente plus long
 
 # Nombre minimum de scans historiques pour utiliser la mediane marche
+# En dessous, les stats ne sont pas fiables
 MIN_MARKET_SAMPLES = 5
 
 # Fenetre de temps pour les scans historiques (jours)
+# On ne regarde que les 3 derniers mois pour rester representatif
 MARKET_LOOKBACK_DAYS = 90
 
 
 def _threshold_for_price(price_eur: int | None) -> int:
-    """Retourne le seuil de jours en fonction du prix du vehicule."""
+    """Retourne le seuil de jours en fonction du prix du vehicule.
+
+    Plus le vehicule est cher, plus on tolere un temps de vente long.
+    """
     if price_eur is None:
         return 35  # fallback milieu de gamme
 
@@ -40,6 +57,7 @@ def _threshold_for_price(price_eur: int | None) -> int:
 def _get_market_median_days(make: str, model: str) -> int | None:
     """Calcule la mediane des days_online pour un make/model depuis ScanLog.
 
+    Utilise les scans des 90 derniers jours pour ce modele.
     Retourne None si pas assez de donnees (<MIN_MARKET_SAMPLES).
     """
     from app.models.scan import ScanLog
@@ -66,7 +84,15 @@ def _get_market_median_days(make: str, model: str) -> int | None:
 
 
 class L10ListingAgeFilter(BaseFilter):
-    """Analyse l'anciennete de l'annonce et detecte les annonces stagnantes."""
+    """Analyse l'anciennete de l'annonce et detecte les annonces stagnantes.
+
+    Le seuil est dynamique :
+    - Si on a assez de scans historiques pour ce modele, on utilise la mediane reelle
+    - Sinon, on utilise un seuil statique base sur le prix (proxy du segment)
+
+    Malus supplementaire si l'annonce a ete republiee (le vendeur triche
+    pour paraitre recent, ce qui est un red flag supplementaire).
+    """
 
     filter_id = "L10"
 
@@ -93,10 +119,10 @@ class L10ListingAgeFilter(BaseFilter):
         else:
             threshold = _threshold_for_price(price_eur)
 
-        # Ratio anciennete / seuil
+        # Ratio anciennete / seuil : permet de comparer des segments differents
         ratio = days_online / threshold if threshold > 0 else 0
 
-        # Scoring par ratio
+        # Scoring par ratio : plus le ratio est eleve, plus c'est suspect
         if ratio <= 0.3:
             score = 1.0
             status = "pass"
@@ -119,7 +145,8 @@ class L10ListingAgeFilter(BaseFilter):
                 f"(seuil {threshold}j pour ce segment)"
             )
 
-        # Malus republication
+        # Malus republication : le vendeur a tente de "remettre a zero" l'anciennete
+        # C'est un signal supplementaire de difficulte a vendre
         if republished:
             if ratio > 2.0:
                 score = 0.2

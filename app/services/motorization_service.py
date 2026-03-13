@@ -3,6 +3,11 @@
 Chaque annonce (collecte marche ou scan individuel) contribue des specs observees.
 Quand une combinaison (fuel + transmission + puissance) est vue sur N annonces
 distinctes, elle est promue en VehicleSpec confirmee.
+
+L'interet : on enrichit le referentiel automatiquement a partir des donnees terrain.
+Pas besoin de saisir manuellement les motorisations, les annonces font le travail.
+Le seuil de 3 sources distinctes evite de creer des specs a partir d'une seule
+annonce potentiellement erronnee.
 """
 
 import hashlib
@@ -16,12 +21,15 @@ from app.extensions import db
 
 logger = logging.getLogger(__name__)
 
-# Nombre minimum de sources distinctes pour promouvoir une motorisation en VehicleSpec
+# Nombre minimum de sources distinctes pour promouvoir une motorisation en VehicleSpec.
+# 3 = bonne balance entre reactivite et fiabilite (evite les faux positifs
+# d'une annonce isolee avec des donnees erronees).
 PROMOTION_THRESHOLD = 3
 
 
 # --- Normalisation ---
-
+# Tables de mapping pour harmoniser les valeurs brutes des annonces (lowercase, accents varies)
+# vers des formes propres pour VehicleSpec.
 
 FUEL_DISPLAY = {
     "essence": "Essence",
@@ -43,17 +51,26 @@ TRANSMISSION_DISPLAY = {
 
 
 def capitalize_fuel(fuel: str) -> str:
-    """Normalise le type de carburant pour VehicleSpec (title case)."""
+    """Normalise le type de carburant pour VehicleSpec (title case).
+
+    Passe par la table de mapping pour les cas connus, sinon .title() en fallback.
+    """
     return FUEL_DISPLAY.get(fuel.strip().lower(), fuel.strip().title())
 
 
 def capitalize_transmission(trans: str) -> str:
-    """Normalise la transmission pour VehicleSpec."""
+    """Normalise la transmission pour VehicleSpec.
+
+    Gere les variantes anglais/francais (manual/manuelle, automatic/automatique).
+    """
     return TRANSMISSION_DISPLAY.get(trans.strip().lower(), trans.strip().title())
 
 
 def build_engine_name(fuel: str, transmission: str, hp: int) -> str:
     """Construit un nom lisible de motorisation.
+
+    Ce nom est stocke dans VehicleSpec.engine pour l'affichage
+    dans l'extension et le rapport PDF.
 
     Ex: "Diesel 130ch Automatique", "Essence 110ch Manuelle".
     """
@@ -67,7 +84,8 @@ def _ad_hash(detail: dict) -> str:
     """Hash stable d'un detail d'annonce pour deduplication.
 
     Utilise price+year+km comme empreinte unique d'une annonce.
-    Deux collectes de la meme annonce produiront le meme hash.
+    Deux collectes de la meme annonce produiront le meme hash,
+    ce qui evite de gonfler artificiellement le compteur distinct_sources.
     """
     key = f"{detail.get('price', 0)}:{detail.get('year', 0)}:{detail.get('km', 0)}"
     return hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()[:12]
@@ -82,8 +100,10 @@ def enrich_observed_motorizations(
 ) -> list[int]:
     """Enrichit les motorisations observees depuis des details d'annonces.
 
-    Chaque detail contenant fuel + gearbox + horse_power forme un combo.
-    Les combos sont comptes et dedupes par hash d'annonce.
+    C'est le coeur du systeme d'auto-enrichissement. Pour chaque annonce
+    contenant fuel + gearbox + horse_power, on cree ou met a jour un
+    ObservedMotorization. Si le nombre de sources distinctes atteint le
+    seuil, on "promeut" la motorisation en VehicleSpec officielle.
 
     Args:
         vehicle_id: ID du vehicule dans le referentiel.
@@ -97,7 +117,7 @@ def enrich_observed_motorizations(
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     promoted_ids: list[int] = []
 
-    # Grouper les combos avec leurs hashes et metadata
+    # Phase 1 : grouper les combos par (fuel, gearbox, hp) avec dedup par hash d'annonce
     combos: dict[tuple[str, str, int], dict] = {}
     for detail in details:
         if not isinstance(detail, dict):
@@ -137,6 +157,7 @@ def enrich_observed_motorizations(
         if fiscal and not combos[key]["fiscal"]:
             combos[key]["fiscal"] = fiscal
 
+    # Phase 2 : pour chaque combo, creer ou mettre a jour l'ObservedMotorization
     for (fuel, transmission, power_hp), info in combos.items():
         ad_hashes = info["hashes"]
         seats = info["seats"]
@@ -165,7 +186,7 @@ def enrich_observed_motorizations(
             if fiscal and not existing.power_fiscal_cv:
                 existing.power_fiscal_cv = fiscal
 
-            # Verifier si promotion requise
+            # Verifier si la motorisation a atteint le seuil de promotion
             if not existing.promoted and existing.distinct_sources >= PROMOTION_THRESHOLD:
                 spec_id = _promote_to_vehicle_spec(existing)
                 if spec_id:
@@ -173,6 +194,7 @@ def enrich_observed_motorizations(
                     existing.promoted_at = now
                     promoted_ids.append(spec_id)
         else:
+            # Premiere observation de cette combinaison pour ce vehicule
             moto = ObservedMotorization(
                 vehicle_id=vehicle_id,
                 fuel=fuel,
@@ -188,6 +210,7 @@ def enrich_observed_motorizations(
             db.session.add(moto)
             db.session.flush()  # Obtenir l'ID avant possible promotion
 
+            # Cas rare mais possible : batch initial avec 3+ annonces distinctes
             if moto.distinct_sources >= PROMOTION_THRESHOLD:
                 spec_id = _promote_to_vehicle_spec(moto)
                 if spec_id:
@@ -210,6 +233,7 @@ def enrich_observed_motorizations(
             len(promoted_ids),
             vehicle_id,
         )
+        # Mettre a jour le status d'enrichissement du vehicule
         _maybe_update_enrichment_status(vehicle_id)
 
     return promoted_ids
@@ -221,7 +245,9 @@ def enrich_observed_motorizations(
 def _promote_to_vehicle_spec(moto) -> int | None:
     """Cree un VehicleSpec a partir d'une motorisation observee confirmee.
 
-    Verifie qu'un VehicleSpec equivalent n'existe pas deja.
+    C'est l'etape finale du pipeline : une motorisation vue sur assez de sources
+    devient une spec officielle du vehicule. On verifie d'abord qu'un doublon
+    n'existe pas deja (race condition possible avec des imports paralleles).
 
     Returns:
         L'ID du VehicleSpec cree, ou None si doublon.
@@ -271,7 +297,8 @@ def _promote_to_vehicle_spec(moto) -> int | None:
 def _maybe_update_enrichment_status(vehicle_id: int) -> None:
     """Met a jour enrichment_status du vehicule si des specs ont ete promues.
 
-    partial → complete quand le vehicule a au moins une VehicleSpec.
+    Le status passe de "partial" a "complete" des qu'il y a au moins une VehicleSpec.
+    Ca permet a l'admin de voir quels vehicules sont prets pour le scan.
     """
     from app.models.vehicle import Vehicle, VehicleSpec
 

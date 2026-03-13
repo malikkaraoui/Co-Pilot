@@ -1,4 +1,10 @@
-"""Extensions Flask -- instanciees ici, initialisees dans create_app()."""
+"""Extensions Flask -- instanciees ici, initialisees dans create_app().
+
+On suit le pattern classique Flask : les extensions sont creees au niveau
+du module (sans app), puis liees a l'app via init_app() dans la factory.
+Ca permet d'importer ``db``, ``limiter``, etc. depuis n'importe ou sans
+import circulaire.
+"""
 
 import unicodedata
 
@@ -13,6 +19,7 @@ from sqlalchemy.engine import Engine
 
 from app.services.vehicle_lookup_keys import lookup_compact_key
 
+# Extensions globales — on les importe dans __init__.py pour les init
 db = SQLAlchemy()
 login_manager = LoginManager()
 cors = CORS()
@@ -35,7 +42,12 @@ def _sqlite_strip_accents(text: str | None) -> str | None:
 
 
 def _sqlite_vehicle_lookup_key(text: str | None) -> str | None:
-    """Fonction SQLite custom : produit une clé compacte de lookup véhicule."""
+    """Produit une cle compacte de lookup vehicule.
+
+    Permet de retrouver un vehicule dans la DB meme si l'annonce
+    ecrit le modele differemment (tirets, espaces, casse...).
+    Delegue la logique a lookup_compact_key() pour rester DRY.
+    """
     if text is None:
         return None
     return lookup_compact_key(text)
@@ -43,7 +55,12 @@ def _sqlite_vehicle_lookup_key(text: str | None) -> str | None:
 
 @event.listens_for(Engine, "connect")
 def _register_sqlite_functions(dbapi_conn, _connection_record):
-    """Enregistre les fonctions custom SQLite a chaque nouvelle connexion."""
+    """Enregistre nos fonctions custom a chaque nouvelle connexion SQLite.
+
+    SQLAlchemy cree potentiellement plusieurs connexions (pool), donc
+    on doit re-enregistrer sur chacune. Le listener "connect" est
+    appele automatiquement par SQLAlchemy.
+    """
     if hasattr(dbapi_conn, "create_function"):
         dbapi_conn.create_function("strip_accents", 1, _sqlite_strip_accents)
         dbapi_conn.create_function("vehicle_lookup_key", 1, _sqlite_vehicle_lookup_key)

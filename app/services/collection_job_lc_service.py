@@ -1,4 +1,10 @@
-"""Service CollectionJobLacentrale -- file d'attente de collecte pour La Centrale."""
+"""Service CollectionJobLacentrale -- file d'attente de collecte pour La Centrale.
+
+Meme pattern que les autres collection_job_*_service, mais simplifie
+car La Centrale est toujours national (France) sans granularite regionale
+dans l'URL de recherche. L'expansion cree donc des variantes vehicule
+(carburant, boite, annee) mais pas des variantes region.
+"""
 
 import logging
 import time
@@ -43,7 +49,10 @@ def _has_fresh_market_price_lc(
     fuel: str | None,
     hp_range: str | None,
 ) -> bool:
-    """Verifie si un MarketPrice frais existe pour ce combo (region=France)."""
+    """Verifie si un MarketPrice frais existe pour ce combo (region=France).
+
+    Toujours region="France" car La Centrale ne supporte pas le filtre region.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
 
     filters = [
@@ -156,6 +165,7 @@ def _try_create_job_lc(
     if _job_exists_lc(make, model, year, fuel, gearbox, hp_range):
         return None
 
+    # Recycler un vieux job failed si possible
     old = _find_old_failed_job_lc(make, model, year, fuel, gearbox, hp_range)
     if old:
         old.status = "pending"
@@ -180,6 +190,7 @@ def _try_create_job_lc(
         country="FR",
     )
 
+    # Savepoint pour isoler l'IntegrityError
     nested = db.session.begin_nested()
     try:
         db.session.add(job)
@@ -197,7 +208,11 @@ def _try_create_job_lc(
 
 
 def _get_low_data_vehicles_lc() -> set[tuple[str, str]]:
-    """Identifie les vehicules LC avec >= LOW_DATA_FAIL_THRESHOLD fails recents."""
+    """Identifie les vehicules LC avec >= LOW_DATA_FAIL_THRESHOLD fails recents.
+
+    Retourne un set de (make_lower, model_lower).
+    Pas de filtre pays/tld ici car LC = toujours France.
+    """
     failed_cutoff = datetime.now(timezone.utc) - timedelta(days=FRESHNESS_DAYS)
 
     rows = (
@@ -278,7 +293,7 @@ def expand_collection_jobs_lc(
     if gearbox:
         gearbox = gearbox.strip().lower()
 
-    # Skip si low-data
+    # Skip si le vehicule est low-data
     low_data = _get_low_data_vehicles_lc()
     if (make.strip().lower(), model.strip().lower()) in low_data:
         logger.info("LC: skipping expansion for low-data %s %s", make, model)
@@ -374,7 +389,10 @@ def _reclaim_stale_jobs_lc() -> int:
 
 
 def pick_bonus_jobs_lc(max_jobs: int = 3) -> list[CollectionJobLacentrale]:
-    """Selectionne les N jobs LC pending les plus prioritaires."""
+    """Selectionne les N jobs LC pending les plus prioritaires.
+
+    Pas de filtre pays/tld ici car LC = toujours France.
+    """
     _reclaim_stale_jobs_lc()
 
     low_data = _get_low_data_vehicles_lc()

@@ -1,26 +1,39 @@
 /**
- * DOM manipulation for popup overlay injection.
+ * Manipulation DOM pour l'injection de la popup overlay.
  *
- * SECURITY NOTE: All HTML passed to showPopup() is pre-escaped via
- * escapeHTML() or consists of hardcoded template strings. No raw user
- * input is ever injected. This is the same safe pattern used in the
- * original content.js before this refactoring.
+ * C'est le "chef d'orchestre" de l'UI : il injecte le HTML dans la page,
+ * branche tous les event listeners (close, retry, email, premium),
+ * et gere la generation email.
+ *
+ * NOTE SECURITE : tout le HTML passe a showPopup() est pre-escape via
+ * escapeHTML() ou compose de template strings statiques. Aucune donnee
+ * utilisateur brute n'est injectee.
  */
 
 "use strict";
 
 import { backendFetch } from '../utils/fetch.js';
 
+// Etat module : references vers le flow principal (injectees par content.js au boot)
 let _runAnalysis = null;
 let _apiUrl = null;
 let _lastScanIdGetter = null;
 
+/**
+ * Initialise les references necessaires pour les actions CTA.
+ * Appele une seule fois au demarrage par content.js.
+ * @param {Object} config
+ * @param {Function} config.runAnalysis - Relance l'analyse complete
+ * @param {string} config.apiUrl - URL de base de l'API backend
+ * @param {Function} config.getLastScanId - Getter pour le scan_id courant
+ */
 export function initDom({ runAnalysis, apiUrl, getLastScanId }) {
   _runAnalysis = runAnalysis;
   _apiUrl = apiUrl;
   _lastScanIdGetter = getLastScanId;
 }
 
+/** Supprime la popup et l'overlay s'ils existent. */
 export function removePopup() {
   const existing = document.getElementById("okazcar-popup");
   if (existing) existing.remove();
@@ -28,21 +41,27 @@ export function removePopup() {
   if (overlay) overlay.remove();
 }
 
+/**
+ * Injecte une popup dans le DOM et branche tous les listeners interactifs.
+ * C'est LA fonction centrale de l'UI — toutes les popups passent par ici.
+ * @param {string} safeHTML - HTML pre-escape a injecter
+ */
 export function showPopup(safeHTML) {
   removePopup();
   const overlay = document.createElement("div");
   overlay.id = "okazcar-overlay";
   overlay.className = "okazcar-overlay";
+  // Clic sur l'overlay (en dehors de la popup) = fermeture
   overlay.addEventListener("click", (e) => { if (e.target === overlay) removePopup(); });
 
-  // safeHTML is pre-escaped; parse it into DOM nodes
+  // On parse le HTML via <template> pour eviter l'insertion directe dans le DOM
   const template = document.createElement("template");
   template.innerHTML = safeHTML;
   const popupNode = template.content.firstElementChild;
   overlay.appendChild(popupNode);
   document.body.appendChild(overlay);
 
-  // Collapse/expand filter cards
+  // Accordeon : clic sur un filtre = expand/collapse de son contenu
   popupNode.querySelectorAll('.okazcar-filter-header').forEach(header => {
     header.addEventListener('click', () => {
       header.closest('.okazcar-filter-item').classList.toggle('expanded');
@@ -58,6 +77,8 @@ export function showPopup(safeHTML) {
     premiumBtn.addEventListener("click", () => { premiumBtn.textContent = "Bientôt disponible !"; premiumBtn.disabled = true; });
   }
 
+  // --- Generation email via Gemini ---
+  // Flow : clic -> masque bouton -> spinner -> appel API -> affiche textarea OU erreur
   const emailBtn = document.getElementById("okazcar-email-btn");
   if (emailBtn) {
     emailBtn.addEventListener("click", async () => {
@@ -76,7 +97,7 @@ export function showPopup(safeHTML) {
         if (data.success) { textArea.value = data.data.generated_text; result.style.display = "block"; }
         else {
           let msg = data.error || "Erreur de génération";
-          // Nettoyer les erreurs techniques brutes (API Google, stack traces)
+          // On masque les erreurs techniques brutes (stack traces Google, etc.)
           if (msg.length > 120 || msg.includes("googleapis") || msg.includes("INVALID_ARGUMENT")) {
             msg = "Service de rédaction temporairement indisponible.";
           }
@@ -87,6 +108,7 @@ export function showPopup(safeHTML) {
     });
   }
 
+  // --- Bouton "Copier" pour l'email genere ---
   const copyBtn = document.getElementById("okazcar-email-copy");
   if (copyBtn) {
     copyBtn.addEventListener("click", () => {

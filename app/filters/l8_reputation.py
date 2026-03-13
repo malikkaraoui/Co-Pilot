@@ -1,4 +1,17 @@
-"""Filtre L8 Detection d'Import -- detecte les signaux de vehicules importes."""
+"""Filtre L8 Detection d'Import -- detecte les signaux de vehicules importes.
+
+L'import de vehicule n'est pas mauvais en soi, mais c'est un facteur de risque :
+- Compteur potentiellement trafique (frequent sur les imports d'Europe de l'Est)
+- Historique d'entretien difficile a verifier
+- Frais caches (malus, homologation, carte grise...)
+- Garantie constructeur potentiellement non transposable
+
+Ce filtre accumule des signaux (forts et faibles) et ponderre le verdict
+selon leur nombre. Un seul signal = warning, 2+ signaux forts = fail.
+
+Les signaux sont adaptes au pays du site : "allemagne" dans la description
+d'une annonce sur mobile.de c'est normal, sur LBC c'est un signal d'import.
+"""
 
 import logging
 import re
@@ -11,6 +24,7 @@ from app.filters.phone_prefixes import detect_phone_prefix_country
 logger = logging.getLogger(__name__)
 
 # Keywords d'import en francais
+# Couvrent les termes courants dans les annonces de vehicules importes
 IMPORT_KEYWORDS_FR = [
     "import",
     "importé",
@@ -34,7 +48,7 @@ IMPORT_KEYWORDS_FR = [
     "volant à droite",
 ]
 
-# Pays source d'import frequents
+# Pays source d'import frequents pour la France
 IMPORT_COUNTRIES = [
     "allemagne",
     "belgique",
@@ -56,6 +70,7 @@ IMPORT_COUNTRIES = [
 ]
 
 # Noms locaux par pays -- a exclure de la detection d'import sur le site du pays
+# Ex : "suisse" dans une annonce sur autoscout24.ch n'est pas un signal d'import
 _COUNTRY_LOCAL_NAMES: dict[str, set[str]] = {
     "FR": {"france"},
     "CH": {"suisse"},
@@ -70,7 +85,8 @@ _COUNTRY_LOCAL_NAMES: dict[str, set[str]] = {
 
 # ── Keywords multi-langues par langue ────────────────────────────────
 # Vocabulaire automobile courant par langue.
-# Ces mots sont NORMAUX sur les sites du pays d'origine → exclus via _COUNTRY_LOCAL_KEYWORDS.
+# Ces mots sont NORMAUX sur les sites du pays d'origine -> exclus via _COUNTRY_LOCAL_KEYWORDS.
+# Par contre, sur un site francais, un "Unfallwagen" dans la description = copier-coller suspect.
 
 _FOREIGN_KW_DE: set[str] = {
     "unfallwagen",
@@ -135,7 +151,7 @@ _IMPORT_SPECIFIC_FOREIGN: list[str] = [
     "dogana",
 ]
 
-# Liste complete assemblees (utilisee par le filtre)
+# Liste complete assemblee (utilisee par le filtre pour le scan de texte)
 IMPORT_KEYWORDS_FOREIGN: list[str] = (
     list(_FOREIGN_KW_DE)
     + list(_FOREIGN_KW_ES)
@@ -144,7 +160,8 @@ IMPORT_KEYWORDS_FOREIGN: list[str] = (
     + _IMPORT_SPECIFIC_FOREIGN
 )
 
-# Pays → set de keywords "normaux" localement (exclus de la detection de langue etrangere)
+# Pays -> set de keywords "normaux" localement (exclus de la detection de langue etrangere)
+# Ex : "Fahrzeug" sur autoscout24.de/at/ch n'est pas un signal d'import
 _COUNTRY_LOCAL_KEYWORDS: dict[str, set[str]] = {
     "CH": _FOREIGN_KW_DE,
     "DE": _FOREIGN_KW_DE,
@@ -155,7 +172,7 @@ _COUNTRY_LOCAL_KEYWORDS: dict[str, set[str]] = {
 
 # Signaux fiscaux specifiques a l'import (malus, export, taxe CO2)
 # Note: "ht", "hors taxe", "hors tva", "tva recuperable/deductible" RETIRES
-# — c'est du pricing professionnel standard, pas un signal d'import.
+# -- c'est du pricing professionnel standard, pas un signal d'import.
 TAX_KEYWORDS = [
     "exportation",
     "malus payé",
@@ -167,6 +184,7 @@ TAX_KEYWORDS = [
 ]
 
 # Signaux de carte grise / immatriculation -- FORTS (specifiques a l'import)
+# Plaque WW, COC, RTI sont quasi-exclusivement lies a des vehicules importes
 REGISTRATION_STRONG = [
     "plaque ww",
     "immatriculation ww",
@@ -174,7 +192,7 @@ REGISTRATION_STRONG = [
     "reception a titre isole",
 ]
 
-# Tokens courts d'immatriculation necessitant word boundary
+# Tokens courts d'immatriculation necessitant word boundary pour eviter les faux positifs
 _SHORT_REGISTRATION_TOKENS = ["coc", "rti"]
 
 # Signaux de carte grise / immatriculation -- FAIBLES (ambigus: import OU admin/ministeriel/leasing)
@@ -187,7 +205,19 @@ REGISTRATION_WEAK = [
 
 
 class L8ImportDetectionFilter(BaseFilter):
-    """Detecte les signaux indiquant qu'un vehicule pourrait etre importe."""
+    """Detecte les signaux indiquant qu'un vehicule pourrait etre importe.
+
+    Accumule 7 types de signaux :
+    1. Telephone etranger (recoupement L6)
+    2. Mots-cles d'import dans la description
+    3. Texte en langue etrangere (copier-coller)
+    4. Signaux fiscaux (malus, export, taxe CO2)
+    5. Carte grise / immatriculation suspecte
+    6. Prix anormalement bas pour l'age
+    7. Pro sans numero d'entreprise
+
+    Ponderation : fort = 1.0, faible = 0.5. Seuil warning a 1.0, fail a 2.0.
+    """
 
     filter_id = "L8"
 
@@ -197,7 +227,7 @@ class L8ImportDetectionFilter(BaseFilter):
         country = (data.get("country") or "FR").upper()
 
         # Signal 1 : Telephone etranger (recoupement avec les donnees L6)
-        # Parse via table partagée pour éviter les erreurs de slicing (+437 -> +43).
+        # Parse via table partagee pour eviter les erreurs de slicing (+437 -> +43).
         phone = data.get("phone") or ""
         cleaned_phone = re.sub(r"[\s\-.]", "", phone)
         prefix_country, _ = detect_phone_prefix_country(cleaned_phone)
@@ -210,7 +240,7 @@ class L8ImportDetectionFilter(BaseFilter):
         text = f"{title} {description}"
 
         # Word boundary sur "import" (evite "important", "importateur" --
-        # les formes specifiques "importé", "importation" sont des entrees separees)
+        # les formes specifiques "importe", "importation" sont des entrees separees)
         found_import = []
         for kw in IMPORT_KEYWORDS_FR:
             if kw == "import":
@@ -267,6 +297,7 @@ class L8ImportDetectionFilter(BaseFilter):
             )
 
         # Signal 6 : Anomalie de prix (tres bas pour le type)
+        # Un vehicule recent a prix derisoire = souvent un import avec probleme
         price = data.get("price_eur")
         year_str = data.get("year_model")
         if price is not None and year_str:
@@ -297,6 +328,7 @@ class L8ImportDetectionFilter(BaseFilter):
         all_signals = strong_signals + weak_signals
         signal_weight = len(strong_signals) + 0.5 * len(weak_signals)
 
+        # <1.0 = aucun signal fort et au plus 1 faible : OK
         if signal_weight < 1.0:
             return FilterResult(
                 filter_id=self.filter_id,
@@ -310,6 +342,7 @@ class L8ImportDetectionFilter(BaseFilter):
                 },
             )
 
+        # 1.0-2.0 = un signal fort ou quelques faibles : warning
         if signal_weight < 2.0:
             msg = (
                 all_signals[0]
@@ -328,6 +361,7 @@ class L8ImportDetectionFilter(BaseFilter):
                 },
             )
 
+        # >=2.0 = accumulation de signaux forts : fail
         return FilterResult(
             filter_id=self.filter_id,
             status="fail",

@@ -2,6 +2,15 @@
 
 Multi-pays : adapte la validation selon le pays (FR, CH, DE, etc.)
 detecte via ad_data["country"] injecte par routes.py.
+
+Detecte :
+- Les indicatifs etrangers (ex: +49 sur une annonce francaise)
+- Les prefixes ARCEP reserves au demarchage telephonique (France)
+- Les numeros virtuels OnOff (identite masquee)
+- L'absence de telephone (red flag, surtout pour un pro)
+
+Le telephone est un signal fort : un vendeur qui donne son vrai numero
+est plus credible qu'un vendeur qui se cache derriere la messagerie.
 """
 
 import logging
@@ -21,24 +30,29 @@ from app.filters.phone_prefixes import (
 logger = logging.getLogger(__name__)
 
 # ── Patterns par pays ────────────────────────────────────────────────
-# France
+# Regex strictes pour valider le format des numeros connus.
+# Si le numero ne matche aucun pattern, on ne penalise pas (score 0.8)
+# car nos regex ne couvrent pas tous les cas (formats exotiques, numeros courts...)
+
+# France : 06/07 = mobile, 01-05/09 = fixe
 FR_MOBILE_PATTERN = re.compile(r"^(?:\+33|0033|0)[67]\d{8}$")
 FR_LANDLINE_PATTERN = re.compile(r"^(?:\+33|0033|0)[1-59]\d{8}$")
 
-# Suisse
+# Suisse : 075-079 = mobile, 02-06 = fixe
 CH_MOBILE_PATTERN = re.compile(r"^(?:\+41|0041|0)7[5-9]\d{7}$")
 CH_LANDLINE_PATTERN = re.compile(r"^(?:\+41|0041|0)[2-6]\d{8}$")
 
-# Allemagne
+# Allemagne : 015x-017x = mobile, 02-09 = fixe (longueur variable)
 DE_MOBILE_PATTERN = re.compile(r"^(?:\+49|0049|0)1[5-7]\d{8,9}$")
 DE_LANDLINE_PATTERN = re.compile(r"^(?:\+49|0049|0)[2-9]\d{6,10}$")
 
-# Tableau d'indicatifs partagé (source unique L6/L8)
+# Indicatifs par pays, pre-calcules au chargement du module
 COUNTRY_PREFIXES: dict[str, tuple[str, ...]] = {
     c: get_country_prefixes(c) for c in PHONE_DIAL_TABLE
 }
 
 # Prefixes ARCEP reserves au demarchage telephonique (France, depuis 1er janvier 2023)
+# Un vendeur qui utilise ces numeros n'est probablement pas un vrai vendeur de voiture.
 # Source: plan de numerotation ARCEP, liste officielle
 TELEMARKETING_PREFIXES = (
     "0162",
@@ -61,6 +75,8 @@ TELEMARKETING_PREFIXES = (
 )
 
 # Numeros virtuels OnOff (France)
+# Ces numeros permettent d'avoir un second numero jetable.
+# Pas forcement malveillant, mais l'identite du vendeur est masquee.
 VIRTUAL_PREFIXES = (
     "064466",
     "064467",
@@ -77,7 +93,13 @@ def _is_local_prefix(cleaned: str, country: str) -> bool:
 
 
 class L6PhoneFilter(BaseFilter):
-    """Analyse le numero de telephone du vendeur pour detecter des indicatifs etrangers ou formats suspects."""
+    """Analyse le numero de telephone du vendeur pour detecter des indicatifs etrangers ou formats suspects.
+
+    Logique en 3 etapes :
+    1. Pas de telephone ? -> warning/fail selon le contexte
+    2. Indicatif etranger ? -> warning (recoupement avec L8 import)
+    3. Validation par pays (FR/CH/DE) ou generique
+    """
 
     filter_id = "L6"
 
@@ -120,10 +142,11 @@ class L6PhoneFilter(BaseFilter):
 
         # Normalisation : espaces, tirets, points + prefixe de tronc (0) (DE/AT/CH)
         cleaned = re.sub(r"[\s\-.]", "", phone.strip())
-        cleaned = cleaned.replace("(0)", "")  # "+49(0)271" → "+49271"
+        cleaned = cleaned.replace("(0)", "")  # "+49(0)271" -> "+49271"
         cleaned = re.sub(r"[()]", "", cleaned)  # parentheses restantes
 
-        # Verification d'indicatif basée sur la table connue (pas de regex gloutonne +437)
+        # Verification d'indicatif basee sur la table connue (pas de regex gloutonne +437)
+        # Longest-prefix match pour eviter les ambiguites (+43 vs +437)
         prefix_country, canonical_prefix = detect_phone_prefix_country(cleaned)
         if prefix_country and canonical_prefix and prefix_country != country:
             prefix_country_name = get_country_name(prefix_country)
@@ -153,23 +176,28 @@ class L6PhoneFilter(BaseFilter):
                 },
             )
 
-        # ── France : checks specifiques ──────────────────────────────
+        # ── Dispatch par pays pour les checks specifiques ─────────────
         if country == "FR":
             return self._check_fr(cleaned, phone)
 
-        # ── Suisse ───────────────────────────────────────────────────
         if country == "CH":
             return self._check_ch(cleaned, phone)
 
-        # ── Allemagne ────────────────────────────────────────────────
         if country == "DE":
             return self._check_de(cleaned, phone)
 
-        # ── Autres pays : validation basique ─────────────────────────
+        # Autres pays : validation basique (indicatif local connu ou pas)
         return self._check_generic(cleaned, phone, country)
 
     def _check_fr(self, cleaned: str, phone: str) -> FilterResult:
-        """Validation specifique France."""
+        """Validation specifique France.
+
+        Verifie dans l'ordre :
+        1. Prefixes de demarchage ARCEP (fail immediat)
+        2. Numeros virtuels OnOff (warning)
+        3. Format mobile/fixe standard (pass)
+        4. Format non reconnu mais numero present (pass attenue)
+        """
         # Normaliser vers format 0XXXXXXXXX pour le matching
         local = cleaned
         if local.startswith("+33"):
@@ -177,6 +205,7 @@ class L6PhoneFilter(BaseFilter):
         elif local.startswith("0033"):
             local = "0" + local[4:]
 
+        # Prefixes ARCEP de demarchage = red flag fort
         if any(local.startswith(p) for p in TELEMARKETING_PREFIXES):
             logger.info("L6: telemarketing prefix detected: %s", local[:4])
             return FilterResult(
@@ -187,6 +216,7 @@ class L6PhoneFilter(BaseFilter):
                 details={"phone": phone, "type": "telemarketing_arcep", "prefix": local[:4]},
             )
 
+        # Numeros virtuels OnOff = identite potentiellement masquee
         if any(local.startswith(p) for p in VIRTUAL_PREFIXES):
             logger.info("L6: virtual number detected: %s", local[:6])
             return FilterResult(
@@ -286,7 +316,11 @@ class L6PhoneFilter(BaseFilter):
         )
 
     def _check_generic(self, cleaned: str, phone: str, country: str) -> FilterResult:
-        """Validation generique pour les pays non-specifiques."""
+        """Validation generique pour les pays non-specifiques.
+
+        On fait le minimum : verifier si l'indicatif est local.
+        Pas de validation de format car on ne connait pas les regles de chaque pays.
+        """
         # Si le numero commence par un indicatif local connu, c'est OK
         if _is_local_prefix(cleaned, country):
             return FilterResult(

@@ -1,4 +1,9 @@
-"""Modele VehicleSynthesis -- synthese LLM d'un vehicule a partir de transcripts YouTube."""
+"""Modele VehicleSynthesis -- synthese LLM d'un vehicule a partir de transcripts YouTube.
+
+On utilise Gemini pour generer une synthese des avis/retours sur un vehicule
+a partir des sous-titres YouTube collectes. Ca donne a l'acheteur un resume
+des points forts/faibles du vehicule sans avoir a regarder 10 videos.
+"""
 
 from datetime import datetime, timezone
 
@@ -6,7 +11,13 @@ from app.extensions import db
 
 
 class VehicleSynthesis(db.Model):
-    """Synthese LLM generee a partir des sous-titres YouTube."""
+    """Synthese LLM generee a partir des sous-titres YouTube.
+
+    Le vehicle_id est nullable car on peut generer une synthese avant
+    d'avoir identifie le vehicule exact en base (matching flou en cours).
+    Le status suit le cycle : draft -> published (ou rejected).
+    On garde le prompt_used et les source_video_ids pour la tracabilite.
+    """
 
     __tablename__ = "vehicle_syntheses"
 
@@ -19,7 +30,9 @@ class VehicleSynthesis(db.Model):
 
     llm_model = db.Column(db.String(80), nullable=False)
     prompt_used = db.Column(db.Text, nullable=False)
+    # IDs des videos utilisees pour generer la synthese
     source_video_ids = db.Column(db.JSON, default=list)
+    # Nombre total de caracteres de transcript envoyes au LLM
     raw_transcript_chars = db.Column(db.Integer, default=0)
     synthesis_text = db.Column(db.Text, nullable=False, default="")
     status = db.Column(db.String(20), nullable=False, default="draft")

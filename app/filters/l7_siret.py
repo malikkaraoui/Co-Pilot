@@ -4,6 +4,10 @@ Multi-pays :
   - France : API recherche-entreprises.gouv.fr (publique, gratuite)
   - Suisse : validation format UID (CHE-xxx.xxx.xxx) + API Zefix si configuree
   - Autres : skip gracieux
+
+Ce filtre ne s'applique qu'aux vendeurs pro. Pour un particulier, on retourne
+neutral (pas de sens de verifier un SIRET). Les plateformes verifiees
+(AutoScout24, La Centrale) font la verif elles-memes, donc on fait confiance.
 """
 
 import logging
@@ -19,10 +23,11 @@ from app.filters.base import VERIFIED_PRO_PLATFORMS, BaseFilter, FilterResult
 logger = logging.getLogger(__name__)
 
 # ── APIs ──────────────────────────────────────────────────────────────
-# France : API publique sans cle
+# France : API publique sans cle, rate-limitee mais suffisante pour notre usage
 FR_SEARCH_API_URL = "https://recherche-entreprises.api.gouv.fr/search"
 
 # Suisse : API Zefix (authentification requise, credentials optionnels)
+# Si pas de credentials, on se contente de valider le format + checksum
 CH_ZEFIX_API_URL = "https://www.zefix.admin.ch/ZefixPublicREST/api/v1/company/uid"
 
 # ── UID Suisse : format CHE-xxx.xxx.xxx ou CHExxxxxxxxx ──────────────
@@ -37,6 +42,7 @@ def validate_uid_checksum(digits: str) -> bool:
     """Valide le chiffre de controle d'un UID suisse (9 chiffres).
 
     Le dernier chiffre est un check digit calcule en modulo 11 sur les 8 premiers.
+    Algo similaire a Luhn mais avec des poids specifiques a l'UID.
     """
     if len(digits) != 9 or not digits.isdigit():
         return False
@@ -54,7 +60,10 @@ def validate_uid_checksum(digits: str) -> bool:
 
 
 def _clean_uid(raw: str) -> str | None:
-    """Nettoie et extrait les 9 chiffres d'un UID brut. Retourne None si invalide."""
+    """Nettoie et extrait les 9 chiffres d'un UID brut. Retourne None si invalide.
+
+    Accepte les formats CHE-123.456.789, CHE123456789, CHE-123-456-789, etc.
+    """
     m = UID_PATTERN.match(raw.strip())
     if not m:
         return None
@@ -62,7 +71,14 @@ def _clean_uid(raw: str) -> str | None:
 
 
 class L7SiretFilter(BaseFilter):
-    """Verifie le numero d'entreprise d'un vendeur pro (SIRET en France, UID en Suisse)."""
+    """Verifie le numero d'entreprise d'un vendeur pro (SIRET en France, UID en Suisse).
+
+    Arbre de decision :
+    1. Particulier -> neutral (pas de verif entreprise)
+    2. Pro sans ID -> warning (sauf si plateforme verifiee ou bonne note vendeur)
+    3. Pro avec SIRET (FR) -> appel API recherche-entreprises
+    4. Pro avec UID (CH) -> validation format + checksum + API Zefix si configuree
+    """
 
     filter_id = "L7"
 
@@ -78,13 +94,13 @@ class L7SiretFilter(BaseFilter):
         if owner_type in ("private", "particulier"):
             return self.neutral("Vendeur particulier — vérification entreprise non applicable")
 
-        # Pro sans identifiant : depends de la source
+        # Pro sans identifiant : depends de la source et des avis
         source = (data.get("source") or "").lower()
         dealer_rating = data.get("dealer_rating")
         dealer_review_count = data.get("dealer_review_count")
         if not siret and owner_type in ("pro", "professional"):
             # Plateformes verifiees : AS24 verifie le statut pro des vendeurs.
-            # Si la plateforme dit "pro", c'est booleeen = pass.
+            # Si la plateforme dit "pro", c'est booleen = pass.
             # La note vendeur enrichit le message mais ne change pas le verdict.
             if source in VERIFIED_PRO_PLATFORMS:
                 msg = "Vendeur professionnel vérifié par la plateforme"
@@ -105,7 +121,8 @@ class L7SiretFilter(BaseFilter):
                     },
                 )
 
-            # Hors plateforme verifiee : dealer rating peut compenser
+            # Hors plateforme verifiee : une bonne note vendeur peut compenser
+            # l'absence de SIRET (seuil : 4.0/5 et 20+ avis)
             has_strong_rating = (
                 dealer_rating is not None
                 and dealer_review_count is not None
@@ -125,6 +142,7 @@ class L7SiretFilter(BaseFilter):
                         "dealer_review_count": dealer_review_count,
                     },
                 )
+            # Pas de SIRET, pas de bonne note : warning adapte au pays
             if country == "CH":
                 return FilterResult(
                     filter_id=self.filter_id,
@@ -152,7 +170,7 @@ class L7SiretFilter(BaseFilter):
         if not siret:
             return self.skip("Type de vendeur inconnu, pas de numéro d'entreprise")
 
-        # Dispatch par pays
+        # Dispatch par pays pour la verification
         if country == "CH":
             return self._verify_ch(siret)
 
@@ -162,7 +180,11 @@ class L7SiretFilter(BaseFilter):
     # ── France : SIRET via API recherche-entreprises ─────────────────
 
     def _verify_fr(self, siret: str) -> FilterResult:
-        """Verification SIRET/SIREN via l'API publique francaise."""
+        """Verification SIRET/SIREN via l'API publique francaise.
+
+        Accepte SIREN (9 chiffres) et SIRET (14 chiffres).
+        Verifie l'existence ET l'etat administratif (actif vs radie).
+        """
         cleaned = str(siret).replace(" ", "").strip()
         if not cleaned.isdigit() or len(cleaned) not in (9, 14):
             return FilterResult(
@@ -191,6 +213,7 @@ class L7SiretFilter(BaseFilter):
         etat = response.get("etat_administratif")
         denomination = response.get("nom_complet") or response.get("nom_raison_sociale") or ""
 
+        # "A" = Actif dans la base SIRENE
         if etat == "A":
             return FilterResult(
                 filter_id=self.filter_id,
@@ -207,6 +230,7 @@ class L7SiretFilter(BaseFilter):
                 },
             )
 
+        # Entreprise radiee ou fermee : warning (le vendeur utilise un vieux SIRET)
         return FilterResult(
             filter_id=self.filter_id,
             status="warning",
@@ -221,7 +245,10 @@ class L7SiretFilter(BaseFilter):
         )
 
     def _call_fr_api(self, siret: str) -> dict | None:
-        """Appelle l'API recherche-entreprises. Retourne le premier resultat ou None."""
+        """Appelle l'API recherche-entreprises. Retourne le premier resultat ou None.
+
+        Gere proprement les erreurs reseau pour ne pas crasher le filtre.
+        """
         try:
             with httpx.Client(timeout=self._timeout) as client:
                 resp = client.get(FR_SEARCH_API_URL, params={"q": siret, "per_page": 1})
@@ -241,7 +268,13 @@ class L7SiretFilter(BaseFilter):
     # ── Suisse : UID via format + API Zefix (optionnelle) ────────────
 
     def _verify_ch(self, raw_uid: str) -> FilterResult:
-        """Verification UID suisse : format + checksum + API Zefix si configuree."""
+        """Verification UID suisse : format + checksum + API Zefix si configuree.
+
+        Trois niveaux de verification :
+        1. Format : le numero ressemble a un UID (CHE-xxx.xxx.xxx)
+        2. Checksum : le chiffre de controle est correct (modulo 11)
+        3. Zefix : l'entreprise existe dans le registre du commerce (si credentials dispo)
+        """
         digits = _clean_uid(str(raw_uid))
         if not digits:
             return FilterResult(
@@ -268,6 +301,7 @@ class L7SiretFilter(BaseFilter):
             try:
                 company = self._call_zefix_api(digits, zefix_user, zefix_password)
             except ExternalAPIError as exc:
+                # API down : on valide quand meme le format (score reduit)
                 logger.warning("L7: Zefix API error: %s", exc)
                 return FilterResult(
                     filter_id=self.filter_id,
@@ -336,7 +370,10 @@ class L7SiretFilter(BaseFilter):
         )
 
     def _call_zefix_api(self, digits: str, user: str, password: str) -> dict | None:
-        """Appelle l'API Zefix pour verifier un UID. Retourne le resultat ou None."""
+        """Appelle l'API Zefix pour verifier un UID. Retourne le resultat ou None.
+
+        L'API Zefix retourne 404 si l'UID n'existe pas, ce qui est un cas normal (pas une erreur).
+        """
         uid_str = f"CHE{digits}"
         url = f"{CH_ZEFIX_API_URL}/{uid_str}"
         try:
@@ -346,6 +383,7 @@ class L7SiretFilter(BaseFilter):
                     return None
                 resp.raise_for_status()
                 data = resp.json()
+                # L'API peut retourner un objet ou une liste
                 if isinstance(data, list):
                     return data[0] if data else None
                 return data

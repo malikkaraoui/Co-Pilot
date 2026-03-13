@@ -3,6 +3,10 @@
 
 Scores basés sur agrégation de sources web (12 sources diesel, 8 sources essence).
 score = sources_citant / sources_max * 5, arrondi au 0.5 près.
+
+Ce seed alimente le filtre L11 (fiabilite moteur) de l'engine d'analyse.
+Les match_patterns servent au matching flou entre la motorisation de l'annonce
+et les codes moteur de notre base.
 """
 
 import sys
@@ -17,8 +21,11 @@ from app.services.pipeline_tracker import track_pipeline
 
 # fmt: off
 # ── Moteurs DIESEL (9 sources exploitables) ────────────────────────────────
+# Chaque tuple : (engine_code, brand, score, source_count, note, weaknesses, match_patterns)
+# - note : contexte general du moteur, affiche dans le rapport
+# - weaknesses : details techniques des faiblesses connues
+# - match_patterns : patterns CSV pour le matching flou avec les annonces
 DIESEL_ENGINES = [
-    # (engine_code, brand, score, source_count, note, weaknesses, match_patterns)
     (
         "1.9 TDI", "VAG", 4.5, 7,
         "Un classique increvable. Beaucoup dépassent 500 000 km. "
@@ -307,7 +314,7 @@ ESSENCE_ENGINES = [
 
 
 def score_to_stars(score: float) -> str:
-    """Convertit un score en représentation étoiles."""
+    """Convertit un score numerique (0-5) en representation etoiles pour l'affichage console."""
     full = int(score)
     half = 1 if (score - full) >= 0.5 else 0
     empty = 5 - full - half
@@ -315,11 +322,18 @@ def score_to_stars(score: float) -> str:
 
 
 def seed() -> None:
+    """Insere ou met a jour les donnees de fiabilite moteur.
+
+    Strategie upsert : si le moteur existe deja (meme engine_code + brand),
+    on met a jour ses champs texte. Sinon on le cree.
+    Ca permet de faire evoluer les notes sans vider la table.
+    """
     app = create_app()
     with app.app_context():
         db.create_all()
         with track_pipeline("seed_engine_reliability") as tracker:
             created = updated = 0
+            # On fusionne diesel + essence dans une seule boucle
             all_engines = [
                 (fuel, row)
                 for fuel, rows in [("Diesel", DIESEL_ENGINES), ("Essence", ESSENCE_ENGINES)]
@@ -331,6 +345,7 @@ def seed() -> None:
                     engine_code=engine_code, brand=brand
                 ).first()
                 if existing:
+                    # Upsert : on ecrase note et weaknesses pour refleter les dernieres sources
                     existing.note = note
                     existing.weaknesses = weaknesses
                     updated += 1

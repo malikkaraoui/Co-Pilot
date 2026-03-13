@@ -1,5 +1,20 @@
 "use strict";
 
+/**
+ * Collecte de prix du marche sur LeBonCoin.
+ *
+ * Orchestre tout le flow de collecte :
+ * 1. Demander au backend quel vehicule collecter (next-job)
+ * 2. Construire des strategies de recherche progressives (geo → region → national)
+ * 3. Executer chaque strategie en accumulant les prix
+ * 4. Envoyer les prix au backend (market-prices)
+ * 5. Executer les bonus jobs (collectes supplementaires demandees par le serveur)
+ *
+ * L'escalade progressive est le coeur du systeme : on commence par une recherche
+ * locale tres precise, puis on elargit geographiquement et on relache les filtres
+ * jusqu'a avoir assez de prix pour un argus fiable.
+ */
+
 import { isBenignRuntimeTeardownError } from '../../utils/fetch.js';
 import { shouldSkipCollection, markCollected } from '../../shared/cooldown.js';
 import { lbcDeps } from './_deps.js';
@@ -13,6 +28,12 @@ import {
 } from './parser.js';
 import { fetchSearchPrices, buildLocationParam } from './search.js';
 
+/**
+ * Signale au backend qu'un job est termine (succes ou echec).
+ * @param {string} jobDoneUrl - URL de l'endpoint job-done
+ * @param {string} jobId - Identifiant du job
+ * @param {boolean} success - Si la collecte a reussi
+ */
 export async function reportJobDone(jobDoneUrl, jobId, success) {
   if (!jobId) return;
   try {
@@ -30,11 +51,20 @@ export async function reportJobDone(jobDoneUrl, jobId, success) {
   }
 }
 
+/**
+ * Execute les bonus jobs : collectes supplementaires pour d'autres vehicules/regions
+ * que le backend nous demande de faire pendant qu'on est sur le site.
+ * C'est opportuniste — on profite d'etre sur LBC pour collecter plus de donnees.
+ *
+ * @param {Array} bonusJobs - Liste de jobs {make, model, year, region, fuel, ...}
+ * @param {object} progress - Tracker de progression UI
+ */
 export async function executeBonusJobs(bonusJobs, progress) {
   const MIN_BONUS_PRICES = 5;
   const marketUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices");
   const jobDoneUrl = lbcDeps.apiUrl.replace("/analyze", "/market-prices/job-done");
 
+  /** Calcule la fenetre d'annee pour le filtre regdate */
   function _yearMeta(yearRef, spread = 1) {
     const y = Number.parseInt(yearRef, 10);
     const s = Number.parseInt(spread, 10) || 1;
@@ -42,12 +72,14 @@ export async function executeBonusJobs(bonusJobs, progress) {
     return { year_from: y - s, year_to: y + s, regdate: `${y - s}-${y + s}` };
   }
 
+  /** Qualifie le resultat d'une URL de recherche pour le log */
   function _urlVerdict(adsFound, uniqueAdded) {
     if ((adsFound || 0) <= 0) return "empty";
     if ((uniqueAdded || 0) <= 0) return "duplicates_only";
     return "useful";
   }
 
+  /** Construit un resume lisible des criteres de recherche pour le debug */
   function _criteriaSummary(make, model, brandToken, modelToken, fuelCode, gearboxCode, hpRange, yearMeta) {
     const yearVal = (yearMeta.year_from && yearMeta.year_to)
       ? `${yearMeta.year_from}-${yearMeta.year_to}`
@@ -66,12 +98,16 @@ export async function executeBonusJobs(bonusJobs, progress) {
 
   for (const job of bonusJobs) {
     try {
+      // Delai entre chaque job pour ne pas surcharger LBC
       await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
 
       const brandUpper = toLbcBrandToken(job.make);
       const modelIsGeneric = GENERIC_MODELS.includes((job.model || "").toLowerCase());
+
+      // Construire l'URL de base de la recherche
       let jobCoreUrl = "https://www.leboncoin.fr/recherche?category=2";
       if (modelIsGeneric) {
+        // Modele generique → recherche texte libre
         jobCoreUrl += `&text=${encodeURIComponent(job.make)}`;
       } else {
         const jobBrand = job.site_brand_token || brandUpper;
@@ -80,6 +116,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
         jobCoreUrl += `&u_car_model=${encodeURIComponent(jobModel)}`;
       }
 
+      // Ajouter les filtres optionnels (carburant, boite, puissance)
       let filters = "";
       if (job.fuel) {
         const fc = LBC_FUEL_CODES[job.fuel.toLowerCase()];
@@ -93,6 +130,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
         filters += `&horse_power_din=${job.hp_range}`;
       }
 
+      // Resoudre la region en parametre LBC
       const locParam = LBC_REGIONS[job.region];
       if (!locParam) {
         console.warn("[OKazCar] bonus job: region inconnue '%s', skip", job.region);
@@ -129,6 +167,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
         );
       }
 
+      // Si on a assez de prix, envoyer au backend
       if (bonusPrices.length >= MIN_BONUS_PRICES) {
         const bDetails = bonusPrices.filter((p) => Number.isInteger(p?.price) && p.price > 500);
         const bInts = bDetails.map((p) => p.price);
@@ -186,6 +225,7 @@ export async function executeBonusJobs(bonusJobs, progress) {
         await reportJobDone(jobDoneUrl, job.job_id, false);
       }
     } catch (err) {
+      // Si l'extension est rechargee/dechargee pendant l'execution, on arrete proprement
       if (isBenignRuntimeTeardownError(err)) {
         console.info("[OKazCar] bonus jobs interrompus: extension rechargée/déchargée");
         if (progress) {
@@ -200,6 +240,23 @@ export async function executeBonusJobs(bonusJobs, progress) {
   if (progress) progress.update("bonus", "done");
 }
 
+/**
+ * Orchestre la collecte complete de prix du marche pour un vehicule LBC.
+ *
+ * Le flow :
+ * 1. Verifier les pre-conditions (categorie, region)
+ * 2. Demander au backend quel vehicule collecter (peut etre un autre que le courant)
+ * 3. Gerer le cooldown 24h pour les vehicules "rediriges"
+ * 4. Construire l'URL de recherche avec les bons tokens LBC
+ * 5. Escalade progressive : geo → region → national, en relachant les filtres
+ * 6. Strategies dual-brand (ex: DS → aussi chercher sous Citroen)
+ * 7. Envoyer les prix au backend ou signaler l'echec
+ *
+ * @param {object} vehicle - Donnees vehicule extraites du __NEXT_DATA__
+ * @param {object} nextData - Le __NEXT_DATA__ complet
+ * @param {object} progress - Tracker de progression UI
+ * @returns {Promise<{submitted: boolean, isCurrentVehicle?: boolean}>}
+ */
 export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const { make, model, year, fuel, gearbox, horse_power } = vehicle;
   if (!make || !model || !year) return { submitted: false };
@@ -207,6 +264,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const hp = parseInt(horse_power, 10) || 0;
   const hpRange = getHorsePowerRange(hp);
 
+  // Verifier que la categorie n'est pas exclue (motos, nautisme, etc.)
   const urlMatch = window.location.href.match(/\/ad\/([a-z_]+)\//);
   const urlCategory = urlMatch ? urlMatch[1] : null;
   if (urlCategory && EXCLUDED_CATEGORIES.includes(urlCategory)) {
@@ -262,6 +320,8 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     }
     return { submitted: false };
   }
+
+  // Si le serveur dit "pas besoin de collecter", on execute juste les bonus jobs
   if (!jobResp?.data?.collect) {
     const queuedJobs = jobResp?.data?.bonus_jobs || [];
     if (queuedJobs.length === 0) {
@@ -291,7 +351,9 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const bonusJobs = jobResp.data.bonus_jobs || [];
   console.log("[OKazCar] next-job: %d bonus jobs", bonusJobs.length);
 
-  // 3. Cooldown 24h -- uniquement pour les collectes d'AUTRES vehicules
+  // 3. Cooldown 24h — uniquement pour les collectes d'AUTRES vehicules
+  // Si le serveur nous redirige vers un vehicule different, on respecte le cooldown
+  // pour eviter de spammer LBC. Le vehicule courant est toujours collecte.
   const isCurrentVehicle =
     target.make.toLowerCase() === make.toLowerCase() &&
     target.model.toLowerCase() === model.toLowerCase();
@@ -322,6 +384,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   const targetYear = parseInt(target.year, 10) || 0;
   const modelIsGeneric = GENERIC_MODELS.includes((target.model || "").toLowerCase());
 
+  // Determiner les tokens LBC a utiliser (DOM > serveur > fallback)
   const brandUpper = toLbcBrandToken(target.make);
   const hasDomTokens = isCurrentVehicle && vehicle.site_brand_token && vehicle.site_model_token;
   const hasServerTokens = target.site_brand_token && target.site_model_token;
@@ -336,6 +399,8 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     progress.addSubStep("collect", "Diagnostic LBC", "done",
       `Token marque: ${target.make} → ${effectiveBrand} (${tokenSource})`);
   }
+
+  // URL de base : recherche par marque/modele ou par texte si generique
   let coreUrl = "https://www.leboncoin.fr/recherche?category=2";
   if (modelIsGeneric) {
     coreUrl += `&text=${encodeURIComponent(target.make)}`;
@@ -344,6 +409,8 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     coreUrl += `&u_car_model=${encodeURIComponent(effectiveModel)}`;
   }
 
+  // Construire les filtres selon les donnees disponibles
+  // En mode redirect, on ne filtre pas (on ne connait pas les specs du vehicule cible)
   let fuelParam = "";
   let mileageParam = "";
   let gearboxParam = "";
@@ -367,11 +434,14 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     hpParam = hpRange ? `&horse_power_din=${hpRange}` : "";
   }
 
+  // Combinaisons de filtres par niveau de precision decroissant
   const fullFilters = fuelParam + mileageParam + gearboxParam + hpParam;
   const noHpFilters = fuelParam + mileageParam + gearboxParam;
   const minFilters = fuelParam + gearboxParam;
 
-  // 5. Escalade progressive
+  // 5. Escalade progressive — du plus precis au plus large
+  // On part d'une recherche geo locale avec tous les filtres,
+  // puis on elargit la zone et on relache les filtres progressivement
   const hasGeo = location?.lat && location?.lng && location?.city && location?.zipcode;
   const geoParam = hasGeo ? buildLocationParam(location, DEFAULT_SEARCH_RADIUS) : "";
   const regionParam = LBC_REGIONS[region] || "";
@@ -385,6 +455,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   strategies.push({ loc: "", yearSpread: 2, filters: noHpFilters, precision: 2 });
   strategies.push({ loc: "", yearSpread: 3, filters: minFilters,  precision: 1 });
 
+  // Strategie de dernier recours : recherche texte libre (marque + modele)
   if (!modelIsGeneric) {
     const textQuery = `${target.make} ${target.model}`;
     const textCoreUrl = `https://www.leboncoin.fr/recherche?category=2&text=${encodeURIComponent(textQuery)}`;
@@ -404,6 +475,8 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   let collectedPrecision = null;
   const searchLog = [];
   const MAX_PRICES_CAP = 100;
+
+  /** Calcule la fenetre d'annee pour le filtre regdate */
   function _yearMeta(yearRef, spread = 1) {
     const y = Number.parseInt(yearRef, 10);
     const s = Number.parseInt(spread, 10) || 1;
@@ -415,6 +488,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     if ((uniqueAdded || 0) <= 0) return "duplicates_only";
     return "useful";
   }
+  /** Resume des criteres pour le search_log (debug backend) */
   function _criteriaSummary(strategy, yearMeta) {
     const fuelVal = (strategy.filters.match(/(?:\?|&)fuel=([^&]+)/)?.[1]) || null;
     const gearboxVal = (strategy.filters.match(/(?:\?|&)gearbox=([^&]+)/)?.[1]) || null;
@@ -435,10 +509,12 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
   if (progress) progress.update("collect", "running");
   try {
     for (let i = 0; i < strategies.length; i++) {
+      // Delai entre les requetes pour menager LBC
       if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
 
       const strategy = strategies[i];
 
+      // Pas besoin du text fallback si on a deja assez de prix
       if (strategy.isTextFallback && prices.length >= MIN_PRICES_FOR_ARGUS) {
         console.log("[OKazCar] strategie %d: text fallback skipped (already %d prices)", i + 1, prices.length);
         searchLog.push({
@@ -467,6 +543,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         searchUrl += `&regdate=${yearMeta.regdate}`;
       }
 
+      // Label lisible pour le progress tracker
       const locLabel = strategy.isTextFallback ? "Text search (fallback)"
         : (strategy.loc === geoParam && geoParam) ? "Géo (" + (location?.city || "local") + " 30km)"
         : (strategy.loc === regionParam && regionParam) ? "Région (" + targetRegion + ")"
@@ -475,6 +552,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
 
       const newPrices = await fetchSearchPrices(searchUrl, targetYear, strategy.yearSpread, target.make);
 
+      // Deduplication : eviter de compter deux fois la meme annonce
       const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
       const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
       prices = [...prices, ...unique];
@@ -491,6 +569,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         progress.addSubStep("collect", strategyLabel, stepStatus, stepDetail);
       }
 
+      // Log de recherche envoye au backend pour diagnostics
       const locationType = (strategy.loc === geoParam && geoParam) ? "geo"
         : (strategy.loc === regionParam && regionParam) ? "region"
         : "national";
@@ -520,18 +599,22 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
           : `total ${prices.length} annonces < ${MIN_PRICES_FOR_ARGUS} minimum`,
       });
 
+      // On note la precision du premier seuil atteint mais on continue
+      // d'accumuler des prix pour ameliorer la fiabilite
       if (enoughPrices && collectedPrecision === null) {
         collectedPrecision = strategy.precision;
         console.log("[OKazCar] seuil atteint a la strategie %d (precision=%d), accumulation continue...", i + 1, collectedPrecision);
       }
 
+      // Cap de securite pour ne pas accumuler trop de prix
       if (prices.length >= MAX_PRICES_CAP) {
         console.log("[OKazCar] cap atteint (%d >= %d), arret de la collecte", prices.length, MAX_PRICES_CAP);
         break;
       }
     }
 
-    // Dual-brand strategies
+    // Strategies dual-brand : chercher aussi sous la marque secondaire
+    // (ex: une DS 3 peut etre listee sous Citroen DS3)
     const secondaryBrand = DUAL_BRAND_ALIASES[brandUpper];
     if (secondaryBrand && !modelIsGeneric && prices.length < MAX_PRICES_CAP) {
       console.log("[OKazCar] dual-brand: %s → secondary brand %s", brandUpper, secondaryBrand);
@@ -611,6 +694,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       }
     }
 
+    // 6. Envoyer les prix au backend si on a atteint le seuil
     if (prices.length >= MIN_PRICES_FOR_ARGUS) {
       if (progress) {
         progress.update("collect", "done", prices.length + " prix collectés (précision " + (collectedPrecision || "?") + ")");
@@ -620,6 +704,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
       const priceInts = priceDetails.map((p) => p.price);
       if (priceInts.length < MIN_PRICES_FOR_ARGUS) {
         console.warn("[OKazCar] apres filtrage >500: %d prix valides (< %d requis)", priceInts.length, MIN_PRICES_FOR_ARGUS);
+        // Envoi degrade avec moins de prix si on a au moins 5
         if (priceInts.length >= 5) {
            console.log("[OKazCar] envoi degradé avec %d prix (min 5)", priceInts.length);
         } else {
@@ -668,6 +753,7 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
         }
       }
     } else {
+      // Pas assez de prix — signaler l'echec au backend pour diagnostics
       console.log(`[OKazCar] pas assez de prix apres toutes les strategies: ${prices.length} < ${MIN_PRICES_FOR_ARGUS}`);
       if (progress) {
         progress.update("collect", "warning", prices.length + " annonces trouvées (minimum " + MIN_PRICES_FOR_ARGUS + ")");
@@ -709,7 +795,8 @@ export async function maybeCollectMarketPrices(vehicle, nextData, progress) {
     }
   }
 
-  // 6. Sauvegarder le timestamp (meme si pas assez de prix)
+  // 7. Sauvegarder le timestamp de collecte (meme si pas assez de prix)
+  // pour le cooldown de 24h
   markCollected();
   return { submitted, isCurrentVehicle };
 }

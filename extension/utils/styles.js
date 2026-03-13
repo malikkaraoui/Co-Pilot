@@ -1,17 +1,32 @@
 /**
- * Score/status visual mapping utilities.
+ * Mapping visuel des scores et statuts de filtres.
  *
- * Pure functions — no DOM, no side-effects.
+ * Fonctions pures sans side-effects — elles traduisent les statuts
+ * backend (pass/warning/fail/skip) en couleurs et icones pour l'UI.
+ * Les couleurs suivent la palette Tailwind (green-500, amber-500, red-500).
  */
 
 "use strict";
 
+/**
+ * Retourne la couleur associee au score global (0-100).
+ * Vert >= 70, Orange >= 40, Rouge en dessous.
+ *
+ * @param {number} score - Score global de l'analyse (0-100)
+ * @returns {string} Code couleur hex
+ */
 export function scoreColor(score) {
   if (score >= 70) return "#22c55e";
   if (score >= 40) return "#f59e0b";
   return "#ef4444";
 }
 
+/**
+ * Retourne la couleur associee a un statut de filtre individuel.
+ *
+ * @param {string} status - Statut du filtre (pass|warning|fail|skip|neutral)
+ * @returns {string} Code couleur hex
+ */
 export function statusColor(status) {
   switch (status) {
     case "pass": return "#22c55e";
@@ -23,6 +38,12 @@ export function statusColor(status) {
   }
 }
 
+/**
+ * Retourne l'icone unicode associee a un statut de filtre.
+ *
+ * @param {string} status - Statut du filtre
+ * @returns {string} Caractere unicode (check, warning, cross, etc.)
+ */
 export function statusIcon(status) {
   switch (status) {
     case "pass": return "\u2713";
@@ -34,6 +55,15 @@ export function statusIcon(status) {
   }
 }
 
+/**
+ * Retourne le libelle humain d'un filtre a partir de son ID.
+ * Certains libelles varient selon le statut (ex: L2 passe = "Modele reconnu",
+ * L2 fail = "Identification du modele").
+ *
+ * @param {string} filterId - Identifiant du filtre (L1, L2, ..., L11)
+ * @param {string} status - Statut du filtre (pour adapter le libelle)
+ * @returns {string} Libelle en francais
+ */
 export function filterLabel(filterId, status) {
   const labels = {
     L1: "Complétude des données",

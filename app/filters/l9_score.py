@@ -1,4 +1,15 @@
-"""Filtre L9 Evaluation Globale -- evalue les signaux de confiance transversaux."""
+"""Filtre L9 Evaluation Globale -- evalue les signaux de confiance transversaux.
+
+Contrairement aux autres filtres qui analysent un aspect precis (prix, km, tel...),
+L9 prend du recul et regarde la "qualite" globale de l'annonce :
+- Est-ce que la description est detaillee ou vide ?
+- Est-ce qu'il y a des photos ?
+- Est-ce que le vendeur a investi dans des options payantes ?
+- Est-ce que la localisation est precisee ?
+
+L'idee : une annonce bien redigee avec des photos = vendeur sérieux.
+Une annonce vide sans photo ni localisation = vendeur qui cache quelque chose ou arnaque.
+"""
 
 import logging
 from typing import Any
@@ -7,11 +18,16 @@ from app.filters.base import BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
 
+# En dessous de 50 caracteres, la description est trop courte pour etre utile
 MIN_DESCRIPTION_LENGTH = 50
 
 
 class L9GlobalAssessmentFilter(BaseFilter):
-    """Evalue les signaux de confiance globaux : qualite de description, type de vendeur, completude de l'annonce."""
+    """Evalue les signaux de confiance globaux : qualite de description, type de vendeur, completude de l'annonce.
+
+    Le score est le ratio points forts / total des signaux.
+    Pas de points forts et pas de points faibles = score neutre (0.5).
+    """
 
     filter_id = "L9"
 
@@ -19,26 +35,26 @@ class L9GlobalAssessmentFilter(BaseFilter):
         points_forts = []
         points_faibles = []
 
-        # Qualite de la description
+        # Qualite de la description : un bon indicateur de serieux du vendeur
         description = data.get("description") or ""
         desc_len = len(description.strip())
         if desc_len >= 200:
             points_forts.append("Description détaillée")
         elif desc_len >= MIN_DESCRIPTION_LENGTH:
-            pass  # neutral
+            pass  # neutral -- ni bien ni mal
         elif desc_len > 0:
             points_faibles.append("Description très courte")
         else:
             points_faibles.append("Pas de description")
 
-        # Type de vendeur
+        # Type de vendeur : un pro est generalement plus fiable (garantie, SAV...)
         owner_type = data.get("owner_type")
         if owner_type == "pro":
             points_forts.append("Vendeur professionnel")
         elif owner_type == "private":
-            pass  # neutral
+            pass  # neutral -- un particulier n'est pas un red flag
 
-        # Photos : >3 = annonce payante (vendeur investi)
+        # Photos : >3 = annonce payante sur LBC (vendeur investi financierement)
         image_count = data.get("image_count") or 0
         if image_count > 3:
             points_forts.append(f"Annonce avec {image_count} photos (option payante)")
@@ -46,6 +62,7 @@ class L9GlobalAssessmentFilter(BaseFilter):
             points_faibles.append("Aucune photo")
 
         # Options payantes LBC : signe d'investissement du vendeur
+        # Un arnaqueur ne paye pas pour mettre son annonce en avant
         paid_options = []
         if data.get("has_urgent"):
             paid_options.append("Badge Urgent")
@@ -71,11 +88,11 @@ class L9GlobalAssessmentFilter(BaseFilter):
         if location.get("city"):
             points_forts.append("Localisation précise")
         elif location.get("zipcode") or location.get("department"):
-            pass  # neutral — localisation partielle (commune non precisee)
+            pass  # neutral -- localisation partielle (commune non precisee)
         else:
             points_faibles.append("Localisation non précisée")
 
-        # Calcul du score
+        # Calcul du score : ratio de points forts sur le total
         total = len(points_forts) + len(points_faibles)
         if total == 0:
             score = 0.5
