@@ -37,6 +37,8 @@ export const DETAIL_LABELS = {
   lookup_make: "Lookup marque", lookup_model: "Lookup modèle", lookup_year: "Lookup année",
   lookup_region_key: "Lookup région (clé)", lookup_fuel_input: "Lookup énergie (brute)",
   lookup_fuel_key: "Lookup énergie (clé)", lookup_min_samples: "Seuil min annonces",
+  recall_type: "Type de rappel", severity: "Sévérité",
+  gov_url: "Info officielle", recall_count: "Nb rappels", recalls: "Rappels",
 };
 
 export const PRECISION_LABELS = { 5: "Tres precis", 4: "Precis", 3: "Correct", 2: "Approximatif", 1: "Estimatif" };
@@ -62,6 +64,9 @@ export function formatDetailValue(value) {
     return Object.entries(value)
       .map(([k, v]) => `${escapeHTML(DETAIL_LABELS[k] || k)}: ${formatDetailValue(v)}`)
       .join(", ");
+  }
+  if (typeof value === "string" && value.startsWith("http")) {
+    return `<a href="${escapeHTML(value)}" target="_blank" rel="noopener noreferrer">${escapeHTML(value)}</a>`;
   }
   return escapeHTML(value);
 }

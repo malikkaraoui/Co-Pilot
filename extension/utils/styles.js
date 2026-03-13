@@ -46,6 +46,7 @@ export function filterLabel(filterId, status) {
     L8: "Détection import",
     L9: "Résultat de scan",
     L10: "Ancienneté annonce",
+    L11: "Rappel constructeur",
   };
   return labels[filterId] || filterId;
 }

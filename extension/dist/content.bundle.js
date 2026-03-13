@@ -444,6 +444,14 @@
     }
     return new Promise((resolve, reject) => {
       try {
+        const decodeBase64ToBytes = (base64) => {
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          return bytes;
+        };
         chrome.runtime.sendMessage(
           {
             action: "backend_fetch",
@@ -469,20 +477,48 @@
               });
               return;
             }
+            const getTextBody = () => {
+              if (typeof resp.body === "string") {
+                return resp.body;
+              }
+              if (resp.bodyBase64) {
+                return new TextDecoder().decode(decodeBase64ToBytes(resp.bodyBase64));
+              }
+              return "";
+            };
             let parsed;
             try {
-              parsed = JSON.parse(resp.body);
+              parsed = JSON.parse(getTextBody());
             } catch {
               parsed = null;
             }
             resolve({
               ok: resp.ok,
               status: resp.status,
+              headers: {
+                get: (name) => {
+                  if (!name) return null;
+                  if (String(name).toLowerCase() === "content-type") {
+                    return resp.contentType || null;
+                  }
+                  return null;
+                }
+              },
               json: async () => {
                 if (parsed !== null) return parsed;
                 throw new SyntaxError("Invalid JSON");
               },
-              text: async () => resp.body
+              text: async () => getTextBody(),
+              blob: async () => {
+                if (resp.bodyBase64) {
+                  return new Blob([decodeBase64ToBytes(resp.bodyBase64)], {
+                    type: resp.contentType || "application/octet-stream"
+                  });
+                }
+                return new Blob([getTextBody()], {
+                  type: resp.contentType || "text/plain;charset=utf-8"
+                });
+              }
             });
           }
         );
@@ -5364,7 +5400,12 @@
     lookup_region_key: "Lookup r\xE9gion (cl\xE9)",
     lookup_fuel_input: "Lookup \xE9nergie (brute)",
     lookup_fuel_key: "Lookup \xE9nergie (cl\xE9)",
-    lookup_min_samples: "Seuil min annonces"
+    lookup_min_samples: "Seuil min annonces",
+    recall_type: "Type de rappel",
+    severity: "S\xE9v\xE9rit\xE9",
+    gov_url: "Info officielle",
+    recall_count: "Nb rappels",
+    recalls: "Rappels"
   };
   var PRECISION_LABELS = { 5: "Tres precis", 4: "Precis", 3: "Correct", 2: "Approximatif", 1: "Estimatif" };
   function formatPrecisionStars(n) {
@@ -5385,6 +5426,9 @@
     }
     if (typeof value === "object" && value !== null) {
       return Object.entries(value).map(([k, v]) => `${escapeHTML(DETAIL_LABELS[k] || k)}: ${formatDetailValue(v)}`).join(", ");
+    }
+    if (typeof value === "string" && value.startsWith("http")) {
+      return `<a href="${escapeHTML(value)}" target="_blank" rel="noopener noreferrer">${escapeHTML(value)}</a>`;
     }
     return escapeHTML(value);
   }
@@ -5460,7 +5504,8 @@
       L7: "SIRET vendeur",
       L8: "D\xE9tection import",
       L9: "R\xE9sultat de scan",
-      L10: "Anciennet\xE9 annonce"
+      L10: "Anciennet\xE9 annonce",
+      L11: "Rappel constructeur"
     };
     return labels[filterId] || filterId;
   }
@@ -5469,6 +5514,66 @@
   var _runAnalysis = null;
   var _apiUrl = null;
   var _lastScanIdGetter = null;
+  function bindReportDownloadButton(buttonId, loadingId, errorId) {
+    const reportBtn = document.getElementById(buttonId);
+    if (!reportBtn) {
+      return;
+    }
+    reportBtn.addEventListener("click", async () => {
+      const loading = document.getElementById(loadingId);
+      const errorDiv = document.getElementById(errorId);
+      const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
+      if (errorDiv) {
+        errorDiv.style.display = "none";
+      }
+      if (!scanId) {
+        if (errorDiv) {
+          errorDiv.textContent = "Rapport indisponible : analyse non sauvegard\xE9e.";
+          errorDiv.style.display = "block";
+        }
+        return;
+      }
+      reportBtn.disabled = true;
+      if (loading) {
+        loading.style.display = "flex";
+      }
+      try {
+        const reportUrl = _apiUrl.replace(/\/analyze$/, "/scan-report");
+        const resp = await backendFetch(reportUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scan_id: scanId })
+        });
+        if (!resp.ok) {
+          const payload = await resp.json().catch(() => null);
+          const msg = payload?.message || payload?.error || "Erreur de g\xE9n\xE9ration du PDF";
+          throw new Error(msg);
+        }
+        const pdfBlob = await resp.blob();
+        if (!(pdfBlob instanceof Blob) || pdfBlob.size === 0) {
+          throw new Error("PDF invalide ou vide");
+        }
+        const downloadUrl = URL.createObjectURL(pdfBlob);
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = `okazcar-rapport-${scanId}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1e3);
+      } catch (err) {
+        if (errorDiv) {
+          errorDiv.textContent = err?.message || "Service PDF indisponible";
+          errorDiv.style.display = "block";
+        }
+      } finally {
+        if (loading) {
+          loading.style.display = "none";
+        }
+        reportBtn.disabled = false;
+      }
+    });
+  }
   function initDom({ runAnalysis: runAnalysis2, apiUrl, getLastScanId }) {
     _runAnalysis = runAnalysis2;
     _apiUrl = apiUrl;
@@ -5501,10 +5606,12 @@
     const closeBtn = document.getElementById("okazcar-close");
     if (closeBtn) closeBtn.addEventListener("click", removePopup);
     const retryBtn = document.getElementById("okazcar-retry");
-    if (retryBtn) retryBtn.addEventListener("click", () => {
-      removePopup();
-      if (_runAnalysis) _runAnalysis();
-    });
+    if (retryBtn) {
+      retryBtn.addEventListener("click", () => {
+        removePopup();
+        if (_runAnalysis) _runAnalysis();
+      });
+    }
     const premiumBtn = document.getElementById("okazcar-premium-btn");
     if (premiumBtn) {
       premiumBtn.addEventListener("click", () => {
@@ -5512,6 +5619,8 @@
         premiumBtn.disabled = true;
       });
     }
+    bindReportDownloadButton("okazcar-report-btn", "okazcar-report-loading", "okazcar-report-error");
+    bindReportDownloadButton("okazcar-progress-report-btn", "okazcar-progress-report-loading", "okazcar-progress-report-error");
     const emailBtn = document.getElementById("okazcar-email-btn");
     if (emailBtn) {
       emailBtn.addEventListener("click", async () => {
@@ -5525,7 +5634,11 @@
         try {
           const emailUrl = _apiUrl.replace("/analyze", "/email-draft");
           const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
-          const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: scanId }) });
+          const resp = await backendFetch(emailUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scan_id: scanId })
+          });
           const data = await resp.json();
           if (data.success) {
             textArea.value = data.data.generated_text;
@@ -6277,7 +6390,7 @@
 
   // extension/ui/filters/index.js
   var SIMULATED_FILTERS = ["L4"];
-  var FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
+  var FILTER_DISPLAY_ORDER = ["L4", "L11", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
   function buildFilterBody(f, vehicle, allFilters) {
     const d = f.details || {};
     switch (f.filter_id) {
@@ -6350,6 +6463,9 @@
   function buildAutovizaBanner(autovizaUrl) {
     if (!autovizaUrl) return "";
     return `<div class="okazcar-autoviza-banner"><a href="${escapeHTML(autovizaUrl)}" target="_blank" rel="noopener noreferrer" class="okazcar-autoviza-link"><span class="okazcar-autoviza-icon">&#x1F4CB;</span><span class="okazcar-autoviza-text"><strong>Rapport d'historique gratuit</strong><small>Offert par LeBonCoin via Autoviza (valeur 25 \u20AC)</small></span><span class="okazcar-autoviza-arrow">&rsaquo;</span></a></div>`;
+  }
+  function buildReportBanner() {
+    return `<div class="okazcar-report-banner" id="okazcar-report-section"><button class="okazcar-report-btn" id="okazcar-report-btn">&#x1F4C4; T&eacute;l&eacute;charger le rapport PDF</button><div class="okazcar-report-loading" id="okazcar-report-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> Pr&eacute;paration du PDF...</div><div class="okazcar-report-error" id="okazcar-report-error" style="display:none;"></div></div>`;
   }
   function buildEmailBanner() {
     return `<div class="okazcar-email-banner" id="okazcar-email-section"><button class="okazcar-email-btn" id="okazcar-email-btn">&#x2709; R\xE9diger un email au vendeur</button><div class="okazcar-email-result" id="okazcar-email-result" style="display:none;"><textarea class="okazcar-email-textarea" id="okazcar-email-text" rows="8" readonly></textarea><div class="okazcar-email-actions"><button class="okazcar-email-copy" id="okazcar-email-copy">&#x1F4CB; Copier</button><span class="okazcar-email-copied" id="okazcar-email-copied" style="display:none;">Copi\xE9 !</span></div></div><div class="okazcar-email-loading" id="okazcar-email-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> G\xE9n\xE9ration en cours...</div><div class="okazcar-email-error" id="okazcar-email-error" style="display:none;"></div></div>`;
@@ -6500,7 +6616,8 @@
       bonusHTML = '<div style="margin:12px 0;padding:10px;background:#f0f4ff;border-radius:8px;border:1px solid #d0d8f0;">';
       bonusHTML += '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#334155;">Signaux exclusifs</div>';
       for (const signal of bonusSignals) {
-        let sIcon, sColor;
+        let sIcon;
+        let sColor;
         switch (signal.status) {
           case "pass":
             sIcon = "\u2713";
@@ -6563,8 +6680,9 @@
           <span class="okazcar-carvertical-arrow">&rsaquo;</span>
         </a>
       </div>
+      ${buildReportBanner()}
       ${buildEmailBanner()}
-      <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse automatis\xE9e</p></div>
+      <div class="okazcar-popup-footer"><p>OKazCar v1.2 &middot; Analyse automatis\xE9e</p></div>
     </div>
   `;
   }
@@ -6606,12 +6724,12 @@
       }
     }
     function update(stepId, status, detail) {
-      const el = document.getElementById("okazcar-step-" + stepId);
+      const el = document.getElementById(`okazcar-step-${stepId}`);
       if (!el) return;
       el.setAttribute("data-status", status);
       const iconEl = el.querySelector(".okazcar-step-icon");
       if (iconEl) {
-        iconEl.className = "okazcar-step-icon " + status;
+        iconEl.className = `okazcar-step-icon ${status}`;
         if (status === "running") {
           iconEl.innerHTML = '<div class="okazcar-mini-spinner"></div>';
         } else {
@@ -6630,7 +6748,7 @@
       el.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     function addSubStep(parentId, text, status, detail) {
-      const parentEl = document.getElementById("okazcar-step-" + parentId);
+      const parentEl = document.getElementById(`okazcar-step-${parentId}`);
       if (!parentEl) return;
       let container = parentEl.querySelector(".okazcar-substeps");
       if (!container) {
@@ -6646,7 +6764,7 @@
       subEl.appendChild(iconSpan);
       const textSpan = document.createElement("span");
       let fullText = text;
-      if (detail) fullText += " \u2014 " + detail;
+      if (detail) fullText += ` \u2014 ${detail}`;
       textSpan.textContent = fullText;
       subEl.appendChild(textSpan);
       container.appendChild(subEl);
@@ -6655,11 +6773,11 @@
     function showFilters(filters) {
       const container = document.getElementById("okazcar-progress-filters");
       if (!container || !filters) return;
-      filters.forEach(function(f) {
+      filters.forEach((f) => {
         const color = statusColor(f.status);
         const icon = statusIcon(f.status);
         const label = filterLabel(f.filter_id, f.status);
-        const scoreText = f.status === "skip" ? "skip" : Math.round(f.score * 100) + "%";
+        const scoreText = f.status === "skip" ? "skip" : `${Math.round(f.score * 100)}%`;
         const filterDiv = document.createElement("div");
         filterDiv.className = "okazcar-progress-filter";
         const iconSpan = document.createElement("span");
@@ -6692,15 +6810,13 @@
       container.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     function appendCascadeDetails(container, details) {
-      var lines = [];
+      const lines = [];
       if (details.source === "marche_leboncoin" || details.source === "marche_autoscout24") {
-        var srcLabel = details.source === "marche_autoscout24" ? "AS24" : "LBC";
-        var currentSite = detectCurrentSite();
-        var marketSite = details.source === "marche_autoscout24" ? "autoscout24" : "leboncoin";
-        var cross = currentSite && currentSite !== marketSite;
-        lines.push(
-          "Source : march\xE9 " + srcLabel + (cross ? " (externe au site courant)" : "") + " (" + (details.sample_count || "?") + " annonces" + (details.precision ? ", pr\xE9cision " + details.precision : "") + ")"
-        );
+        const srcLabel = details.source === "marche_autoscout24" ? "AS24" : "LBC";
+        const currentSite = detectCurrentSite();
+        const marketSite = details.source === "marche_autoscout24" ? "autoscout24" : "leboncoin";
+        const cross = currentSite && currentSite !== marketSite;
+        lines.push(`Source : march\xE9 ${srcLabel}${cross ? " (externe au site courant)" : ""} (${details.sample_count || "?"} annonces${details.precision ? `, pr\xE9cision ${details.precision}` : ""})`);
       } else if (details.source === "argus_seed") {
         lines.push("Source : Argus base interne");
       } else if (details.source === "estimation_lbc") {
@@ -6708,26 +6824,26 @@
       } else if (details.source === "cote_lacentrale") {
         lines.push("Source : cote La Centrale");
       }
-      var secondaryRefs = Array.isArray(details.reference_secondary) ? details.reference_secondary : [];
+      let secondaryRefs = Array.isArray(details.reference_secondary) ? details.reference_secondary : [];
       if (secondaryRefs.length === 0 && details.source !== "cote_lacentrale" && details.lc_quotation) {
         secondaryRefs = [{ source: "cote_lacentrale", price: details.lc_quotation, trust_index: details.lc_trust_index }];
       }
-      secondaryRefs.forEach(function(ref) {
+      secondaryRefs.forEach((ref) => {
         if (!ref || !ref.price) return;
         if (ref.source === "cote_lacentrale") {
-          lines.push("Info compl\xE9mentaire : cote LC " + Number(ref.price).toLocaleString("fr-FR") + " \u20AC" + (ref.trust_index ? " \xB7 indice " + ref.trust_index : ""));
+          lines.push(`Info compl\xE9mentaire : cote LC ${Number(ref.price).toLocaleString("fr-FR")} \u20AC${ref.trust_index ? ` \xB7 indice ${ref.trust_index}` : ""}`);
         }
       });
       if (details.cascade_tried) {
-        details.cascade_tried.forEach(function(tier) {
-          var result = details["cascade_" + tier + "_result"] || "non essay\xE9";
-          var tierLabel = tier === "market_price" ? "March\xE9 crowdsourc\xE9" : tier === "argus_seed" ? "Argus base interne" : tier === "lbc_estimation" ? "Estimation LeBonCoin" : tier === "lc_quotation" ? "Cote La Centrale" : tier;
-          var tierIcon = result === "found" ? "\u2713" : result === "insufficient" ? "\u26A0" : "\u2014";
-          lines.push(tierIcon + " " + tierLabel + " : " + result);
+        details.cascade_tried.forEach((tier) => {
+          const result = details[`cascade_${tier}_result`] || "non essay\xE9";
+          const tierLabel = tier === "market_price" ? "March\xE9 crowdsourc\xE9" : tier === "argus_seed" ? "Argus base interne" : tier === "lbc_estimation" ? "Estimation LeBonCoin" : tier === "lc_quotation" ? "Cote La Centrale" : tier;
+          const tierIcon = result === "found" ? "\u2713" : result === "insufficient" ? "\u26A0" : "\u2014";
+          lines.push(`${tierIcon} ${tierLabel} : ${result}`);
         });
       }
-      lines.forEach(function(line) {
-        var div = document.createElement("div");
+      lines.forEach((line) => {
+        const div = document.createElement("div");
         div.className = "okazcar-cascade-detail";
         div.textContent = line;
         container.appendChild(div);
@@ -6782,17 +6898,22 @@
       "    </div>",
       '    <div class="okazcar-progress-phase">',
       '      <div class="okazcar-progress-phase-title">3. Analyse serveur</div>',
-      '      <div class="okazcar-step" id="okazcar-step-analyze" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Analyse des 10 filtres (L1 \u2013 L10)</div></div>',
+      '      <div class="okazcar-step" id="okazcar-step-analyze" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">Analyse des 11 filtres (L1 \u2013 L11)</div></div>',
       '      <div id="okazcar-progress-filters" class="okazcar-progress-filters"></div>',
       '      <div class="okazcar-step" id="okazcar-step-autoviza" data-status="pending"><span class="okazcar-step-icon pending">\u25CB</span><div class="okazcar-step-text">D\xE9tection rapport Autoviza</div></div>',
       "    </div>",
       '    <hr class="okazcar-progress-separator">',
       '    <div id="okazcar-progress-score" class="okazcar-progress-score" style="display:none"></div>',
-      '    <div style="text-align:center; padding: 12px 0;">',
+      '    <div class="okazcar-progress-actions">',
+      '      <div class="okazcar-report-banner" id="okazcar-progress-report-section" style="display:none;">',
+      '        <button class="okazcar-report-btn" id="okazcar-progress-report-btn">&#x1F4C4; T&eacute;l&eacute;charger le rapport PDF</button>',
+      '        <div class="okazcar-report-loading" id="okazcar-progress-report-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> Pr&eacute;paration du PDF...</div>',
+      '        <div class="okazcar-report-error" id="okazcar-progress-report-error" style="display:none;"></div>',
+      "      </div>",
       `      <button class="okazcar-btn okazcar-btn-retry" id="okazcar-progress-details-btn" style="display:none">Voir l'analyse compl\xE8te</button>`,
       "    </div>",
       "  </div>",
-      '  <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse en temps r\xE9el</p></div>',
+      '  <div class="okazcar-popup-footer"><p>OKazCar v1.2 &middot; Analyse en temps r\xE9el</p></div>',
       "</div>"
     ].join("\n");
     showPopup(html);
@@ -7042,6 +7163,10 @@
         detailsBtn.addEventListener("click", function() {
           showPopup(buildResultsPopup(result.data, { autovizaUrl: freeReportUrl, bonusSignals }));
         });
+      }
+      const progressReportSection = document.getElementById("okazcar-progress-report-section");
+      if (progressReportSection && lastScanId) {
+        progressReportSection.style.display = "block";
       }
     } catch (err) {
       progress.update("analyze", "error", "Erreur inattendue");

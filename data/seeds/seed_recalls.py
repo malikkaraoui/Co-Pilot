@@ -29,7 +29,7 @@ TAKATA_RECALLS = [
     ("BMW", "X1", 2009, 2016),
     ("Citroen", "C3", 2008, 2017),
     ("Citroen", "C4", 2010, 2018),
-    ("Land Rover", "Discovery Sport", 2014, 2016),
+    ("Land Rover", "Discovery Sport", 2015, 2016),
     ("Mercedes", "Classe A", 2004, 2016),
     ("Mercedes", "Classe C", 2004, 2016),
     ("Mercedes", "Classe E", 2004, 2016),

@@ -12,7 +12,7 @@ from app.filters.base import BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
 
-MAX_WORKERS = 9
+MAX_WORKERS = 11
 
 
 class FilterEngine:

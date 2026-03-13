@@ -16,7 +16,7 @@ import { buildL10Body } from './l10.js';
 import { buildGenericBody } from './generic.js';
 
 export const SIMULATED_FILTERS = ["L4"];
-export const FILTER_DISPLAY_ORDER = ["L4", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
+export const FILTER_DISPLAY_ORDER = ["L4", "L11", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
 
 export function buildFilterBody(f, vehicle, allFilters) {
   const d = f.details || {};

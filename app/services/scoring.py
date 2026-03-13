@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 # Poids de chaque filtre dans le score global.
 # Les filtres critiques (L2 modele, L4 prix) pesent x2.
-# Total = 12.0
+# Total = 14.0
 FILTER_WEIGHTS: dict[str, float] = {
     "L1": 1.0,  # Completude des donnees
     "L2": 2.0,  # Modele reconnu (CRITIQUE)

@@ -3,9 +3,14 @@
 import logging
 from typing import Any
 
+from sqlalchemy.exc import OperationalError
+
 from app.filters.base import BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
+
+MIN_YEAR = 1900
+MAX_YEAR = 2100
 
 
 def _find_recalls(make: str, model: str, year: int) -> list[dict[str, Any]]:
@@ -26,11 +31,15 @@ def _find_recalls(make: str, model: str, year: int) -> list[dict[str, Any]]:
     if not vehicle:
         return []
 
-    recalls = ManufacturerRecall.query.filter(
-        ManufacturerRecall.vehicle_id == vehicle.id,
-        ManufacturerRecall.year_start <= year,
-        ManufacturerRecall.year_end >= year,
-    ).all()
+    try:
+        recalls = ManufacturerRecall.query.filter(
+            ManufacturerRecall.vehicle_id == vehicle.id,
+            ManufacturerRecall.year_start <= year,
+            ManufacturerRecall.year_end >= year,
+        ).all()
+    except OperationalError:
+        logger.warning("Table manufacturer_recalls absente — filtre L11 desactive")
+        return []
 
     return [
         {
@@ -60,6 +69,9 @@ class L11RecallFilter(BaseFilter):
             year = int(year)
         except (ValueError, TypeError):
             return self.neutral("Annee invalide")
+
+        if not (MIN_YEAR <= year <= MAX_YEAR):
+            return self.neutral("Annee hors plage valide")
 
         recalls = _find_recalls(make, model, year)
 
