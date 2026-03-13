@@ -541,7 +541,10 @@ def generate_scan_report_pdf(scan_id: int) -> bytes:
     _render_km_insight(pdf, filter_results)
 
     # --- Task 11: Page 2+ ---
-    pdf.add_page()
+    # Saut de page seulement si on est encore sur la page 1
+    # (le contenu km peut déjà avoir déclenché un saut automatique)
+    if pdf.page == 1:
+        pdf.add_page()
     _render_vehicle_info(pdf, scan, raw)
 
     if filter_results:
@@ -598,7 +601,7 @@ def _render_score_box(pdf: OKazCarPDF, score: int | None):
     pdf.set_font("Helvetica", "B", 22)
     pdf.set_text_color(*color)
     score_w = pdf.get_string_width(score_text)
-    pdf.set_xy(circle_x - score_w / 2, circle_y - 7)
+    pdf.set_xy(circle_x - score_w / 2, circle_y - 9)
     pdf.cell(score_w, 10, score_text, align="C")
 
     # "/100" sous le score
@@ -607,7 +610,7 @@ def _render_score_box(pdf: OKazCarPDF, score: int | None):
         pdf.set_text_color(*COLOR_GRAY_TEXT)
         sub_text = "/100"
         sub_w = pdf.get_string_width(sub_text)
-        pdf.set_xy(circle_x - sub_w / 2, circle_y + 3)
+        pdf.set_xy(circle_x - sub_w / 2, circle_y + 2)
         pdf.cell(sub_w, 6, sub_text, align="C")
 
     # Verdict à droite du cercle
@@ -921,31 +924,25 @@ def _render_km_insight(pdf: OKazCarPDF, results: list[FilterResultDB]):
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*accent_color)
     pdf.cell(36, 5, _format_number(actual_km), align="C")
-    pdf.ln(22)
-    pdf.set_xy(pdf.l_margin, pdf.get_y())
+    pdf.ln(14)
 
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(*COLOR_NAVY)
+    # Détails compacts sur une ligne sous le slider
+    details_parts = []
     if age is not None:
-        _body_multi_cell(pdf, f"Age du vehicule : {_safe_str(age)} ans")
+        details_parts.append(f"{_safe_str(age)} ans")
     if avg_km:
-        _body_multi_cell(pdf, f"Reference metier : {_format_number(avg_km)} km/an")
+        details_parts.append(f"ref. {_format_number(avg_km)} km/an")
     if km_per_year:
-        _body_multi_cell(pdf, f"Kilometrage observe : {_format_number(km_per_year)} km/an")
+        details_parts.append(f"obs. {_format_number(km_per_year)} km/an")
     if category:
-        category_text = _safe_str(category).replace("_", " ").title()
-        _body_multi_cell(pdf, f"Categorie detectee : {category_text}")
+        details_parts.append(_safe_str(category).replace("_", " ").title())
 
-    warnings = details.get("warnings") or []
-    if warnings:
-        content_width = pdf.w - pdf.l_margin - pdf.r_margin
-        pdf.set_fill_color(*background_color)
-        pdf.set_draw_color(*accent_color)
-        pdf.set_xy(pdf.l_margin, pdf.get_y())
-        pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(*COLOR_NAVY)
-        pdf.multi_cell(content_width, 5, _safe_str(warnings[0]), border=1, fill=True)
-        pdf.ln(2)
+    if details_parts:
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*COLOR_GRAY_TEXT)
+        pdf.cell(0, 4, " | ".join(details_parts), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
 
 
 # ---------------------------------------------------------------------------
@@ -1018,28 +1015,34 @@ def _render_vehicle_info(pdf: OKazCarPDF, scan: ScanLog, raw: dict):
 
     make = _brand_display(scan.vehicle_make or raw.get("make", ""))
     model = _model_display(scan.vehicle_model or raw.get("model", ""))
-    if make or model:
-        pdf.info_row("Vehicule", f"{make} {model}".strip(), bold_value=True)
-
     year = raw.get("year") or raw.get("annee")
-    pdf.info_row("Annee", _safe_str(year))
+
+    # Titre véhicule
+    title = f"{make} {model}".strip()
+    if year:
+        title += f" ({year})"
+    if title:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_text_color(*COLOR_NAVY)
+        pdf.cell(0, 7, _safe_str(title), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
 
     # Grille 2 colonnes
+    km = raw.get("km") or raw.get("mileage_km") or raw.get("mileage")
+    km_str = ""
+    if km:
+        try:
+            km_str = f"{int(km):,} km".replace(",", " ")
+        except (ValueError, TypeError):
+            km_str = str(km)
+
     left_col = [
         ("Prix", f"{scan.price_eur:,} EUR".replace(",", " ") if scan.price_eur else ""),
-        ("Kilometrage", ""),
+        ("Kilometrage", km_str),
+        ("Annee", _safe_str(year)),
         ("Source", _safe_str(scan.source)),
         ("Pays", _safe_str(scan.country)),
     ]
-
-    # Kilométrage
-    km = raw.get("km") or raw.get("mileage_km") or raw.get("mileage")
-    if km:
-        try:
-            km_int = int(km)
-            left_col[1] = ("Kilometrage", f"{km_int:,} km".replace(",", " "))
-        except (ValueError, TypeError):
-            left_col[1] = ("Kilometrage", str(km))
 
     right_col = [
         ("Carburant", _safe_str(raw.get("fuel") or raw.get("fuel_type") or "")),
