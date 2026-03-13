@@ -182,6 +182,29 @@ def get_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
     return None
 
 
+def get_cached_tire_sizes(make: str, model: str, year: int) -> dict[str, Any] | None:
+    """Retourne les dimensions pneus depuis le cache DB uniquement.
+
+    Aucun appel réseau n'est effectué. Utilisé par la génération PDF pour
+    réutiliser les données déjà collectées lors de l'analyse initiale.
+    """
+    if not make or not model or not year:
+        return None
+
+    make_norm = normalize_brand(make).lower()
+    model_norm = normalize_model(model).lower()
+
+    tire = _find_tire_size_in_db(make_norm, model_norm, year)
+    if not tire:
+        return None
+
+    _increment_request_count(tire)
+    if tire.dimension_count == 0:
+        return None
+
+    return _to_payload(tire)
+
+
 def _store_and_return(
     make: str, model: str, data: dict[str, Any], source: str
 ) -> dict[str, Any] | None:
