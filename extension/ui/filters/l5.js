@@ -1,7 +1,15 @@
+/**
+ * L5 — Indice de confiance statistique.
+ * Detecte les anomalies de prix via z-scores (outliers, marges suspectes)
+ * et affiche une echelle visuelle "Louche -> RAS -> Fiable".
+ * Signale aussi les diesel en zone urbaine dense (risque FAP).
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/** @returns {string|null} 'autoscout24', 'leboncoin' ou null */
 function _detectCurrentSite() {
   try {
     const host = String(window.location.hostname || '').toLowerCase();
@@ -11,6 +19,13 @@ function _detectCurrentSite() {
   return null;
 }
 
+/**
+ * Rendu du filtre L5 : echelle de confiance + verdict + alerte diesel urbain.
+ * La position du curseur sur l'echelle depend du type d'anomalie detecte.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {z_scores, anomalies, ref_count, diesel_urban, source}
+ * @returns {string} HTML du body L5
+ */
 export function buildL5Body(f, d) {
   if (f.status === "skip") {
     return `<div class="okazcar-l5-body"><span class="okazcar-l5-na">${escapeHTML(f.message)}</span></div>`;
@@ -23,6 +38,7 @@ export function buildL5Body(f, d) {
   const hasMargin = anomalies.some(a => a.includes("marge"));
   const dieselOnly = anomalies.length > 0 && anomalies.every(a => a.includes("Diesel"));
 
+  // Position du curseur sur l'echelle selon le type d'anomalie
   let cursorPct, zoneClass, verdictText;
   if (hasOutlier) {
     cursorPct = zPrice > 0 ? 8 : 12;

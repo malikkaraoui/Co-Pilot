@@ -1,3 +1,10 @@
+/**
+ * Point d'entree des filtres UI — orchestre le rendu de la liste de filtres.
+ * Chaque filtre (L1-L10) a son propre renderer dans un fichier dedie.
+ * Ce module gere l'ordre d'affichage, le dispatch vers le bon renderer,
+ * et l'assemblage HTML final de la liste accordeon.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
@@ -15,9 +22,18 @@ import { buildL9Body } from './l9.js';
 import { buildL10Body } from './l10.js';
 import { buildGenericBody } from './generic.js';
 
+// Filtres dont les donnees viennent du crowdsourcing (collecte extension)
 export const SIMULATED_FILTERS = ["L4"];
+// Ordre d'affichage des filtres — prix en premier, synthese (L9) en dernier
 export const FILTER_DISPLAY_ORDER = ["L4", "L11", "L10", "L1", "L3", "L5", "L8", "L6", "L7", "L2", "L9"];
 
+/**
+ * Dispatch le rendu du body d'un filtre vers le bon renderer.
+ * @param {Object} f - Filtre {filter_id, details, ...}
+ * @param {Object} vehicle - Donnees vehicule pour le contexte (devise, etc.)
+ * @param {Array} allFilters - Tous les filtres (L9 en a besoin pour la couverture)
+ * @returns {string} HTML du body du filtre
+ */
 export function buildFilterBody(f, vehicle, allFilters) {
   const d = f.details || {};
   switch (f.filter_id) {
@@ -35,6 +51,14 @@ export function buildFilterBody(f, vehicle, allFilters) {
   }
 }
 
+/**
+ * Construit la liste HTML de tous les filtres en accordeon.
+ * Trie les filtres selon FILTER_DISPLAY_ORDER, calcule le ratio de couverture
+ * pour L9 (synthese), et assemble chaque item avec header + score bar + body.
+ * @param {Array} filters - Tableau de filtres du backend
+ * @param {Object} vehicle - Donnees vehicule
+ * @returns {string} HTML de la liste ou chaine vide
+ */
 export function buildFiltersList(filters, vehicle) {
   if (!filters || !filters.length) return "";
 
@@ -44,6 +68,8 @@ export function buildFiltersList(filters, vehicle) {
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
   });
 
+  // L9 (synthese) est plafonne par le ratio de couverture des autres filtres.
+  // Si seulement 60% des filtres sont evalues, L9 ne peut pas depasser 60%.
   const nonL9Filters = sorted.filter((x) => x.filter_id !== "L9");
   const totalNonL9 = nonL9Filters.length;
   const evaluatedNonL9 = nonL9Filters.filter((x) => x.status !== "skip").length;
@@ -54,7 +80,7 @@ export function buildFiltersList(filters, vehicle) {
       const color = statusColor(f.status);
       const icon = statusIcon(f.status);
       const label = filterLabel(f.filter_id, f.status);
-      // L5 : badge "Données simulées" uniquement si source=argus_seed (pas de vraies données marché)
+      // L5 : badge "Donnees simulees" si source=argus_seed (pas de vraies donnees marche)
       const isL5Simulated = f.filter_id === "L5" && (f.details || {}).source === "argus_seed";
       const simulatedBadge = isL5Simulated
         ? '<span class="okazcar-badge-simulated">Données simulées</span>'

@@ -1,20 +1,49 @@
 "use strict";
 
+/**
+ * AutoScout24 — construction d'URL de recherche et extraction de prix.
+ *
+ * AS24 a deux familles de sites avec des formats d'URL differents :
+ * - Sites "GmbH" (de, at, nl, be, it, es, etc.) : /lst/<make>/<model>?params
+ * - Sites "SMG" (ch, fr) : /s/mo-<model>/mk-<make>?params
+ *
+ * L'extraction de prix depuis les resultats utilise 3 strategies en cascade :
+ * 1. RSC inline (regex sur price/mileage dans le HTML)
+ * 2. __NEXT_DATA__ JSON blob
+ * 3. JSON-LD OfferCatalog (schema.org)
+ */
+
 import { brandsMatch } from '../../shared/brand.js';
 import { SMG_TLDS } from './constants.js';
 
 // ── URL & slug helpers ──────────────────────────────────────────────
 
+/**
+ * Extrait le TLD depuis une URL AS24 (ex: "de", "ch", "fr").
+ * @param {string} url
+ * @returns {string}
+ */
 export function extractTld(url) {
   const match = url.match(/autoscout24\.(\w+)/);
   return match ? match[1] : 'de';
 }
 
+/**
+ * Extrait le code langue depuis le chemin URL (ex: "/fr/lst/..." → "fr").
+ * @param {string} url
+ * @returns {string|null}
+ */
 export function extractLang(url) {
   const match = url.match(/autoscout24\.\w+\/(fr|de|it|en|nl|es|pl|sv)\//);
   return match ? match[1] : null;
 }
 
+/**
+ * Convertit un nom en slug URL compatible AS24.
+ * Ex: "Mercedes-Benz" → "mercedes-benz"
+ * @param {string} name
+ * @returns {string}
+ */
 export function toAs24Slug(name) {
   return String(name || '')
     .trim()
@@ -23,6 +52,14 @@ export function toAs24Slug(name) {
     .replace(/[^a-z0-9\-]/g, '');
 }
 
+/**
+ * Extrait les slugs make/model depuis une URL de recherche AS24.
+ * Gere les deux formats (GmbH = /lst/ et SMG = /s/mk-/mo-).
+ *
+ * @param {string} url - URL de recherche AS24
+ * @param {string|null} tldHint - TLD connu pour eviter de le re-extraire
+ * @returns {{makeSlug: string|null, modelSlug: string|null}}
+ */
 export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
   try {
     const u = new URL(url);
@@ -30,6 +67,7 @@ export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
     const tld = (tldHint || (hostMatch ? hostMatch[1] : '') || '').toLowerCase();
     const path = decodeURIComponent(u.pathname || '');
 
+    // Format SMG : /s/mo-<model>/mk-<make>
     if (SMG_TLDS.has(tld)) {
       const smg = path.match(/\/s\/(?:mo-([^/]+)\/)?mk-([^/?#]+)/i);
       if (!smg) return { makeSlug: null, modelSlug: null };
@@ -38,6 +76,8 @@ export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
       return { makeSlug, modelSlug };
     }
 
+    // Format GmbH : /lst/<make>/<model>
+    // On retire le prefixe de langue (/fr, /de, etc.) avant de parser
     const normalizedPath = path.replace(/^\/(fr|de|it|en|nl|es|pl|sv)(?=\/|$)/i, '');
     const gmbh = normalizedPath.match(/^\/lst\/([^/]+)(?:\/([^/?#]+))?/i);
     if (!gmbh) return { makeSlug: null, modelSlug: null };
@@ -49,6 +89,16 @@ export function extractAs24SlugsFromSearchUrl(url, tldHint = null) {
   }
 }
 
+/**
+ * Construit une URL de recherche AS24 complete.
+ *
+ * @param {string} makeKey - Slug marque
+ * @param {string} modelKey - Slug modele
+ * @param {number} year - Annee cible
+ * @param {string} tld - TLD du site AS24
+ * @param {object} options - Filtres optionnels (yearSpread, fuel, gear, etc.)
+ * @returns {string} URL de recherche complete
+ */
 export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
   const { yearSpread = 1, fuel, gear, powerfrom, powerto, kmfrom, kmto, zip, radius, lang, brandOnly } = options;
 
@@ -57,6 +107,7 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
 
   let base;
 
+  // Construction du chemin selon le type de site (SMG vs GmbH)
   if (SMG_TLDS.has(tld)) {
     const langPrefix = lang ? `/${lang}` : '/fr';
     if (modelSlug) {
@@ -78,8 +129,8 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
     fregto: String(year + yearSpread),
     sort: 'standard',
     desc: '0',
-    atype: 'C',
-    ustate: 'N,U',
+    atype: 'C',           // voitures classiques (pas utilitaires)
+    ustate: 'N,U',        // neuves et occasions
   });
   if (fuel) params.set('fuel', fuel);
   if (gear) params.set('gear', gear);
@@ -91,11 +142,15 @@ export function buildSearchUrl(makeKey, modelKey, year, tld, options = {}) {
   return `${base}?${params}`;
 }
 
-/** @see shared/brand.js — re-export for backward compatibility. */
+/** Re-export pour retrocompatibilite — voir shared/brand.js */
 export const brandMatchesAs24 = brandsMatch;
 
-// ── Price parsing from search results ───────────────────────────────
+// ── Extraction de prix depuis les resultats de recherche ─────────────
 
+/**
+ * Extrait la marque depuis un item JSON-LD de type OfferCatalog.
+ * AS24 utilise plusieurs structures possibles pour stocker la marque.
+ */
 function _extractJsonLdBrand(item) {
   return item?.brand?.name
     || item?.offers?.itemOffered?.brand?.name
@@ -104,6 +159,14 @@ function _extractJsonLdBrand(item) {
     || null;
 }
 
+/**
+ * Point d'entree principal : extrait les prix depuis le HTML d'une page de resultats.
+ * Essaie 3 strategies en cascade : RSC inline, __NEXT_DATA__, JSON-LD.
+ *
+ * @param {string} html - HTML brut de la page de resultats
+ * @param {string|null} targetMake - Marque cible pour filtrer les faux positifs
+ * @returns {Array<{price: number, year: number|null, km: number|null, fuel: string|null}>}
+ */
 export function parseSearchPrices(html, targetMake = null) {
   const results = _parseSearchPricesRSC(html);
 
@@ -120,6 +183,11 @@ export function parseSearchPrices(html, targetMake = null) {
   return results;
 }
 
+/**
+ * Strategie 1 : extraction RSC inline via regex.
+ * Les pages de resultats AS24 contiennent souvent les donnees en inline
+ * sous forme de paires price/mileage dans le HTML.
+ */
 function _parseSearchPricesRSC(html) {
   const results = [];
   const listingPattern = /"price"\s*:\s*(\d+).*?"mileage"\s*:\s*(\d+)/g;
@@ -134,6 +202,10 @@ function _parseSearchPricesRSC(html) {
   return _dedup(results);
 }
 
+/**
+ * Strategie 2 : extraction depuis le __NEXT_DATA__ JSON blob.
+ * Plus riche que le RSC inline car contient annee, carburant, boite, CV.
+ */
 function _parseSearchPricesNextData(html, targetMake = null) {
   const results = [];
   const match = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json"[^>]*>([\s\S]*?)<\/script>/i);
@@ -159,6 +231,8 @@ function _parseSearchPricesNextData(html, targetMake = null) {
 
       const fuel = vehicle.fuel || null;
 
+      // Verification de marque : on rejette les annonces d'une autre marque
+      // (peut arriver si AS24 melange des resultats sponsorises)
       if (targetMake) {
         const adBrand = vehicle.make;
         if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
@@ -179,12 +253,13 @@ function _parseSearchPricesNextData(html, targetMake = null) {
       }
     }
   } catch (_) {
-    // Malformed __NEXT_DATA__, skip
+    // __NEXT_DATA__ malformed, on passe
   }
 
   return _dedup(results);
 }
 
+/** Extrait la puissance (PS) depuis les details vehicule du __NEXT_DATA__ */
 function _parseHpFromVehicleDetails(details) {
   if (!Array.isArray(details)) return null;
   const power = details.find((d) => d.ariaLabel === 'Leistung' || d.iconName === 'speedometer');
@@ -193,6 +268,10 @@ function _parseHpFromVehicleDetails(details) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/**
+ * Strategie 3 : extraction depuis les blocs JSON-LD (schema.org OfferCatalog).
+ * Dernier recours quand ni le RSC ni le __NEXT_DATA__ ne sont disponibles.
+ */
 function _parseSearchPricesJsonLd(html, targetMake = null) {
   const results = [];
   const scriptPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -208,6 +287,7 @@ function _parseSearchPricesJsonLd(html, targetMake = null) {
         const year = _extractJsonLdYear(item);
         const uid = _extractJsonLdUid(item);
         if (price && price > 500 && price < 500000) {
+          // Filtrage par marque pour eviter les faux positifs inter-marques
           if (targetMake) {
             const adBrand = _extractJsonLdBrand(item);
             if (adBrand && !brandMatchesAs24(adBrand, targetMake)) {
@@ -219,12 +299,16 @@ function _parseSearchPricesJsonLd(html, targetMake = null) {
         }
       }
     } catch (_) {
-      // Malformed JSON-LD block, skip
+      // Bloc JSON-LD malformed, on passe au suivant
     }
   }
   return _dedup(results);
 }
 
+/**
+ * Descend dans la structure JSON-LD pour trouver les items d'un OfferCatalog.
+ * AS24 peut imbriquer le catalogue dans mainEntity, offers, ou @graph.
+ */
 function _extractOfferCatalogItems(data) {
   if (data?.['@type'] === 'OfferCatalog' && Array.isArray(data.itemListElement)) {
     return data.itemListElement;
@@ -242,6 +326,7 @@ function _extractOfferCatalogItems(data) {
   return [];
 }
 
+/** Extrait le prix depuis un item JSON-LD (number ou string) */
 function _extractJsonLdPrice(item) {
   const price = item?.offers?.price ?? item?.price;
   if (typeof price === 'number') return price;
@@ -249,6 +334,7 @@ function _extractJsonLdPrice(item) {
   return null;
 }
 
+/** Extrait le kilometrage depuis un item JSON-LD (mileageFromOdometer) */
 function _extractJsonLdMileage(item) {
   const car = item?.offers?.itemOffered || item;
   const odometer = car?.mileageFromOdometer;
@@ -259,6 +345,7 @@ function _extractJsonLdMileage(item) {
   return null;
 }
 
+/** Extrait le carburant depuis un item JSON-LD (vehicleEngine.fuelType) */
 function _extractJsonLdFuel(item) {
   const car = item?.offers?.itemOffered || item;
   const eng = car?.vehicleEngine;
@@ -266,6 +353,7 @@ function _extractJsonLdFuel(item) {
   return engine?.fuelType || null;
 }
 
+/** Extrait l'annee depuis un item JSON-LD (vehicleModelDate ou productionDate) */
 function _extractJsonLdYear(item) {
   const car = item?.offers?.itemOffered || item;
   const date = car?.vehicleModelDate || car?.productionDate;
@@ -274,6 +362,7 @@ function _extractJsonLdYear(item) {
   return (y > 1900 && y < 2100) ? y : null;
 }
 
+/** Extrait un identifiant unique depuis l'URL de l'annonce dans le JSON-LD */
 function _extractJsonLdUid(item) {
   const url = item?.url || item?.offers?.url;
   if (!url) return null;
@@ -281,6 +370,7 @@ function _extractJsonLdUid(item) {
   return m ? m[1] : url;
 }
 
+/** Deduplique les resultats par _uid ou par combinaison prix+km */
 function _dedup(results) {
   const seen = new Set();
   return results.filter((r) => {

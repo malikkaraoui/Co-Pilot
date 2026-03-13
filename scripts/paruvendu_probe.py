@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Probe ParuVendu listing and ad pages for extraction feasibility.
+"""Sonde exploratoire pour ParuVendu -- analyse de faisabilite d'extraction.
 
-This is an exploratory script used to:
-- inspect listing URL query tokens,
-- extract a few ad links from a search results page,
-- inspect detail pages for structured data and extractable fields,
-- produce a compact JSON report for future extractor design.
+Script de R&D utilise pour :
+- decoder les tokens de l'URL de recherche ParuVendu (marque, modele, energie...)
+- extraire quelques liens d'annonces depuis la page de resultats
+- inspecter les pages de detail pour reperer les donnees structurees (JSON-LD, regex)
+- produire un rapport JSON compact pour concevoir un futur extracteur
+
+Pas utilise en production, c'est un outil de reverse-engineering.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ DEFAULT_SEARCH_URL = (
     "&km0=22888&km1=111111&tr=AU&pf0=5&pf1=9"
 )
 
+# User-Agent classique pour ne pas se faire bloquer par le WAF ParuVendu
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -35,6 +38,8 @@ HEADERS = {
     "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
 }
 
+# Hypotheses sur la signification des parametres URL ParuVendu
+# Documentees par observation, pas par une API officielle
 QUERY_HINTS = {
     "r": "rubrique racine (voiture d'occasion)",
     "r2": "token marque probable",
@@ -51,6 +56,8 @@ QUERY_HINTS = {
     "p": "pagination",
 }
 
+# Regex d'extraction brute depuis le texte de la page detail
+# Fallback quand le JSON-LD ne contient pas le champ
 DETAIL_PATTERNS = {
     "price_eur": r"Prix\s*([\d\s]+)\s*€",
     "make": r"Marque\s*([A-ZÀ-ÿ0-9\- ]+)",
@@ -76,6 +83,8 @@ DETAIL_PATTERNS = {
 
 @dataclass
 class ListingSummary:
+    """Resume d'une page de resultats de recherche ParuVendu."""
+
     url: str
     title: str | None = None
     result_count: int | None = None
@@ -87,6 +96,8 @@ class ListingSummary:
 
 @dataclass
 class AdSummary:
+    """Resume d'une page de detail d'annonce ParuVendu."""
+
     url: str
     title: str | None = None
     location: str | None = None
@@ -105,12 +116,14 @@ class ProbeError(RuntimeError):
 
 
 def fetch_html(client: httpx.Client, url: str) -> str:
+    """Telecharge le HTML d'une page avec gestion des redirections."""
     response = client.get(url, follow_redirects=True, timeout=30.0)
     response.raise_for_status()
     return response.text
 
 
 def normalize_space(text: str) -> str:
+    """Condense les espaces multiples en un seul espace."""
     return re.sub(r"\s+", " ", text or "").strip()
 
 
@@ -119,6 +132,7 @@ def text_of(soup: BeautifulSoup) -> str:
 
 
 def parse_jsonld_types(soup: BeautifulSoup) -> list[str]:
+    """Extrait les @type de tous les blocs JSON-LD de la page."""
     types: list[str] = []
     for item in iter_jsonld_items(soup):
         if isinstance(item, dict):
@@ -131,6 +145,7 @@ def parse_jsonld_types(soup: BeautifulSoup) -> list[str]:
 
 
 def iter_jsonld_items(soup: BeautifulSoup):
+    """Iterateur sur les objets JSON-LD de la page (peut y en avoir plusieurs)."""
     for node in soup.select('script[type="application/ld+json"]'):
         raw = node.string or node.get_text(strip=True)
         if not raw:
@@ -146,6 +161,7 @@ def iter_jsonld_items(soup: BeautifulSoup):
 
 
 def find_jsonld_vehicle(soup: BeautifulSoup) -> dict[str, Any]:
+    """Cherche un objet JSON-LD de @type Vehicle dans la page."""
     for item in iter_jsonld_items(soup):
         json_type = item.get("@type")
         if json_type == "Vehicle" or (isinstance(json_type, list) and "Vehicle" in json_type):
@@ -154,6 +170,7 @@ def find_jsonld_vehicle(soup: BeautifulSoup) -> dict[str, Any]:
 
 
 def extract_jsonld_vehicle_fields(vehicle: dict[str, Any]) -> dict[str, Any]:
+    """Extrait les champs utiles du JSON-LD Vehicle en un dict plat et propre."""
     if not vehicle:
         return {}
 
@@ -193,13 +210,18 @@ def extract_jsonld_vehicle_fields(vehicle: dict[str, Any]) -> dict[str, Any]:
         "seller_name": seller.get("name"),
         "seller_city": address.get("addressLocality"),
         "seller_postal_code": address.get("postalCode"),
-        "images_count": len(vehicle.get("image", [])) if isinstance(vehicle.get("image"), list) else None,
+        "images_count": len(vehicle.get("image", []))
+        if isinstance(vehicle.get("image"), list)
+        else None,
         "url": vehicle.get("url"),
     }
-    return {key: normalize_space(str(value)) for key, value in result.items() if value not in (None, "")}
+    return {
+        key: normalize_space(str(value)) for key, value in result.items() if value not in (None, "")
+    }
 
 
 def infer_query_tokens(url: str) -> dict[str, dict[str, Any]]:
+    """Decode les parametres URL et ajoute nos hypotheses sur leur role."""
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
     result: dict[str, dict[str, Any]] = {}
@@ -213,6 +235,7 @@ def infer_query_tokens(url: str) -> dict[str, dict[str, Any]]:
 
 
 def infer_filters_from_text(text: str) -> dict[str, Any]:
+    """Tente de deviner les filtres actifs depuis le texte visible de la page."""
     filters: dict[str, Any] = {}
     match = re.search(r"(\d[\d\s]*)\s+annonces\s+(.+?)\s+occasion", text, flags=re.IGNORECASE)
     if match:
@@ -229,17 +252,27 @@ def infer_filters_from_text(text: str) -> dict[str, Any]:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             filters[key] = normalize_space(match.group(1))
-    for label in ["Diesel", "Essence", "Hybride", "Electrique", "Automatique", "Manuelle", "Audi", "A5"]:
+    for label in [
+        "Diesel",
+        "Essence",
+        "Hybride",
+        "Electrique",
+        "Automatique",
+        "Manuelle",
+        "Audi",
+        "A5",
+    ]:
         if re.search(rf"\b{re.escape(label)}\b", text, flags=re.IGNORECASE):
             filters.setdefault("detected_labels", []).append(label)
     return filters
 
 
 def extract_listing_links(soup: BeautifulSoup, base_url: str, max_ads: int) -> list[str]:
+    """Recupere les URLs d'annonces individuelles depuis la page de resultats."""
     links: list[str] = []
     seen: set[str] = set()
-    for node in soup.select('a[href]'):
-        href = node.get('href', '')
+    for node in soup.select("a[href]"):
+        href = node.get("href", "")
         if not href:
             continue
         absolute = urljoin(base_url, href)
@@ -253,7 +286,8 @@ def extract_listing_links(soup: BeautifulSoup, base_url: str, max_ads: int) -> l
 
 
 def parse_listing(url: str, html: str, max_ads: int) -> ListingSummary:
-    soup = BeautifulSoup(html, 'lxml')
+    """Parse une page de resultats de recherche ParuVendu."""
+    soup = BeautifulSoup(html, "lxml")
     text = text_of(soup)
     result_count = None
     match = re.search(r"([\d\s]+)\s+annonces", text, flags=re.IGNORECASE)
@@ -262,7 +296,7 @@ def parse_listing(url: str, html: str, max_ads: int) -> ListingSummary:
     title = None
     if soup.title and soup.title.string:
         title = normalize_space(soup.title.string)
-    h1 = soup.find(['h1', 'h2'])
+    h1 = soup.find(["h1", "h2"])
     if h1:
         title = normalize_space(h1.get_text(" ", strip=True)) or title
 
@@ -278,6 +312,7 @@ def parse_listing(url: str, html: str, max_ads: int) -> ListingSummary:
 
 
 def extract_with_patterns(text: str) -> dict[str, Any]:
+    """Extrait les champs vehicule par regex depuis le texte brut de la page."""
     extracted: dict[str, Any] = {}
     for key, pattern in DETAIL_PATTERNS.items():
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -287,41 +322,52 @@ def extract_with_patterns(text: str) -> dict[str, Any]:
 
 
 def parse_ad(url: str, html: str) -> AdSummary:
-    soup = BeautifulSoup(html, 'lxml')
+    """Parse une page de detail d'annonce ParuVendu.
+
+    Combine l'extraction JSON-LD (donnees structurees) et regex (texte brut)
+    pour maximiser la couverture des champs.
+    """
+    soup = BeautifulSoup(html, "lxml")
     text = text_of(soup)
     vehicle_jsonld = find_jsonld_vehicle(soup)
 
     title = None
     if soup.title and soup.title.string:
         title = normalize_space(soup.title.string)
-    h1 = soup.find('h1')
+    h1 = soup.find("h1")
     if h1:
         title = normalize_space(h1.get_text(" ", strip=True)) or title
 
     location = None
-    for heading in soup.find_all(['h2', 'h3']):
+    for heading in soup.find_all(["h2", "h3"]):
         candidate = normalize_space(heading.get_text(" ", strip=True))
         if re.search(r"\(\d{5}\)|\b\d{5}\b", candidate):
             location = candidate
             break
 
+    # Detection du type de vendeur par mots-cles dans le texte
     seller_type = None
     if "Vendeur particulier" in text or "Contacter le vendeur particulier" in text:
         seller_type = "particulier"
     elif "Professionnel" in text or "concessionnaire" in text.lower():
         seller_type = "professionnel"
 
+    # ParuVendu inclut parfois des liens vers sa propre cote et ses fiches techniques
     native_cote_links = []
     fiche_links = []
-    for node in soup.select('a[href]'):
-        href = urljoin(url, node.get('href', ''))
-        if '/cote-auto-gratuite/' in href and href not in native_cote_links:
+    for node in soup.select("a[href]"):
+        href = urljoin(url, node.get("href", ""))
+        if "/cote-auto-gratuite/" in href and href not in native_cote_links:
             native_cote_links.append(href)
-        if '/fiches-techniques-auto/' in href and href not in fiche_links:
+        if "/fiches-techniques-auto/" in href and href not in fiche_links:
             fiche_links.append(href)
 
-    has_phone_cta = bool(re.search(r"Voir le numéro|Contacter par téléphone", text, flags=re.IGNORECASE))
-    has_message_cta = bool(re.search(r"Envoyer un message|Contacter le vendeur", text, flags=re.IGNORECASE))
+    has_phone_cta = bool(
+        re.search(r"Voir le numéro|Contacter par téléphone", text, flags=re.IGNORECASE)
+    )
+    has_message_cta = bool(
+        re.search(r"Envoyer un message|Contacter le vendeur", text, flags=re.IGNORECASE)
+    )
 
     return AdSummary(
         url=url,
@@ -339,6 +385,7 @@ def parse_ad(url: str, html: str) -> AdSummary:
 
 
 def build_report(search_url: str, max_ads: int) -> dict[str, Any]:
+    """Genere le rapport complet : listing + N annonces detail + analyse."""
     with httpx.Client(headers=HEADERS) as client:
         listing_html = fetch_html(client, search_url)
         listing = parse_listing(search_url, listing_html, max_ads=max_ads)
@@ -377,9 +424,13 @@ def build_report(search_url: str, max_ads: int) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--url', default=DEFAULT_SEARCH_URL, help='URL de listing ParuVendu à sonder')
-    parser.add_argument('--max-ads', type=int, default=2, help='Nombre maximum d\'annonces détail à inspecter')
-    parser.add_argument('--pretty', action='store_true', help='Affiche le JSON avec indentation')
+    parser.add_argument(
+        "--url", default=DEFAULT_SEARCH_URL, help="URL de listing ParuVendu à sonder"
+    )
+    parser.add_argument(
+        "--max-ads", type=int, default=2, help="Nombre maximum d'annonces détail à inspecter"
+    )
+    parser.add_argument("--pretty", action="store_true", help="Affiche le JSON avec indentation")
     args = parser.parse_args()
 
     report = build_report(args.url, max_ads=args.max_ads)
@@ -390,5 +441,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

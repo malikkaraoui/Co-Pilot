@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Publie un snapshot SQLite local vers une GitHub Release stable pour Render.
 
-Le script :
-- genere un snapshot coherent depuis `data/okazcar.db` ;
-- cree ou met a jour une GitHub Release stable (par defaut `render-db-prod`) ;
-- remplace les assets stables `okazcar-render-prod.db` et `okazcar-render-prod.json` ;
-- ecrit dans le manifeste distant l'URL publique stable du snapshot.
+Workflow DB vers Render :
+1. On prepare un snapshot propre de okazcar.db (via prepare_render_snapshot)
+2. On cree/met a jour une GitHub Release stable (tag `render-db-prod`)
+3. On y uploade le .db et un manifeste .json (version, sha256, URL)
+4. Au demarrage, Render telecharge ce snapshot via sync_render_sqlite.py
+
+On utilise une release "stable" (toujours le meme tag) pour que l'URL
+de telechargement ne change jamais. Render n'a qu'a pointer dessus.
 
 Exemple :
     python3 scripts/publish_render_release.py --version 2026-03-11-canonique-v2-engine-reliability
@@ -42,6 +45,7 @@ def _log(message: str) -> None:
 
 
 def _load_dotenv(dotenv_path: Path) -> None:
+    """Charge un fichier .env manuellement (sans dependance python-dotenv)."""
     if not dotenv_path.exists():
         return
 
@@ -63,6 +67,7 @@ def _default_version() -> str:
 
 
 def _guess_repo_from_package_json() -> tuple[str, str] | tuple[None, None]:
+    """Devine owner/repo depuis le champ repository de package.json."""
     package_json = Path("package.json")
     if not package_json.exists():
         return None, None
@@ -151,6 +156,11 @@ def _github_request(
     content_type: str = "application/vnd.github+json",
     expected_statuses: tuple[int, ...] = (200,),
 ) -> dict | list | None:
+    """Appel generique a l'API GitHub REST v3.
+
+    Gere l'authentification Bearer, le content-type, et leve
+    une RuntimeError si le statut HTTP n'est pas dans expected_statuses.
+    """
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
@@ -187,6 +197,7 @@ def _github_request(
 
 
 def _get_release_by_tag(owner: str, repo: str, tag: str, token: str) -> dict | None:
+    """Recupere une release GitHub par son tag, ou None si elle n'existe pas."""
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
     request = Request(
         url,
@@ -216,6 +227,11 @@ def _ensure_release(
     target_commitish: str,
     token: str,
 ) -> dict:
+    """Cree la release GitHub si elle n'existe pas, ou met a jour si elle existe.
+
+    On garde toujours le meme tag (release stable) pour que l'URL
+    de telechargement reste constante.
+    """
     existing = _get_release_by_tag(owner, repo, tag, token)
     body = (
         "Release stable utilisee par Render pour telecharger le snapshot SQLite canonique.\n\n"
@@ -260,6 +276,7 @@ def _ensure_release(
 def _delete_existing_asset(
     owner: str, repo: str, release: dict, asset_name: str, token: str
 ) -> None:
+    """Supprime un asset existant de la release pour le remplacer ensuite."""
     for asset in release.get("assets", []):
         if asset.get("name") != asset_name:
             continue
@@ -277,6 +294,8 @@ def _delete_existing_asset(
 def _upload_asset(
     upload_url: str, asset_name: str, content: bytes, token: str, content_type: str
 ) -> dict:
+    """Upload un fichier comme asset de la release GitHub."""
+    # L'upload_url GitHub contient un template {?name,label} qu'il faut nettoyer
     clean_upload_url = upload_url.split("{", 1)[0]
     url = f"{clean_upload_url}?{urlencode({'name': asset_name})}"
     return _github_request(
@@ -290,6 +309,7 @@ def _upload_asset(
 
 
 def main() -> int:
+    """Point d'entree : prepare le snapshot, publie sur GitHub Release."""
     args = _parse_args()
     _load_dotenv(Path(args.dotenv_path))
 
@@ -304,7 +324,9 @@ def main() -> int:
     source_db = Path(args.source)
     output_dir = Path(args.output_dir)
 
+    # Etape 1 : generer le snapshot local (copie + sha256 + manifeste)
     manifest = prepare_snapshot(source_db=source_db, output_dir=output_dir, version=version)
+    # Etape 2 : creer ou mettre a jour la release GitHub
     release = _ensure_release(
         owner=args.owner,
         repo=args.repo,
@@ -314,6 +336,7 @@ def main() -> int:
         token=token,
     )
 
+    # Construire les URLs de telechargement stables
     db_path = Path(manifest["snapshot_db"])
     db_download_url = (
         f"https://github.com/{args.owner}/{args.repo}/releases/download/"
@@ -324,6 +347,7 @@ def main() -> int:
         f"{args.release_tag}/{args.manifest_asset_name}"
     )
 
+    # Enrichir le manifeste avec les infos de publication
     published_manifest = {
         **manifest,
         "published_at": _utc_now(),
@@ -339,6 +363,7 @@ def main() -> int:
         indent=2,
     ).encode("utf-8")
 
+    # Etape 3 : supprimer les anciens assets puis uploader les nouveaux
     _delete_existing_asset(args.owner, args.repo, release, args.db_asset_name, token)
     _delete_existing_asset(args.owner, args.repo, release, args.manifest_asset_name, token)
 

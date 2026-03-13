@@ -14,6 +14,12 @@ class L2ReferentielFilter(BaseFilter):
     filter_id = "L2"
 
     def run(self, data: dict[str, Any]) -> FilterResult:
+        """Verifie l'existence du vehicule dans le referentiel OKazCar.
+
+        Si le modele est inconnu, tente une auto-creation depuis le CSV
+        d'enrichissement. Cela permet d'etendre la couverture au fil des scans
+        sans intervention manuelle.
+        """
         make = data.get("make")
         model = data.get("model")
 
@@ -46,6 +52,7 @@ class L2ReferentielFilter(BaseFilter):
             except Exception:  # noqa: BLE001 -- best-effort, ne casse jamais le filtre
                 logger.warning("L2: auto-create failed for %s %s", make, model, exc_info=True)
 
+        # Vehicule connu en base : on peut activer les filtres L4/L5 (prix argus)
         if vehicle:
             logger.info("L2: model found -- %s %s", make, model)
             return FilterResult(
@@ -61,6 +68,8 @@ class L2ReferentielFilter(BaseFilter):
                 },
             )
 
+        # Modele inconnu : score degrade mais message positif (on enrichit la base).
+        # Le score a 0.3 penalise un peu car L4/L5 ne pourront pas tourner en mode argus.
         logger.info("L2: model not found -- %s %s", make, model)
         return FilterResult(
             filter_id=self.filter_id,

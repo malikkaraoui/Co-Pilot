@@ -1,20 +1,25 @@
 "use strict";
 
 /**
- * La Centrale — URL patterns and mapping constants.
+ * La Centrale — patterns URL et constantes de mapping.
+ *
+ * Contient les codes de filtre reverse-engineered depuis lacentrale.fr/listing
+ * pour construire les URL de recherche (carburant, boite, regions).
  */
 
-// Detection patterns for lacentrale.fr ad pages
+/** Patterns de detection du domaine La Centrale */
 export const LC_URL_PATTERNS = [
   /lacentrale\.fr/,
 ];
 
-// Ad page detection (annonce individuelle)
-// La Centrale utilise plusieurs préfixes de verticales (`auto`, `utilitaire`, ...)
-// pour des pages qui gardent la même structure d'annonce exploitable.
+/**
+ * Detection d'une page d'annonce individuelle.
+ * LC utilise plusieurs prefixes de verticales (auto, utilitaire, ...)
+ * qui partagent la meme structure exploitable.
+ */
 export const LC_AD_PAGE_PATTERN = /lacentrale\.fr\/(?:auto|utilitaire)-occasion-annonce-\d+\.html/;
 
-// Fuel normalization: La Centrale energy values → standard fuel tokens
+/** Normalisation carburant : valeurs LC → tokens standards */
 export const LC_FUEL_MAP = {
   'DIESEL': 'diesel',
   'ESSENCE': 'essence',
@@ -24,7 +29,7 @@ export const LC_FUEL_MAP = {
   'GPL': 'lpg',
 };
 
-// Gearbox normalization
+/** Normalisation boite de vitesses : valeurs LC → tokens standards */
 export const LC_GEARBOX_MAP = {
   'MECANIQUE': 'manual',
   'MANUELLE': 'manual',
@@ -33,15 +38,17 @@ export const LC_GEARBOX_MAP = {
   'SEMI-AUTOMATIQUE': 'semi-automatic',
 };
 
-// ── Search URL parameters (reverse-engineered from lacentrale.fr/listing) ──
+// ── Parametres URL de recherche (reverse-engineered depuis lacentrale.fr/listing) ──
 
-// Base URL for listing searches
+/** URL de base pour les recherches listing */
 export const LC_LISTING_BASE = 'https://www.lacentrale.fr/listing';
 
-// Fuel codes for search URL ?energies= param
-// Verified 2026-03-09 on lacentrale.fr by user.
-// GNV removed: not a real filter on LC.
-// Hybride rechargeable: requires both hybRech AND plug_hyb codes.
+/**
+ * Codes carburant pour le parametre URL ?energies=.
+ * Verifie le 2026-03-09 sur lacentrale.fr.
+ * GNV supprime : pas un vrai filtre sur LC.
+ * Hybride rechargeable : necessite les deux codes hybRech ET plug_hyb.
+ */
 export const LC_SEARCH_FUEL_CODES = {
   'diesel': 'dies',
   'essence': 'ess',
@@ -56,9 +63,11 @@ export const LC_SEARCH_FUEL_CODES = {
   'gpl': 'gpl',
 };
 
-// Gearbox codes for search URL ?gearbox= param
-// Verified 2026-03-09: LC uses uppercase full words (MANUAL, AUTO), NOT abbreviations.
-// "man"/"auto" are silently ignored by the site = 0 results with gearbox filter.
+/**
+ * Codes boite de vitesses pour le parametre URL ?gearbox=.
+ * Verifie le 2026-03-09 : LC utilise des mots complets en majuscules (MANUAL, AUTO).
+ * Les abreviations "man"/"auto" sont ignorees par le site = 0 resultat.
+ */
 export const LC_SEARCH_GEARBOX_CODES = {
   'manual': 'MANUAL',
   'manuelle': 'MANUAL',
@@ -66,9 +75,11 @@ export const LC_SEARCH_GEARBOX_CODES = {
   'automatique': 'AUTO',
 };
 
-// Region codes for search URL ?regions= param
-// Verified 2026-03-09: LC supports regional filtering via ISO-like codes.
-// Multiple regions: comma-separated (e.g. "FR-ARA,FR-BFC").
+/**
+ * Codes region pour le parametre URL ?regions=.
+ * Verifie le 2026-03-09 : LC supporte le filtrage regional via codes ISO-like.
+ * Regions multiples : separees par virgules (ex: "FR-ARA,FR-BFC").
+ */
 export const LC_SEARCH_REGION_CODES = {
   'Île-de-France': 'FR-IDF',
   'Auvergne-Rhône-Alpes': 'FR-ARA',
@@ -85,8 +96,8 @@ export const LC_SEARCH_REGION_CODES = {
   'Corse': 'FR-COR',
 };
 
-// Min prices to consider a collection successful
+/** Nombre minimum de prix pour considerer une collecte exploitable */
 export const LC_MIN_PRICES = 20;
 
-// Max prices cap
+/** Plafond de prix a collecter (au-dela on arrete) */
 export const LC_MAX_PRICES = 100;

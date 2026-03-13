@@ -1,5 +1,6 @@
 /**
- * SVG visual components: gauge and radar chart.
+ * Composants visuels SVG : jauge de score et graphe radar.
+ * Ces composants sont purement visuels — pas de logique metier ici.
  */
 
 "use strict";
@@ -7,12 +8,19 @@
 import { scoreColor, statusColor } from '../utils/styles.js';
 import { escapeHTML } from '../utils/format.js';
 
+// Labels courts pour les axes du radar — un par filtre actif
 export const RADAR_SHORT_LABELS = {
   L1: "Donn\u00E9es", L2: "Mod\u00E8le", L3: "Km", L4: "Prix",
   L5: "Confiance", L6: "T\u00E9l\u00E9phone", L7: "SIRET", L8: "Import",
   L9: "Scan", L10: "Anciennet\u00E9",
 };
 
+/**
+ * Jauge circulaire SVG avec le score global (0-100).
+ * Le cercle se remplit proportionnellement via stroke-dasharray.
+ * @param {number} score - Score global de l'annonce (0-100)
+ * @returns {string} SVG de la jauge
+ */
 export function buildGaugeSVG(score) {
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
@@ -33,25 +41,36 @@ export function buildGaugeSVG(score) {
   `;
 }
 
+/**
+ * Graphe radar SVG montrant les scores de chaque filtre.
+ * On exclut les filtres neutral/skip pour ne garder que les axes pertinents.
+ * La couleur du polygone depend du score global (vert/orange/rouge).
+ * @param {Array} filters - Tableau de filtres {filter_id, status, score}
+ * @param {number} overallScore - Score global pour la couleur du polygone
+ * @returns {string} SVG du radar ou chaine vide
+ */
 export function buildRadarSVG(filters, overallScore) {
   if (!filters || !filters.length) return "";
 
+  // On ne garde que les filtres evaluables pour dessiner le radar
   const activeFilters = filters.filter((f) => f.status !== "neutral" && f.status !== "skip");
   if (!activeFilters.length) return "";
 
   const cx = 160, cy = 145, R = 100;
   const n = activeFilters.length;
   const angleStep = (2 * Math.PI) / n;
-  const startAngle = -Math.PI / 2;
+  const startAngle = -Math.PI / 2; // Demarre en haut (12h)
 
   const mainColor = overallScore >= 70 ? "#22c55e"
     : overallScore >= 45 ? "#f59e0b" : "#ef4444";
 
+  /** Coordonnees d'un point sur l'axe i a distance r du centre. */
   function pt(i, r) {
     const angle = startAngle + i * angleStep;
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
   }
 
+  // Grille : 5 niveaux concentriques (20%, 40%, 60%, 80%, 100%)
   let gridSVG = "";
   for (const pct of [0.2, 0.4, 0.6, 0.8, 1.0]) {
     const pts = [];
@@ -63,12 +82,14 @@ export function buildRadarSVG(filters, overallScore) {
     gridSVG += `<polygon points="${pts.join(" ")}" class="${cls}"/>`;
   }
 
+  // Axes : lignes du centre vers chaque sommet
   let axesSVG = "";
   for (let i = 0; i < n; i++) {
     const p = pt(i, R);
     axesSVG += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" class="okazcar-radar-axis-line"/>`;
   }
 
+  // Polygone des donnees : chaque sommet positionne selon le score du filtre (0-1)
   const dataPts = [];
   for (let i = 0; i < n; i++) {
     const p = pt(i, R * activeFilters[i].score);
@@ -76,20 +97,23 @@ export function buildRadarSVG(filters, overallScore) {
   }
   const dataStr = dataPts.join(" ");
 
+  // Points et labels sur chaque axe du radar
   let dotsSVG = "";
   let labelsSVG = "";
-  const labelPad = 18;
+  const labelPad = 18; // Decalage des labels par rapport au bord
   for (let i = 0; i < n; i++) {
     const f = activeFilters[i];
     const score = f.score;
     const dp = pt(i, R * score);
 
+    // Couleur du point selon le statut du filtre
     let dotColor = "#22c55e";
     if (f.status === "fail") dotColor = "#ef4444";
     else if (f.status === "warning") dotColor = "#f59e0b";
     else if (f.status === "skip") dotColor = "#9ca3af";
     dotsSVG += `<circle cx="${dp.x}" cy="${dp.y}" r="4" fill="${dotColor}" class="okazcar-radar-dot"/>`;
 
+    // Ancrage du label : gauche/droite/centre selon la position sur le radar
     const lp = pt(i, R + labelPad);
     let anchor = "middle";
     if (lp.x < cx - 10) anchor = "end";
@@ -120,8 +144,18 @@ export function buildRadarSVG(filters, overallScore) {
   `;
 }
 
+// Filtres affiches en mode booleen (OK/NOK) au lieu d'une barre de score
 const BOOLEAN_FILTERS = ["L2", "L8"];
 
+/**
+ * Barre de score individuelle pour un filtre dans la liste.
+ * Trois modes d'affichage selon le type et le statut :
+ *  - N/A pour les filtres neutral
+ *  - Badge OK/NOK pour les filtres booleens (L2, L8)
+ *  - Barre de pourcentage pour tous les autres
+ * @param {Object} f - Filtre {filter_id, status, score}
+ * @returns {string} HTML de la barre de score
+ */
 export function buildScoreBar(f) {
   const color = statusColor(f.status);
   if (f.status === "neutral") {

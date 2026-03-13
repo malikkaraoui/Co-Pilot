@@ -1,7 +1,20 @@
+/**
+ * L6 — Analyse du numero de telephone du vendeur.
+ * Classe le numero par type (mobile, fixe, virtuel, etranger, demarchage ARCEP)
+ * et affiche un badge colore en consequence.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Rendu du filtre L6 : badge du type de telephone + message contextuel.
+ * Gere aussi le cas "connectez-vous pour voir le numero" sur LBC.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {type, is_foreign, prefix, no_phone_pro, phone_login_hint, ...}
+ * @returns {string} HTML du body L6
+ */
 export function buildL6Body(f, d) {
   if (f.status === "neutral") {
     return `<div class="okazcar-l6-body"><span class="okazcar-l6-na">T\u00E9l\u00E9phone non disponible</span></div>`;
@@ -21,6 +34,7 @@ export function buildL6Body(f, d) {
     </div>`;
   }
 
+  // Classification du numero par type — chaque type a son badge et sa couleur
   const phoneType = d.type || "";
   let badgeText = "";
   let badgeClass = "okazcar-l6-badge-default";

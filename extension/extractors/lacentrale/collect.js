@@ -1,13 +1,18 @@
 "use strict";
 
 /**
- * La Centrale — market price collection.
+ * La Centrale — collecte de prix marche.
  *
- * Same pattern as LeBonCoin: progressive escalation of search strategies,
- * starting narrow (model + fuel + gearbox + km) and widening (brand only).
- * Uses the backend next-job API to decide which vehicle to collect,
- * then builds LC search URLs, fetches listing pages, extracts prices,
- * and submits them to the backend.
+ * Meme pattern que LeBonCoin : escalade progressive des strategies
+ * de recherche, du plus precis (modele + carburant + boite + km) au plus
+ * large (marque seule). Utilise l'API next-job du backend pour decider
+ * quel vehicule collecter.
+ *
+ * IMPORTANT : la collecte directe sur LC est actuellement desactivee
+ * a cause de l'anti-bot DataDome. A la place, on delegue au backend
+ * qui relance la collecte via LBC/AS24 (failed-search avec delegation).
+ * Le code de collecte directe est conserve en dead code apres le return
+ * pour pouvoir le reactiver si LC change sa politique anti-bot.
  */
 
 import { isBenignRuntimeTeardownError } from '../../utils/fetch.js';
@@ -17,6 +22,7 @@ import { buildLcSearchUrl, getLcMileageRange, fetchLcSearchPrices, fetchLcSearch
 
 // ── Helpers ─────────────────────────────────────────────────────
 
+/** Calcule la fenetre d'annees min/max autour d'une annee de reference */
 function _yearMeta(yearRef, spread) {
   const y = parseInt(yearRef, 10);
   const s = parseInt(spread, 10) || 1;
@@ -25,12 +31,14 @@ function _yearMeta(yearRef, spread) {
   return { yearMin: y - s, yearMax: Math.min(y + s, currentYear) };
 }
 
+/** Qualifie le resultat d'une recherche pour le diagnostic backend */
 function _urlVerdict(adsFound, uniqueAdded) {
   if ((adsFound || 0) <= 0) return 'empty';
   if ((uniqueAdded || 0) <= 0) return 'duplicates_only';
   return 'useful';
 }
 
+/** Resume lisible des criteres de recherche pour le search_log */
 function _criteriaSummary(make, model, fuel, gearbox, yearMeta) {
   const yearVal = (yearMeta.yearMin && yearMeta.yearMax)
     ? `${yearMeta.yearMin}-${yearMeta.yearMax}`
@@ -44,6 +52,10 @@ function _criteriaSummary(make, model, fuel, gearbox, yearMeta) {
   ].join(' \u00b7 ');
 }
 
+/**
+ * Nettoie un token modele pour la recherche LC.
+ * Supprime accents, underscores, slashes et normalise les espaces.
+ */
 function _cleanLcToken(value) {
   return String(value || '')
     .normalize('NFD')
@@ -54,12 +66,18 @@ function _cleanLcToken(value) {
     .toUpperCase();
 }
 
+/** Ajoute une variante de modele sans doublon */
 function _pushLcVariant(list, value) {
   const cleaned = _cleanLcToken(value);
   if (!cleaned) return;
   if (!list.includes(cleaned)) list.push(cleaned);
 }
 
+/**
+ * Genere les variantes de nom de modele a essayer dans les recherches LC.
+ * LC est sensible aux noms exacts — on genere plusieurs formes pour
+ * maximiser les chances de match (avec/sans +, tirets, apostrophes, etc.)
+ */
 function _buildLcModelVariants(baseModel, adData) {
   const variants = [];
   const rawCandidates = [
@@ -72,6 +90,7 @@ function _buildLcModelVariants(baseModel, adData) {
 
   rawCandidates.forEach((candidate) => _pushLcVariant(variants, candidate));
 
+  // Generer des formes alternatives courantes
   for (const candidate of [...variants]) {
     if (candidate.includes('+')) {
       _pushLcVariant(variants, candidate.replace(/\+/g, ''));
@@ -84,6 +103,10 @@ function _buildLcModelVariants(baseModel, adData) {
   return variants.filter(Boolean).slice(0, 6);
 }
 
+/**
+ * Classe les diagnostics LC par severite pour garder le plus informatif.
+ * anti_bot est le plus grave, true_zero_results le plus benin.
+ */
 function _lcDiagnosticRank(tag) {
   switch (tag) {
     case 'anti_bot_403':
@@ -103,6 +126,7 @@ function _lcDiagnosticRank(tag) {
   }
 }
 
+/** Garde le diagnostic le plus severe entre deux candidats */
 function _pickBestLcDiagnostic(current, candidate) {
   if (!candidate) return current || null;
   if (!current) return candidate;
@@ -113,6 +137,7 @@ function _pickBestLcDiagnostic(current, candidate) {
 
 // ── Bonus Jobs ──────────────────────────────────────────────────
 
+/** Signale au backend qu'un job bonus est termine */
 async function _reportJobDone(backendFetch, apiUrl, jobId, success) {
   if (!jobId) return;
   try {
@@ -128,6 +153,10 @@ async function _reportJobDone(backendFetch, apiUrl, jobId, success) {
   }
 }
 
+/**
+ * Execute les bonus jobs (collectes de prix pour d'autres vehicules).
+ * Chaque job fait une recherche LC simplifiee et soumet les prix au backend.
+ */
 async function _executeBonusJobs(bonusJobs, backendFetch, apiUrl, progress) {
   const MIN_BONUS_PRICES = 5;
   const marketUrl = apiUrl.replace('/analyze', '/market-prices');
@@ -136,6 +165,7 @@ async function _executeBonusJobs(bonusJobs, backendFetch, apiUrl, progress) {
 
   for (const job of bonusJobs) {
     try {
+      // Delai entre jobs pour eviter le rate limiting
       await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
 
       const jobYear = parseInt(job.year, 10);
@@ -209,12 +239,16 @@ async function _executeBonusJobs(bonusJobs, backendFetch, apiUrl, progress) {
 // ── Main Collection ─────────────────────────────────────────────
 
 /**
- * Collect market prices for a La Centrale vehicle.
+ * Collecte les prix marche pour un vehicule La Centrale.
  *
- * @param {object} adData - Normalized ad_data from the LC extractor
- * @param {Function} backendFetch - Backend fetch function (injected)
- * @param {string} apiUrl - API base URL (e.g. "http://localhost:5001/api/analyze")
- * @param {object} progress - Progress UI tracker
+ * Actuellement, la collecte directe est desactivee (anti-bot DataDome).
+ * On envoie un failed-search au backend pour declencher une delegation
+ * automatique vers LBC/AS24 qui peuvent collecter sans blocage.
+ *
+ * @param {object} adData - ad_data normalise depuis l'extracteur LC
+ * @param {Function} backendFetch - Fonction fetch vers le backend (injectee)
+ * @param {string} apiUrl - URL de base de l'API (ex: "http://localhost:5001/api/analyze")
+ * @param {object} progress - Tracker UI pour afficher l'avancement
  * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
  */
 export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progress) {
@@ -243,6 +277,9 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
     return { submitted: false, isCurrentVehicle: false };
   }
 
+  // ── Delegation vers LBC/AS24 ──
+  // On envoie un failed-search avec diagnostic "strategy_disabled"
+  // pour que le backend cree automatiquement des jobs sur d'autres sites
   if (progress) {
     progress.update('collect', 'skip', 'Pas de listing LC : délégation vers LBC/AS24');
     progress.update('submit', 'running', 'Création des relances automatiques');
@@ -311,9 +348,14 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
 
   return { submitted: false, isCurrentVehicle: false };
 
+  // ══════════════════════════════════════════════════════════════
+  // Dead code ci-dessous : collecte directe desactivee a cause
+  // de l'anti-bot DataDome. Conserve pour pouvoir etre reactive.
+  // ══════════════════════════════════════════════════════════════
+
   const targetYear = parseInt(year, 10) || 0;
 
-  // 1. Ask backend for next-job
+  // 1. Demander au backend quel vehicule collecter
   if (progress) progress.update('job', 'running');
 
   const jobUrl = apiUrl.replace('/analyze', '/market-prices/next-job')
@@ -350,7 +392,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
     return { submitted: false, isCurrentVehicle: false };
   }
 
-  // No collection needed?
+  // Pas de collecte necessaire
   if (!jobResp?.data?.collect) {
     const bonusJobs = jobResp?.data?.bonus_jobs || [];
     if (bonusJobs.length === 0) {
@@ -375,7 +417,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
   const target = jobResp.data.vehicle;
   const bonusJobs = jobResp.data.bonus_jobs || [];
 
-  // 2. Cooldown check for OTHER vehicles
+  // 2. Cooldown pour les vehicules tiers
   const isCurrentVehicle =
     target.make.toLowerCase() === make.toLowerCase() &&
     target.model.toLowerCase() === model.toLowerCase();
@@ -403,22 +445,22 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
   }
   console.log('[OKazCar] LC collect target: %s (isCurrentVehicle=%s)', targetLabel, isCurrentVehicle);
 
-  // 3. Build progressive search strategies
-  //    LC is national (no geo/region in URL), so escalation = loosen filters
+  // 3. Construction des strategies progressives
+  //    LC est national (pas de geo dans l'URL) — escalade = relacher les filtres
   const mileageRange = isCurrentVehicle ? getLcMileageRange(mileageKm) : null;
   const targetFuel = isCurrentVehicle ? fuel : (target.fuel || null);
   const targetGearbox = isCurrentVehicle ? gearbox : (target.gearbox || null);
 
   const strategies = [
-    // S1: Full filters (model + fuel + gearbox + km) ±1 year
+    // S1 : Tous filtres (modele + carburant + boite + km) ±1an
     { model: target.model, fuel: targetFuel, gearbox: targetGearbox, mileage: mileageRange, yearSpread: 1, precision: 5 },
-    // S2: Model + fuel ±2 years (drop gearbox + km)
+    // S2 : Modele + carburant ±2ans (sans boite ni km)
     { model: target.model, fuel: targetFuel, gearbox: null, mileage: null, yearSpread: 2, precision: 4 },
-    // S3: Model only ±2 years (drop all sub-filters)
+    // S3 : Modele seul ±2ans
     { model: target.model, fuel: null, gearbox: null, mileage: null, yearSpread: 2, precision: 3 },
-    // S4: Model only ±3 years
+    // S4 : Modele seul ±3ans
     { model: target.model, fuel: null, gearbox: null, mileage: null, yearSpread: 3, precision: 2 },
-    // S5: Brand only ±2 years (last resort)
+    // S5 : Marque seule ±2ans (dernier recours)
     { model: null, fuel: targetFuel, gearbox: null, mileage: null, yearSpread: 2, precision: 1 },
   ];
 
@@ -436,6 +478,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
       const s = strategies[i];
       const yearMeta = _yearMeta(tYear, s.yearSpread);
 
+      // Essayer plusieurs variantes du nom de modele pour maximiser les chances
       const modelVariants = s.model ? _buildLcModelVariants(s.model, isCurrentVehicle ? adData : null) : [null];
       const triedModels = [];
       let searchUrl = null;
@@ -464,7 +507,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
       const critSummary = _criteriaSummary(target.make, triedModels[0] || s.model, s.fuel, s.gearbox, yearMeta);
       const strategyLabel = 'Strategie ' + (i + 1) + ' \u00b7 \u00b1' + s.yearSpread + 'an';
 
-      // Deduplicate against accumulated prices
+      // Deduplication progressive
       const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
       const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
       prices = [...prices, ...unique];
@@ -526,7 +569,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
       }
     }
 
-    // 4. Submit if enough prices
+    // 4. Soumission si assez de prix
     if (prices.length >= LC_MIN_PRICES) {
       if (progress) {
         progress.update('collect', 'done', prices.length + ' prix collectes (precision ' + (collectedPrecision || '?') + ')');
@@ -580,6 +623,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
         }
       }
     } else {
+      // Pas assez de prix — signaler l'echec au backend pour diagnostic
       console.log('[OKazCar] LC pas assez de prix: %d < %d', prices.length, LC_MIN_PRICES);
       if (progress) {
         progress.update('collect', 'warning', prices.length + ' annonces trouvees (minimum ' + LC_MIN_PRICES + ')');
@@ -587,7 +631,6 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
         progress.update('bonus', 'skip');
       }
 
-      // Report failed search for diagnostics
       try {
         const failedUrl = apiUrl.replace('/analyze', '/market-prices/failed-search');
         await backendFetch(failedUrl, {
@@ -620,7 +663,7 @@ export async function collectMarketPricesLC(adData, backendFetch, apiUrl, progre
     }
   }
 
-  // 5. Save timestamp (even if not enough prices)
+  // 5. Sauvegarder le timestamp (meme si pas assez de prix)
   markCollected();
   return { submitted, isCurrentVehicle };
 }

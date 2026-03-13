@@ -1,5 +1,19 @@
 "use strict";
 
+/**
+ * Extracteur principal AutoScout24.
+ *
+ * Orchestre l'extraction des donnees d'annonce (RSC, JSON-LD, DOM fallback)
+ * et la collecte de prix marche via des recherches AS24.
+ *
+ * La collecte utilise une cascade de strategies progressives :
+ * ZIP local → canton → national, en relachant les filtres a chaque etape
+ * (carburant, boite, puissance, km) jusqu'a obtenir assez de prix.
+ *
+ * Le backend decide quel vehicule collecter via next-job :
+ * ca peut etre le vehicule courant ou un autre en attente.
+ */
+
 import { SiteExtractor } from '../base.js';
 import { shouldSkipCollection, markCollected } from '../../shared/cooldown.js';
 import {
@@ -28,17 +42,28 @@ export class AutoScout24Extractor extends SiteExtractor {
   static SITE_ID = 'autoscout24';
   static URL_PATTERNS = AS24_URL_PATTERNS;
 
-  /** @type {object|null} Cached RSC data */
+  /** @type {object|null} Donnees RSC en cache */
   _rsc = null;
-  /** @type {object|null} Cached JSON-LD data */
+  /** @type {object|null} Donnees JSON-LD en cache */
   _jsonLd = null;
-  /** @type {object|null} Cached ad_data */
+  /** @type {object|null} ad_data normalise en cache */
   _adData = null;
 
   isAdPage(url) {
     return AD_PAGE_PATTERN.test(url);
   }
 
+  /**
+   * Extrait les donnees de l'annonce AS24 courante.
+   *
+   * Strategie en cascade :
+   * 1. RSC payload (le plus riche) + JSON-LD
+   * 2. Si aucun des deux n'est dispo → fallback DOM pur
+   * 3. Verification anti-SPA : on cross-valide marque/modele avec l'URL
+   *    pour detecter les donnees perimees d'une navigation SPA
+   * 4. Enrichissement final : dates, images, description, carburant, couleur
+   *    depuis le DOM si le RSC/JSON-LD etait incomplet
+   */
   async extract() {
     this._rsc = parseRSCPayload(document, window.location.href);
     this._jsonLd = parseJsonLd(document);
@@ -56,7 +81,10 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     this._adData = normalizeToAdData(this._rsc, this._jsonLd);
 
-    // SPA guard: cross-validate make AND model against URL slug
+    // ── Protection anti-SPA ──
+    // AS24 est une SPA : quand l'utilisateur navigue entre annonces,
+    // le RSC dans le DOM peut rester celui de la page precedente.
+    // On verifie que la marque+modele extraits correspondent au slug URL.
     const urlHint = extractMakeModelFromUrl(window.location.href);
     const urlSlugMatch = window.location.pathname.match(
       /\/(?:d|angebote|offerte|ofertas|aanbod|offres|annunci|anuncios|oferta|erbjudanden)\/([a-z0-9][\w-]*?)[-–](?:\d+|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-z0-9]{6,})(?:[/?#]|$)/i
@@ -72,6 +100,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       const vehicleInUrl = urlSlug.startsWith(makeSlug)
         && hasModelMatch;
       if (!vehicleInUrl) {
+        // Donnees RSC perimees — on cherche un JSON-LD frais pour ce vehicule
         console.warn(
           '[OKazCar] AS24 SPA stale data: extracted %s %s not in URL slug "%s"',
           this._adData.make, this._adData.model || '?', urlSlug
@@ -91,7 +120,9 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    // Final fallback: if dates are still missing, search DOM scripts
+    // ── Enrichissement par fallback DOM ──
+    // Chaque champ manquant est complete depuis le DOM si possible
+
     if (!this._adData.publication_date) {
       const domDates = _extractDatesFromDom(document);
       if (domDates.createdDate) {
@@ -103,7 +134,6 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    // Fallback image count from __NEXT_DATA__
     if (!this._adData.image_count) {
       const ndImageCount = _extractImageCountFromNextData(document);
       if (ndImageCount > 0) {
@@ -111,7 +141,6 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    // Final fallback: description from DOM blocks
     if (!this._adData.description) {
       const domDesc = _extractDescriptionFromDom(document);
       if (domDesc) {
@@ -119,7 +148,6 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    // Final fallback: fuel from visible DOM labels (Carburant/Kraftstoff/...)
     if (!this._adData.fuel) {
       const domFuel = _extractFuelFromDom(document);
       if (domFuel) {
@@ -127,7 +155,6 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    // Final fallback: color from visible DOM labels (Couleur originale / Farbe / Color ...)
     if (!this._adData.color) {
       const domColor = _extractColorFromDom(document);
       if (domColor) {
@@ -151,10 +178,12 @@ export class AutoScout24Extractor extends SiteExtractor {
     };
   }
 
+  /** AS24 n'a pas de mur de connexion */
   isLoggedIn() {
     return true;
   }
 
+  /** Le telephone est deja dans les donnees structurees (pas de clic necessaire) */
   async revealPhone() {
     return this._adData?.phone || null;
   }
@@ -171,6 +200,19 @@ export class AutoScout24Extractor extends SiteExtractor {
     return this._adData?.location || null;
   }
 
+  /**
+   * Collecte les prix marche pour le vehicule courant (ou un autre via next-job).
+   *
+   * Pipeline complet :
+   * 1. Appel next-job → le backend decide quel vehicule collecter
+   * 2. Construction d'une cascade de strategies de recherche
+   * 3. Execution sequentielle des strategies (avec dedup progressive)
+   * 4. Soumission des prix au backend (ou rapport d'echec)
+   * 5. Execution des bonus jobs en attente
+   *
+   * @param {object} progress - Tracker UI pour afficher l'avancement
+   * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
+   */
   async collectMarketPrices(progress) {
     if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
       return { submitted: false, isCurrentVehicle: false };
@@ -198,7 +240,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     const canton = (tld === 'ch' && zipcode) ? getCantonFromZip(zipcode) : null;
     const region = canton || countryName;
 
-    // ── 1. Call next-job API ──────────────────────────────────────
+    // ── 1. Demander au backend quel vehicule collecter ──────────
     if (progress) progress.update('job', 'running');
 
     const fuelForJob = this._adData.fuel ? this._adData.fuel.toLowerCase() : '';
@@ -231,7 +273,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       return { submitted: false, isCurrentVehicle: false };
     }
 
-    // ── 2. Handle collect=false ───────────────────────────────────
+    // ── 2. Pas de collecte necessaire ───────────────────────────
     if (!jobResp?.data?.collect) {
       const queuedJobs = jobResp?.data?.bonus_jobs || [];
       if (queuedJobs.length === 0) {
@@ -252,7 +294,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       return { submitted: false, isCurrentVehicle: false };
     }
 
-    // ── 3. Determine target vehicle ───────────────────────────────
+    // ── 3. Identification du vehicule cible ─────────────────────
     const target = jobResp.data.vehicle;
     const targetRegion = jobResp.data.region;
     const isRedirect = !!jobResp.data.redirect;
@@ -262,6 +304,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       target.make.toLowerCase() === this._adData.make.toLowerCase()
       && target.model.toLowerCase() === this._adData.model.toLowerCase();
 
+    // Cooldown : si c'est un autre vehicule et qu'on a deja collecte recemment
     if (!isCurrentVehicle) {
       if (shouldSkipCollection()) {
         if (progress) {
@@ -288,9 +331,13 @@ export class AutoScout24Extractor extends SiteExtractor {
         + (isCurrentVehicle ? ` (${targetRegion})` : ' (autre véhicule)'));
     }
 
-    // ── 4. Build cascade strategies ───────────────────────────────
+    // ── 4. Construction de la cascade de strategies ──────────────
+    // Pour le vehicule courant : filtres fins (carburant, boite, CV, km)
+    // Pour un autre vehicule : strategies larges sans filtres specifiques
     const normalizedAdFuel = this._adData?.fuel ? mapFuelType(this._adData.fuel) : null;
     const normalizedTargetFuel = target?.fuel ? mapFuelType(target.fuel) : null;
+    // Tentative agressive de resolution du code carburant AS24 :
+    // on essaie toutes les sources connues car le format varie
     const fuelCode = getAs24FuelCode(this._rsc?.fuelType)
       || getAs24FuelCode(this._rsc?.fuel)
       || getAs24FuelCode(this._adData?.fuel)
@@ -302,6 +349,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     const targetCantonZip = getCantonCenterZip(targetRegion);
     const strategies = [];
 
+    /** Resumer les filtres appliques pour le search_log */
     function _filtersApplied(opts) {
       const f = [];
       if (opts.fuel) f.push('fuel');
@@ -312,11 +360,14 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     if (isCurrentVehicle) {
+      // Pour le vehicule courant on construit des strategies fines
+      // qui s'elargissent progressivement
       const powerParams = getAs24PowerParams(hp);
       const kmParams = getAs24KmParams(km);
       const hasFuel = Boolean(fuelCode);
       const hasHp = Boolean(powerParams.powerfrom || powerParams.powerto);
 
+      /** Ajoute les filtres pertinents a un jeu d'options de recherche */
       const withRelevantFilters = (baseOpts, { includeGear = true, includeKm = false, includeFuel = true } = {}) => {
         const opts = { ...baseOpts };
         if (includeFuel && hasFuel) opts.fuel = fuelCode;
@@ -326,25 +377,31 @@ export class AutoScout24Extractor extends SiteExtractor {
         return opts;
       };
 
+      // S1 : ZIP local, tous filtres, ±1an — precision maximale
       if (zipcode) {
         const opts = withRelevantFilters({ yearSpread: 1, zip: zipcode, radius: 30 }, { includeGear: true, includeKm: true });
         strategies.push({ ...opts, precision: 5, label: `ZIP ${zipcode} +30km`, location_type: 'zip', filters_applied: _filtersApplied(opts) });
       }
+      // S2-S3 : Canton (Suisse) ±1an puis ±2ans
       if (targetCantonZip) {
         const opts1 = withRelevantFilters({ yearSpread: 1, zip: targetCantonZip, radius: 50 }, { includeGear: true, includeKm: true });
         strategies.push({ ...opts1, precision: 4, label: `${targetRegion} ±1an`, location_type: 'canton', filters_applied: _filtersApplied(opts1) });
         const opts2 = withRelevantFilters({ yearSpread: 2, zip: targetCantonZip, radius: 50 }, { includeGear: true, includeKm: false });
         strategies.push({ ...opts2, precision: 4, label: `${targetRegion} ±2ans`, location_type: 'canton', filters_applied: _filtersApplied(opts2) });
       }
+      // S4-S5 : National ±1an puis ±2ans
       const opts3 = withRelevantFilters({ yearSpread: 1 }, { includeGear: true, includeKm: false });
       strategies.push({ ...opts3, precision: 3, label: 'National ±1an', location_type: 'national', filters_applied: _filtersApplied(opts3) });
       const opts4 = withRelevantFilters({ yearSpread: 2 }, { includeGear: true, includeKm: false });
       strategies.push({ ...opts4, precision: 3, label: 'National ±2ans', location_type: 'national', filters_applied: _filtersApplied(opts4) });
+      // S6 : National ±2ans sans filtre boite — elargissement supplementaire
       if (gearCode) {
         const opts5 = withRelevantFilters({ yearSpread: 2 }, { includeGear: false, includeKm: false });
         strategies.push({ ...opts5, precision: 2, label: 'National ±2ans (sans boîte)', location_type: 'national', filters_applied: _filtersApplied(opts5) });
       }
 
+      // S7-S8 : Pour les hybrides, on essaie aussi sans filtre carburant
+      // car les hybrides sont souvent listes sous des categories differentes
       const isHybridFuelCode = fuelCode === '2' || fuelCode === '3';
       if (isHybridFuelCode) {
         const opts6 = withRelevantFilters({ yearSpread: 1 }, { includeGear: true, includeKm: false, includeFuel: false });
@@ -353,6 +410,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         strategies.push({ ...opts7, precision: 2, label: 'National ±2ans (sans carburant)', location_type: 'national', filters_applied: _filtersApplied(opts7) });
       }
     } else {
+      // Pour un autre vehicule : strategies larges sans filtres specifiques
       if (targetCantonZip) {
         strategies.push({
           yearSpread: 1, zip: targetCantonZip, radius: 50,
@@ -363,14 +421,17 @@ export class AutoScout24Extractor extends SiteExtractor {
       strategies.push({ yearSpread: 2, precision: 1, label: 'National ±2ans', location_type: 'national', filters_applied: [] });
     }
 
-    // ── 5. Execute cascade ────────────────────────────────────────
+    // ── 5. Execution de la cascade ──────────────────────────────
     let prices = [];
     let usedPrecision = null;
     const searchLog = [];
+    // On memorise les slugs appris depuis les redirections AS24
+    // pour les renvoyer au backend (ameliore les futures recherches)
     let learnedSlugMake = null;
     let learnedSlugModel = null;
     let slugSource = null;
 
+    /** Memorise les slugs make/model depuis une URL de recherche ou de redirection */
     function rememberSlugs(url, source) {
       const parsed = extractAs24SlugsFromSearchUrl(url, tld);
       if (parsed.makeSlug) learnedSlugMake = parsed.makeSlug;
@@ -382,6 +443,7 @@ export class AutoScout24Extractor extends SiteExtractor {
 
     const MAX_PRICES_CAP = 100;
 
+    /** Calcule la fenetre d'annees pour les parametres URL fregfrom/fregto */
     function _as24YearWindow(yearRef, spread = 1) {
       const y = Number.parseInt(yearRef, 10);
       const s = Number.parseInt(spread, 10) || 1;
@@ -393,12 +455,14 @@ export class AutoScout24Extractor extends SiteExtractor {
       };
     }
 
+    /** Qualifie le resultat d'une URL de recherche pour le search_log */
     function _urlVerdict(adsFound, uniqueAdded) {
       if ((adsFound || 0) <= 0) return 'empty';
       if ((uniqueAdded || 0) <= 0) return 'duplicates_only';
       return 'useful';
     }
 
+    /** Resume lisible des criteres de recherche pour le diagnostic backend */
     function _criteriaSummary(opts, yearMeta) {
       const fuelVal = opts.fuel || 'any';
       const gearVal = opts.gear || 'any';
@@ -420,6 +484,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     }
 
     for (let i = 0; i < strategies.length; i++) {
+      // Delai entre requetes pour eviter le rate limiting AS24
       if (i > 0) await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
 
       const { precision, label, location_type, filters_applied, ...searchOpts } = strategies[i];
@@ -447,11 +512,13 @@ export class AutoScout24Extractor extends SiteExtractor {
           continue;
         }
 
+        // AS24 peut rediriger vers une URL canonique avec les vrais slugs
         if (resp.url) rememberSlugs(resp.url, 'as24_response_url');
 
         const html = await resp.text();
         const newPrices = parseSearchPrices(html, target.make);
 
+        // Deduplication progressive : on ne garde que les prix nouveaux
         const seen = new Set(prices.map((p) => `${p.price}-${p.km}`));
         const unique = newPrices.filter((p) => !seen.has(`${p.price}-${p.km}`));
         prices = [...prices, ...unique];
@@ -490,7 +557,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       }
     }
 
-    // ── 6. Submit or report failure ───────────────────────────────
+    // ── 6. Soumission ou rapport d'echec ────────────────────────
     let submitted = false;
 
     if (prices.length >= MIN_PRICES) {
@@ -553,6 +620,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         if (progress) progress.update('submit', 'error', 'Erreur réseau');
       }
     } else {
+      // Pas assez de prix — on signale l'echec au backend pour diagnostic
       if (progress) {
         progress.update('collect', 'warning', `${prices.length} annonces (min ${MIN_PRICES})`);
         progress.update('submit', 'skip', 'Pas assez de données');
@@ -580,7 +648,7 @@ export class AutoScout24Extractor extends SiteExtractor {
       } catch { /* ignore */ }
     }
 
-    // ── 7. Execute bonus jobs ─────────────────────────────────────
+    // ── 7. Execution des bonus jobs ─────────────────────────────
     if (bonusJobs.length > 0) {
       await this._executeBonusJobs(bonusJobs, tld, progress, lang);
     } else if (progress) {
@@ -594,11 +662,23 @@ export class AutoScout24Extractor extends SiteExtractor {
     return { submitted, isCurrentVehicle };
   }
 
+  /**
+   * Execute les bonus jobs (collectes de prix pour d'autres vehicules en attente).
+   *
+   * Meme logique de cascade que collectMarketPrices mais simplifiee :
+   * pas de filtres CV/km, juste carburant+boite puis elargissement.
+   *
+   * @param {Array} bonusJobs - Liste de jobs depuis next-job
+   * @param {string} tld - TLD du site AS24 (fr, de, ch, etc.)
+   * @param {object} progress - Tracker UI
+   * @param {string|null} lang - Code langue pour les URL
+   */
   async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
     const marketUrl = this._apiUrl.replace('/analyze', '/market-prices');
     const jobDoneUrl = this._apiUrl.replace('/analyze', '/market-prices/job-done');
     const currency = TLD_TO_CURRENCY[tld] || 'EUR';
     const countryCode = TLD_TO_COUNTRY_CODE[tld] || 'FR';
+    // Seuil minimum adapte : 20 pour la France (plus de volume), MIN_PRICES ailleurs
     const MIN_BONUS_PRICES = countryCode === 'FR' ? 20 : MIN_PRICES;
 
     function _bonusFiltersApplied(opts) {
@@ -651,6 +731,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     if (progress) progress.update('bonus', 'running', `${bonusJobs.length} jobs`);
 
     for (const job of bonusJobs) {
+      // On ne collecte que pour le pays courant
       if ((job.country || 'FR') !== countryCode) {
         console.log('[OKazCar] AS24 bonus skip: country %s != %s', job.country, countryCode);
         await this._reportJobDone(jobDoneUrl, job.job_id, false);
@@ -672,6 +753,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         }
         const cantonZip = getCantonCenterZip(job.region);
 
+        // Construction des strategies pour ce bonus job
         const strictSearchOpts = { yearSpread: 1 };
         if (job.fuel) {
           const fc = getAs24FuelCode(job.fuel);
@@ -693,6 +775,7 @@ export class AutoScout24Extractor extends SiteExtractor {
         const bonusStrategies = [];
         const seenBonusKeys = new Set();
 
+        /** Ajoute une strategie si elle n'est pas un doublon */
         const pushBonusStrategy = (label, opts, precision = 3) => {
           const strategyOpts = { ...opts };
           const key = JSON.stringify(strategyOpts);
@@ -701,6 +784,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           bonusStrategies.push({ label, precision, opts: strategyOpts });
         };
 
+        // Cascade d'elargissement progressif
         pushBonusStrategy('Strict local ±1an', strictSearchOpts, 4);
 
         if (strictSearchOpts.gear) {
@@ -721,6 +805,7 @@ export class AutoScout24Extractor extends SiteExtractor {
           pushBonusStrategy('National ±2ans', { ...strictSearchOpts, yearSpread: 2 }, 2);
         }
 
+        // Pour les hybrides : essayer sans filtre carburant
         const isHybridBonusFuel = strictSearchOpts.fuel === '2' || strictSearchOpts.fuel === '3';
         if (isHybridBonusFuel) {
           const noFuel = { ...strictSearchOpts };
@@ -886,6 +971,7 @@ export class AutoScout24Extractor extends SiteExtractor {
     if (progress) progress.update('bonus', 'done');
   }
 
+  /** Signale au backend qu'un job bonus est termine (succes ou echec) */
   async _reportJobDone(jobDoneUrl, jobId, success) {
     if (!jobId) return;
     try {

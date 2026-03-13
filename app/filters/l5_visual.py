@@ -127,6 +127,11 @@ class L5VisualFilter(BaseFilter):
         return np.array([r.price_mid for r in argus_records if r.price_mid], dtype=float)
 
     def run(self, data: dict[str, Any]) -> FilterResult:
+        """Calcule le z-score du prix par rapport aux references marche/argus.
+
+        Un z-score > 2 = prix en marge, > 3 = outlier (anomalie statistique).
+        Ajoute un malus diesel urbain si applicable (encrassement FAP probable).
+        """
         price = data.get("price_eur")
         mileage = data.get("mileage_km")
 

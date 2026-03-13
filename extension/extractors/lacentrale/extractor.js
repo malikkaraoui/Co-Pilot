@@ -1,5 +1,18 @@
 "use strict";
 
+/**
+ * Extracteur principal La Centrale.
+ *
+ * Les donnees vehicule vivent dans le monde MAIN (window.CLASSIFIED_GALLERY,
+ * window.tc_vars) mais le content script tourne en monde ISOLATED.
+ * Le background.js injecte un bridge : il copie ces variables dans des
+ * elements DOM caches que le content script peut lire.
+ *
+ * L'extraction du telephone utilise une strategie prudente :
+ * on ne clique que sur le CTA telephone strict de LC (button avec
+ * data-page-zone="telephone") pour eviter de declencher d'autres actions.
+ */
+
 import { SiteExtractor } from '../base.js';
 import { LC_URL_PATTERNS, LC_AD_PAGE_PATTERN } from './constants.js';
 import { extractGallery, extractTcVars, extractCoteFromDom, extractJsonLd, extractAutovizaUrl } from './parser.js';
@@ -7,25 +20,28 @@ import { normalizeToAdData, buildBonusSignals } from './normalize.js';
 import { collectMarketPricesLC } from './collect.js';
 
 /**
- * Read data bridged from MAIN world via a hidden DOM element.
- * The background.js injects CLASSIFIED_GALLERY / tc_vars into DOM divs
- * so the content script (ISOLATED world) can access them.
+ * Lit les donnees bridgees depuis le monde MAIN via un element DOM cache.
+ * Le background.js injecte CLASSIFIED_GALLERY / tc_vars dans des divs
+ * pour que le content script (monde ISOLATED) puisse y acceder.
  *
- * Returns a fake "window-like" object with the property set.
+ * @param {string} domId - ID de l'element DOM bridge
+ * @param {Window} win - Objet window (fallback direct si accessible)
+ * @param {string} propName - Nom de la propriete a lire
+ * @returns {object} Objet faux-window avec la propriete extraite
  */
 function _readBridgedData(domId, win, propName) {
   const fakeWin = {};
 
-  // 1. Try the DOM bridge (normal runtime path)
+  // 1. Bridge DOM (chemin normal en production)
   const el = document.getElementById(domId);
   if (el && el.textContent) {
     try {
       fakeWin[propName] = JSON.parse(el.textContent);
       return fakeWin;
-    } catch { /* malformed JSON, fall through */ }
+    } catch { /* JSON malformed, fallback */ }
   }
 
-  // 2. Fallback: try window directly (works in tests or if somehow accessible)
+  // 2. Fallback : acces direct a window (en test ou si accessible)
   if (win[propName]) {
     fakeWin[propName] = win[propName];
   }
@@ -33,6 +49,7 @@ function _readBridgedData(domId, win, propName) {
   return fakeWin;
 }
 
+/** Nettoie et valide un numero de telephone francais */
 function _cleanPhone(phone) {
   if (!phone) return null;
   const compact = String(phone).replace(/[^\d+]/g, '').trim();
@@ -40,12 +57,17 @@ function _cleanPhone(phone) {
   return null;
 }
 
+/** Extrait un telephone depuis du texte brut (regex format francais) */
 function _extractPhoneFromText(text) {
   if (!text) return null;
   const match = String(text).match(/(?:\+33|0)\s*[1-9](?:[\s.-]*\d{2}){4}/);
   return match ? _cleanPhone(match[0]) : null;
 }
 
+/**
+ * Cherche le telephone dans les donnees structurees (gallery + JSON-LD).
+ * Priorite aux donnees bridgees, puis JSON-LD en fallback.
+ */
 function _getStructuredPhone() {
   const galleryWin = _readBridgedData('__okazcar_lc_gallery__', window, 'CLASSIFIED_GALLERY');
   const jsonLdCandidates = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
@@ -66,7 +88,7 @@ function _getStructuredPhone() {
         break;
       }
     } catch {
-      // ignore malformed JSON-LD
+      // JSON-LD malformed
     }
   }
 
@@ -87,6 +109,7 @@ function _getStructuredPhone() {
   return null;
 }
 
+/** Cherche un telephone visible dans le document (liens tel: ou texte brut) */
 function _extractAnyPhoneFromDocument(root = document) {
   const telLinks = root.querySelectorAll?.('a[href^="tel:"]') || [];
   for (const link of telLinks) {
@@ -105,12 +128,18 @@ function _extractAnyPhoneFromDocument(root = document) {
   return null;
 }
 
+/** Remonte au conteneur de la zone contact pour limiter la recherche de telephone */
 function _getPhoneActionContainer(el) {
   return el?.closest?.(
     '[data-page-zone="zoneContact"], [class*="ContactInformation_contactInformation"], section, article, aside, div',
   ) || el?.parentElement || null;
 }
 
+/**
+ * Evalue un element comme candidat bouton telephone.
+ * On est strict : uniquement les vrais CTA telephone de LC,
+ * pas les liens FAQ ou contact generiques.
+ */
 function _scoreStrictPhoneButton(el) {
   if (!el || el.tagName !== 'BUTTON') return 0;
   if ((el.getAttribute('type') || '').toLowerCase() !== 'button') return 0;
@@ -134,6 +163,7 @@ function _scoreStrictPhoneButton(el) {
   return score;
 }
 
+/** Trouve les boutons telephone stricts, tries par score decroissant */
 function _findPhoneActionElements() {
   const candidates = Array.from(document.querySelectorAll('button[type="button"], button[data-page-zone], button[data-tracking-click-id]'));
   return candidates
@@ -143,13 +173,17 @@ function _findPhoneActionElements() {
     .map(({ el }) => el);
 }
 
+/**
+ * Simule un clic complet sur un element (pointer + mouse + click).
+ * Necessaire car LC ecoute parfois des evenements specifiques.
+ */
 async function _clickPhoneActionElement(el) {
   if (!el) return;
 
   try {
     el.scrollIntoView({ block: 'center', inline: 'center' });
   } catch {
-    // ignore scroll failures
+    // scroll peut echouer dans certains contextes
   }
 
   const events = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
@@ -157,7 +191,7 @@ async function _clickPhoneActionElement(el) {
     try {
       el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
     } catch {
-      // ignore synthetic event failures
+      // ignore les echecs de dispatch
     }
   }
 
@@ -165,20 +199,23 @@ async function _clickPhoneActionElement(el) {
 }
 
 /**
- * Reveal the seller's phone number on La Centrale.
+ * Revele le numero de telephone du vendeur sur La Centrale.
  *
- * Safety-first policy: we only click the strict, in-page telephone CTA used by
- * La Centrale (`button[data-page-zone="telephone"]` and close equivalents).
- * This avoids broad matching on FAQ/contact links while preserving real phone
- * extraction when the dedicated contact widget is present.
+ * Politique de securite : on ne clique que sur les CTA telephone stricts
+ * (button[data-page-zone="telephone"] et equivalents proches).
+ * Ca evite de matcher des liens FAQ/contact tout en preservant
+ * l'extraction reelle quand le widget telephone est present.
  */
 async function _revealPhoneLC() {
+  // D'abord chercher dans les donnees structurees (pas besoin de clic)
   const structuredPhone = _getStructuredPhone();
   if (structuredPhone) return structuredPhone;
 
+  // Puis chercher un numero deja visible dans le DOM
   const visiblePhone = _extractAnyPhoneFromDocument(document);
   if (visiblePhone) return visiblePhone;
 
+  // En dernier recours : cliquer le CTA telephone et attendre la revelation
   const phoneButtons = _findPhoneActionElements();
   if (phoneButtons.length === 0) return null;
 
@@ -191,6 +228,7 @@ async function _revealPhoneLC() {
       const docPhone = _extractAnyPhoneFromDocument(document);
       if (docPhone) return docPhone;
 
+      // Chercher aussi dans le conteneur local du bouton
       const container = _getPhoneActionContainer(phoneBtn);
       if (container) {
         const localPhone = _extractPhoneFromText(container.textContent || '');
@@ -202,10 +240,7 @@ async function _revealPhoneLC() {
   return null;
 }
 
-/**
- * Detect if a phone number is already available or revealable via the strict
- * La Centrale phone CTA.
- */
+/** Verifie si un telephone est disponible ou revelable via le CTA strict */
 function _hasPhoneButtonLC() {
   return Boolean(_getStructuredPhone() || _extractAnyPhoneFromDocument(document) || _findPhoneActionElements().length > 0);
 }
@@ -214,15 +249,15 @@ export class LaCentraleExtractor extends SiteExtractor {
   static SITE_ID = 'lacentrale';
   static URL_PATTERNS = LC_URL_PATTERNS;
 
-  /** @type {object|null} Cached gallery data */
+  /** @type {object|null} Donnees gallery en cache */
   _gallery = null;
-  /** @type {object} Cached tc_vars */
+  /** @type {object} Variables tc_vars en cache */
   _tcVars = {};
-  /** @type {object} Cached cote data */
+  /** @type {object} Donnees cotation en cache */
   _cote = { quotation: null, trustIndex: null };
-  /** @type {object|null} Cached JSON-LD */
+  /** @type {object|null} JSON-LD en cache */
   _jsonLd = null;
-  /** @type {object|null} Cached ad_data */
+  /** @type {object|null} ad_data normalise en cache */
   _adData = null;
 
   isAdPage(url) {
@@ -233,8 +268,8 @@ export class LaCentraleExtractor extends SiteExtractor {
     return _hasPhoneButtonLC();
   }
 
+  /** LC n'a pas de mur de connexion pour voir les annonces */
   isLoggedIn() {
-    // La Centrale shows phone without login requirement
     return true;
   }
 
@@ -247,10 +282,14 @@ export class LaCentraleExtractor extends SiteExtractor {
     return phone;
   }
 
+  /**
+   * Extrait les donnees de l'annonce La Centrale.
+   *
+   * CLASSIFIED_GALLERY et tc_vars vivent dans le monde MAIN.
+   * Le background script les bridge dans des elements DOM caches
+   * lisibles depuis le content script (monde ISOLATED).
+   */
   async extract() {
-    // CLASSIFIED_GALLERY and tc_vars live in MAIN world.
-    // The background script bridges them into hidden DOM elements
-    // that we can read from the ISOLATED content script context.
     const galleryWin = _readBridgedData('__okazcar_lc_gallery__', window, 'CLASSIFIED_GALLERY');
     const tcVarsWin = _readBridgedData('__okazcar_lc_tcvars__', window, 'tc_vars');
 
@@ -259,7 +298,7 @@ export class LaCentraleExtractor extends SiteExtractor {
     this._cote = extractCoteFromDom(document);
     this._jsonLd = extractJsonLd(document);
 
-    // Need at least gallery or JSON-LD to produce meaningful data
+    // Il faut au moins gallery ou JSON-LD pour produire des donnees utiles
     if (!this._gallery && !this._jsonLd) {
       console.warn('[OKazCar] La Centrale: no CLASSIFIED_GALLERY and no JSON-LD found');
       return null;
@@ -267,7 +306,6 @@ export class LaCentraleExtractor extends SiteExtractor {
 
     this._adData = normalizeToAdData(this._gallery, this._tcVars, this._cote, this._jsonLd);
 
-    // Minimum viability check: need at least make or model
     if (!this._adData.make && !this._adData.model) {
       console.warn('[OKazCar] La Centrale: no make/model extracted');
       return null;
@@ -302,9 +340,9 @@ export class LaCentraleExtractor extends SiteExtractor {
   }
 
   /**
-   * Market price collection for La Centrale.
-   * Builds search URLs from reverse-engineered listing params,
-   * fetches listing pages, extracts prices, submits to backend.
+   * Collecte de prix marche pour La Centrale.
+   * Delegue a collectMarketPricesLC qui gere la construction d'URL,
+   * le fetch des pages listing et l'extraction de prix.
    */
   async collectMarketPrices(progress) {
     if (!this._adData || !this._fetch || !this._apiUrl) {

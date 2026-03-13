@@ -1,8 +1,15 @@
+/**
+ * L1 — Completude des donnees de l'annonce.
+ * Affiche une barre de progression (X/10 champs renseignes) et liste
+ * les champs manquants classes par criticite.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 import { statusColor } from '../../utils/styles.js';
 
+// Traduction des noms de champs techniques en labels lisibles
 const FIELD_LABELS_FR = {
   price_eur: "Prix", make: "Marque", model: "Modèle",
   year_model: "Année", mileage_km: "Kilométrage",
@@ -12,6 +19,12 @@ const FIELD_LABELS_FR = {
 
 export { FIELD_LABELS_FR };
 
+/**
+ * Rendu du filtre L1 : barre de completude + champs manquants.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {fields_present, fields_total, missing_critical, missing_secondary}
+ * @returns {string} HTML du body L1
+ */
 export function buildL1Body(f, d) {
   const present = d.fields_present || 0;
   const total = d.fields_total || 10;

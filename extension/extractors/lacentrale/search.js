@@ -1,15 +1,24 @@
 "use strict";
 
 /**
- * La Centrale — search URL builder and price extraction from listing pages.
+ * La Centrale — construction d'URL de recherche et extraction de prix.
  *
- * Reverse-engineered from lacentrale.fr/listing query parameters:
- *   ?makesModelsCommercialNames=PEUGEOT         (brand)
- *   ?makesModelsCommercialNames=PEUGEOT%3A308    (brand:model)
- *   ?energies=dies                               (fuel)
- *   ?gearbox=man                                 (gearbox)
- *   ?yearMin=2020&yearMax=2024                   (year range)
- *   ?mileageMin=10000&mileageMax=80000           (km range)
+ * Parametres URL reverse-engineered depuis lacentrale.fr/listing :
+ *   ?makesModelsCommercialNames=PEUGEOT         (marque)
+ *   ?makesModelsCommercialNames=PEUGEOT%3A308    (marque:modele)
+ *   ?energies=dies                               (carburant)
+ *   ?gearbox=man                                 (boite)
+ *   ?yearMin=2020&yearMax=2024                   (fourchette annees)
+ *   ?mileageMin=10000&mileageMax=80000           (fourchette km)
+ *
+ * L'extraction de prix combine 3 strategies :
+ * 1. Iframe same-origin (rendu JS complet, le plus fiable)
+ * 2. Fetch HTML + __NEXT_DATA__ / JSON inline
+ * 3. Regex sur les elements prix dans le HTML brut
+ *
+ * LC deploie un anti-bot DataDome (captcha) qui peut bloquer les fetches.
+ * L'iframe same-origin fonctionne mieux car elle partage les cookies
+ * de session de l'utilisateur.
  */
 
 import { isChromeRuntimeAvailable } from '../../utils/fetch.js';
@@ -19,34 +28,38 @@ import {
   LC_SEARCH_REGION_CODES,
 } from './constants.js';
 
+/** Timeout de chargement de l'iframe en ms */
 const LC_IFRAME_LOAD_TIMEOUT_MS = 5000;
+/** Temps d'attente pour le rendu JS dans l'iframe */
 const LC_IFRAME_RENDER_WAIT_MS = 2000;
+/** Intervalle de polling pour verifier si les annonces sont apparues */
 const LC_IFRAME_POLL_INTERVAL_MS = 500;
 
+/** Longueur max des excerpts dans les diagnostics */
 const LC_DIAGNOSTIC_BODY_EXCERPT_MAX = 320;
 const LC_DIAGNOSTIC_REASON_MAX = 180;
 
 // ── URL Builder ─────────────────────────────────────────────────
 
 /**
- * Build a La Centrale listing search URL from vehicle criteria.
+ * Construit une URL de recherche La Centrale depuis les criteres vehicule.
  *
  * @param {object} opts
- * @param {string} opts.make       - Brand name (e.g. "PEUGEOT")
- * @param {string} [opts.model]    - Model name (e.g. "308")
- * @param {number} [opts.yearMin]  - Min year
- * @param {number} [opts.yearMax]  - Max year
- * @param {number} [opts.mileageMin] - Min km
- * @param {number} [opts.mileageMax] - Max km
- * @param {string} [opts.fuel]     - Normalized fuel string (e.g. "diesel")
- * @param {string} [opts.gearbox]  - Normalized gearbox string (e.g. "manual")
- * @returns {string} Full listing URL
+ * @param {string} opts.make - Nom de marque (ex: "PEUGEOT")
+ * @param {string} [opts.model] - Nom de modele (ex: "308")
+ * @param {number} [opts.yearMin] - Annee minimum
+ * @param {number} [opts.yearMax] - Annee maximum
+ * @param {number} [opts.mileageMin] - Kilometrage minimum
+ * @param {number} [opts.mileageMax] - Kilometrage maximum
+ * @param {string} [opts.fuel] - Carburant normalise (ex: "diesel")
+ * @param {string} [opts.gearbox] - Boite normalisee (ex: "manual")
+ * @returns {string} URL de listing complete
  */
 export function buildLcSearchUrl(opts) {
   const params = new URLSearchParams();
 
-  // Brand + optional model: "PEUGEOT" or "PEUGEOT::308" (double colon!)
-  // Verified 2026-03-09: LC uses BRAND::MODEL (not single colon).
+  // Marque + modele optionnel : "PEUGEOT" ou "PEUGEOT::308" (double deux-points !)
+  // Verifie le 2026-03-09 : LC utilise BRAND::MODEL (pas un seul deux-points)
   const make = (opts.make || '').toUpperCase();
   if (make) {
     const token = opts.model
@@ -55,31 +68,31 @@ export function buildLcSearchUrl(opts) {
     params.set('makesModelsCommercialNames', token);
   }
 
-  // Year range
-  // Verified 2026-03-09: omit yearMax when it equals current year (LC convention).
+  // Fourchette d'annees
+  // Convention LC : on omet yearMax quand il egale l'annee courante
   if (opts.yearMin) params.set('yearMin', String(opts.yearMin));
   const currentYear = new Date().getFullYear();
   if (opts.yearMax && opts.yearMax < currentYear) {
     params.set('yearMax', String(opts.yearMax));
   }
 
-  // Mileage range
+  // Fourchette de kilometrage
   if (opts.mileageMin != null) params.set('mileageMin', String(opts.mileageMin));
   if (opts.mileageMax != null) params.set('mileageMax', String(opts.mileageMax));
 
-  // Fuel
+  // Carburant
   if (opts.fuel) {
     const code = LC_SEARCH_FUEL_CODES[(opts.fuel || '').toLowerCase()];
     if (code) params.set('energies', code);
   }
 
-  // Gearbox
+  // Boite de vitesses
   if (opts.gearbox) {
     const code = LC_SEARCH_GEARBOX_CODES[(opts.gearbox || '').toLowerCase()];
     if (code) params.set('gearbox', code);
   }
 
-  // Regions (optional, comma-separated ISO codes)
+  // Regions (optionnel, codes ISO separes par virgules)
   if (opts.regions && Array.isArray(opts.regions) && opts.regions.length > 0) {
     const codes = opts.regions
       .map((r) => LC_SEARCH_REGION_CODES[r] || r)
@@ -91,11 +104,11 @@ export function buildLcSearchUrl(opts) {
 }
 
 /**
- * Compute mileage range brackets for LC search.
- * LC uses explicit min/max, so we compute a reasonable bracket
- * around the current vehicle's mileage.
+ * Calcule une fourchette de kilometrage raisonnable autour du km actuel.
+ * LC utilise des min/max explicites, on cree des brackets larges
+ * pour capter les vehicules comparables.
  *
- * @param {number} km - Current vehicle mileage
+ * @param {number} km - Kilometrage actuel du vehicule
  * @returns {{mileageMin: number, mileageMax: number}|null}
  */
 export function getLcMileageRange(km) {
@@ -107,23 +120,26 @@ export function getLcMileageRange(km) {
   return              { mileageMin: 100000, mileageMax: 999999 };
 }
 
-// ── Price Extraction ────────────────────────────────────────────
+// ── Extraction de prix ────────────────────────────────────────────
 
 function _sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Normalise les espaces dans un texte */
 function _normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
+/** Tronque un texte a une longueur max avec ellipse */
 function _clipLcText(text, maxLen) {
   const normalized = _normalizeText(text);
   if (!normalized) return '';
   if (normalized.length <= maxLen) return normalized;
-  return `${normalized.slice(0, Math.max(0, maxLen - 1))}…`;
+  return `${normalized.slice(0, Math.max(0, maxLen - 1))}\u2026`;
 }
 
+/** Extrait un apercu du body HTML pour le diagnostic (sans scripts/styles) */
 function _extractLcBodyExcerpt(html) {
   if (!html) return null;
   const excerpt = _clipLcText(
@@ -136,24 +152,29 @@ function _extractLcBodyExcerpt(html) {
   return excerpt || null;
 }
 
+/** Extrait le contenu de la balise <title> depuis le HTML brut */
 function _extractLcTitleFromHtml(html) {
   const match = String(html || '').match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   return match ? _clipLcText(match[1], 140) : null;
 }
 
+/** Detecte si la page affiche zero resultats (pas un blocage — juste vide) */
 function _looksLikeZeroResultsPage(html) {
-  return /\b0\s*(?:resultat|résultat|annonce)s?\b|aucun\s+(?:resultat|résultat|vehicule|véhicule|annonce)|pas de resultats|pas de résultats/i.test(html || '');
+  return /\b0\s*(?:resultat|r\u00e9sultat|annonce)s?\b|aucun\s+(?:resultat|r\u00e9sultat|vehicule|v\u00e9hicule|annonce)|pas de resultats|pas de r\u00e9sultats/i.test(html || '');
 }
 
+/** Detecte si le HTML contient des signaux d'annonces (meme si le parsing echoue) */
 function _hasLcAdSignals(html) {
   return /occasion-annonce-|"classifieds"|__NEXT_DATA__|application\/ld\+json|ItemList|ListItem|moteur de recherche|searchData/i.test(html || '');
 }
 
+/** Resume les ressources reseau LC interessantes (pour diagnostic) */
 function _summarizeLcResources(resources) {
   if (!Array.isArray(resources) || resources.length === 0) return null;
   return _clipLcText(resources.slice(0, 5).join(' | '), 500);
 }
 
+/** Cree un objet diagnostic avec des valeurs par defaut */
 function _buildLcDiagnostic(overrides = {}) {
   return {
     reasonTag: null,
@@ -169,6 +190,7 @@ function _buildLcDiagnostic(overrides = {}) {
   };
 }
 
+/** Finalise un diagnostic en tronquant les champs texte */
 function _finalizeLcDiagnostic(diagnostic = {}) {
   return {
     reasonTag: diagnostic.reasonTag || null,
@@ -183,6 +205,10 @@ function _finalizeLcDiagnostic(diagnostic = {}) {
   };
 }
 
+/**
+ * Classifie un HTML vide : anti-bot, zero resultats, ou HTML sans annonces.
+ * Retourne un diagnostic structure pour le search_log du backend.
+ */
 function _classifyLcEmptyHtml(html, baseDiagnostic = {}) {
   const antiBot = _looksLikeAntiBotPage(html);
   if (antiBot) {
@@ -190,8 +216,8 @@ function _classifyLcEmptyHtml(html, baseDiagnostic = {}) {
       ...baseDiagnostic,
       reasonTag: baseDiagnostic.httpStatus === 403 ? 'anti_bot_403' : 'anti_bot_page',
       reason: baseDiagnostic.httpStatus === 403
-        ? 'Réponse 403 avec signature anti-bot La Centrale/DataDome'
-        : 'HTML de challenge anti-bot détecté',
+        ? 'R\u00e9ponse 403 avec signature anti-bot La Centrale/DataDome'
+        : 'HTML de challenge anti-bot d\u00e9tect\u00e9',
       antiBotDetected: true,
       bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
       htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
@@ -202,7 +228,7 @@ function _classifyLcEmptyHtml(html, baseDiagnostic = {}) {
     return _finalizeLcDiagnostic({
       ...baseDiagnostic,
       reasonTag: 'true_zero_results',
-      reason: 'Page listing valide mais zéro résultat affiché par La Centrale',
+      reason: 'Page listing valide mais z\u00e9ro r\u00e9sultat affich\u00e9 par La Centrale',
       bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
       htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
     });
@@ -212,7 +238,7 @@ function _classifyLcEmptyHtml(html, baseDiagnostic = {}) {
     return _finalizeLcDiagnostic({
       ...baseDiagnostic,
       reasonTag: 'parser_no_match',
-      reason: 'HTML reçu avec signaux d’annonces mais parsing resté vide',
+      reason: 'HTML re\u00e7u avec signaux d\u2019annonces mais parsing rest\u00e9 vide',
       bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
       htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
     });
@@ -221,50 +247,59 @@ function _classifyLcEmptyHtml(html, baseDiagnostic = {}) {
   return _finalizeLcDiagnostic({
     ...baseDiagnostic,
     reasonTag: 'html_without_cards',
-    reason: 'HTML reçu sans cartes d’annonces détectables',
+    reason: 'HTML re\u00e7u sans cartes d\u2019annonces d\u00e9tectables',
     bodyExcerpt: baseDiagnostic.bodyExcerpt || _extractLcBodyExcerpt(html),
     htmlTitle: baseDiagnostic.htmlTitle || _extractLcTitleFromHtml(html),
   });
 }
 
+/**
+ * Parse un prix depuis le texte d'une carte annonce LC.
+ * Essaie d'abord avec le symbole euro, puis fallback sur le dernier
+ * nombre qui ressemble a un prix (les cartes boostees omettent parfois le signe euro).
+ */
 function _parseLcPrice(text) {
   const norm = _normalizeText(text);
-  // Try with € first (most reliable)
-  const withEuro = norm.match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*€/i);
+  const withEuro = norm.match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*\u20ac/i);
   if (withEuro) {
     const price = parseInt(withEuro[1].replace(/[\s\u00a0]/g, ''), 10);
     if (Number.isFinite(price) && price >= 500) return price;
   }
-  // Fallback: LC boosted cards omit €. Grab the last number that looks
-  // like a price (skip km-suffixed numbers and bare years 1900-2099).
+  // Fallback : dernier nombre "prix-like" (en evitant les km et les annees)
   const allNums = [...norm.matchAll(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})(?!\s*km(?!\d))/gi)];
   for (let i = allNums.length - 1; i >= 0; i--) {
     const raw = allNums[i][1].replace(/[\s\u00a0]/g, '');
     const val = parseInt(raw, 10);
     if (!Number.isFinite(val) || val < 500 || val > 200000) continue;
+    // Exclure les annees isolees (ex: "2018" tout seul)
     if (val >= 1900 && val <= 2099 && raw.length === 4) continue;
     return val;
   }
   return null;
 }
 
+/**
+ * Parse une annee depuis le texte d'une carte.
+ * Utilise (?<!\d)/(?!\d) au lieu de \b car LC concatene le texte
+ * sans espaces (ex: "SUPER2018Manuelle") et \b echoue entre lettre et chiffre.
+ */
 function _parseLcYear(text) {
-  // Use (?<!\d) / (?!\d) instead of \b because LC concatenates text
-  // without spaces (e.g. "SUPER2018Manuelle") and \b fails between
-  // two word-class chars (letter → digit).
   const match = _normalizeText(text).match(/(?<!\d)((?:19|20)\d{2})(?!\d)/);
   return match ? parseInt(match[1], 10) : null;
 }
 
+/**
+ * Parse le kilometrage depuis le texte d'une carte.
+ * Meme astuce avec (?!\d) apres "km" car LC concatene (ex: "94 373 kmEssence").
+ */
 function _parseLcKm(text) {
-  // Use (?!\d) instead of \b after "km" because LC concatenates text
-  // without spaces (e.g. "94 373 kmEssence").
   const match = _normalizeText(text).match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*km(?!\d)/i);
   if (!match) return null;
   const km = parseInt(match[1].replace(/[\s\u00a0]/g, ''), 10);
   return Number.isFinite(km) ? km : null;
 }
 
+/** Parse un nombre depuis une valeur qui peut etre string ou number */
 function _parseLcMaybeNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'string') return null;
@@ -274,6 +309,7 @@ function _parseLcMaybeNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+/** Parse une annee depuis un champ JSON-LD (peut etre string, number, ou date) */
 function _parseLcJsonLdYear(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (!value) return null;
@@ -281,15 +317,17 @@ function _parseLcJsonLdYear(value) {
   return match ? parseInt(match[1], 10) : null;
 }
 
+/**
+ * Remonte le DOM depuis un lien d'annonce pour trouver la carte parente.
+ * La carte doit contenir une annee et un prix pour etre consideree valide.
+ */
 function _findLcAdCard(link) {
   let node = link;
   while (node && node !== node.ownerDocument?.body) {
     const text = _normalizeText(node.textContent);
-    // Accept card if it has a year (with relaxed boundary) AND either €
-    // or a price-like number (boosted cards omit €).
     if (text && text.length >= 20 && text.length < 2000
       && /(?<!\d)(?:19|20)\d{2}(?!\d)/.test(text)
-      && (/€/.test(text) || /\d{4,6}/.test(text))) {
+      && (/\u20ac/.test(text) || /\d{4,6}/.test(text))) {
       return node;
     }
     node = node.parentElement;
@@ -297,6 +335,7 @@ function _findLcAdCard(link) {
   return link;
 }
 
+/** Collecte les ressources reseau LC interessantes depuis performance API */
 function _collectLcInterestingResources(win) {
   try {
     return win.performance
@@ -311,6 +350,7 @@ function _collectLcInterestingResources(win) {
   }
 }
 
+/** Deduplique les annonces par combinaison prix+annee+km */
 function _dedupeAds(ads) {
   const seen = new Set();
   return (ads || []).filter((ad) => {
@@ -322,6 +362,10 @@ function _dedupeAds(ads) {
   });
 }
 
+/**
+ * Descend recursivement dans un noeud JSON-LD pour extraire les annonces.
+ * Gere les structures OfferCatalog, ItemList, @graph et imbrications arbitraires.
+ */
 function _extractAdsFromJsonLdNode(node, out) {
   if (!node) return;
 
@@ -379,6 +423,7 @@ function _extractAdsFromJsonLdNode(node, out) {
   });
 }
 
+/** Extrait les annonces depuis tous les blocs JSON-LD d'un document */
 function _extractAdsFromJsonLdScripts(root) {
   if (!root?.querySelectorAll) return [];
 
@@ -391,12 +436,16 @@ function _extractAdsFromJsonLdScripts(root) {
       const data = JSON.parse(raw);
       _extractAdsFromJsonLdNode(data, ads);
     } catch {
-      // ignore malformed JSON-LD blocks
+      // JSON-LD malformed, on passe
     }
   }
   return _dedupeAds(ads);
 }
 
+/**
+ * Cree une iframe invisible pour charger une page LC.
+ * Grande taille (1440x3200) pour forcer le rendu de toutes les annonces.
+ */
 function _createLcProbeIframe() {
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
@@ -413,6 +462,10 @@ function _createLcProbeIframe() {
   return iframe;
 }
 
+/**
+ * Verifie si on peut utiliser l'iframe same-origin.
+ * Necessaire : etre sur lacentrale.fr et que l'URL cible soit same-origin.
+ */
 function _canUseLcIframeProbe(searchUrl) {
   if (typeof document === 'undefined' || typeof window === 'undefined') return false;
   if (!document.body) return false;
@@ -427,6 +480,14 @@ function _canUseLcIframeProbe(searchUrl) {
   }
 }
 
+/**
+ * Extrait les annonces depuis le DOM rendu d'une page de resultats LC.
+ * Cherche les liens vers des pages d'annonces et remonte au conteneur carte
+ * pour extraire prix, annee et km.
+ *
+ * @param {Document} root - Document (principal ou iframe)
+ * @returns {Array<{price: number, year: number|null, km: number|null}>}
+ */
 export function extractLcAdsFromRenderedDom(root) {
   if (!root?.querySelectorAll) return [];
 
@@ -458,10 +519,16 @@ export function extractLcAdsFromRenderedDom(root) {
     .map(({ href, ...ad }) => ad);
 }
 
+/** Detecte les signatures de page anti-bot (DataDome/captcha) */
 function _looksLikeAntiBotPage(html) {
   return /captcha-delivery\.com|Please enable JS and disable any ad blocker|data-cfasync="false"/i.test(html || '');
 }
 
+/**
+ * Charge une page de listing LC dans une iframe same-origin pour extraire les annonces.
+ * L'iframe beneficie des cookies de session → moins de chances d'etre bloquee par l'anti-bot.
+ * On poll le DOM de l'iframe pendant le rendu JS pour detecter les annonces.
+ */
 async function _probeLcListingViaIframe(searchUrl) {
   if (!_canUseLcIframeProbe(searchUrl)) {
     return {
@@ -522,12 +589,13 @@ async function _probeLcListingViaIframe(searchUrl) {
         ok: false,
         diagnostic: _finalizeLcDiagnostic({
           reasonTag: 'iframe_blocked',
-          reason: 'Iframe chargée mais document inaccessible',
+          reason: 'Iframe charg\u00e9e mais document inaccessible',
           fetchMode: 'iframe',
         }),
       };
     }
 
+    // Polling : attendre que les annonces apparaissent dans le DOM rendu
     let ads = [];
     let jsonLdAds = [];
     let waited = 0;
@@ -536,13 +604,14 @@ async function _probeLcListingViaIframe(searchUrl) {
       jsonLdAds = _extractAdsFromJsonLdScripts(frameDoc);
       if (ads.length > 0 || jsonLdAds.length > 0) break;
 
+      // Scroller pour forcer le lazy-loading
       try {
         frameWin.scrollTo(0, Math.max(
           frameDoc.documentElement?.scrollHeight || 0,
           frameDoc.body?.scrollHeight || 0,
         ));
       } catch {
-        // ignore scroll errors
+        // ignore les erreurs de scroll
       }
 
       await _sleep(LC_IFRAME_POLL_INTERVAL_MS);
@@ -551,6 +620,7 @@ async function _probeLcListingViaIframe(searchUrl) {
 
     const html = frameDoc.documentElement.outerHTML || '';
     const resources = _collectLcInterestingResources(frameWin);
+    // Combiner toutes les sources d'annonces
     const inlineAds = _extractAdsFromInlineJson(html) || _extractAdsFromNextData(html) || [];
     const mergedAds = _dedupeAds([...ads, ...jsonLdAds, ...inlineAds]);
 
@@ -588,7 +658,13 @@ async function _probeLcListingViaIframe(searchUrl) {
   }
 }
 
+/**
+ * Fetch le HTML d'une page listing LC.
+ * Essaie d'abord via le background script (monde MAIN, meilleurs cookies)
+ * puis fallback sur fetch direct depuis le content script.
+ */
 async function _fetchLcListingHtml(searchUrl) {
+  // Strategie 1 : fetch via le background script (monde MAIN)
   if (isChromeRuntimeAvailable()) {
     try {
       const result = await chrome.runtime.sendMessage({
@@ -619,6 +695,7 @@ async function _fetchLcListingHtml(searchUrl) {
     }
   }
 
+  // Strategie 2 : fetch direct (content script)
   try {
     const resp = await fetch(searchUrl, {
       credentials: 'include',
@@ -655,17 +732,23 @@ async function _fetchLcListingHtml(searchUrl) {
 }
 
 /**
- * Fetch a La Centrale listing page and extract ad prices.
+ * Fetch et extrait les prix depuis une page de listing La Centrale (version detaillee).
  *
- * LC is a Next.js app — prices live in the __NEXT_DATA__ JSON blob.
- * Fallback: regex scraping of price elements in HTML.
+ * Pipeline d'extraction :
+ * 1. Iframe same-origin (rendu JS complet, le plus fiable)
+ * 2. Fetch HTML + __NEXT_DATA__ JSON blob
+ * 3. Fetch HTML + JSON inline (window.__INITIAL_STATE__)
+ * 4. Regex fallback sur les elements prix dans le HTML brut
  *
- * @param {string} searchUrl - Full LC listing URL
- * @param {number} targetYear - Target year for filtering
- * @param {number} yearSpread - Tolerance around target year
- * @returns {Promise<Array<{price: number, year: number|null, km: number|null}>>}
+ * Retourne aussi un diagnostic detaille pour le search_log du backend.
+ *
+ * @param {string} searchUrl - URL de listing LC complete
+ * @param {number} targetYear - Annee cible pour le filtrage
+ * @param {number} yearSpread - Tolerance en annees autour de la cible
+ * @returns {Promise<{prices: Array, diagnostic: object}>}
  */
 export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpread) {
+  // D'abord essayer l'iframe (meilleur rendu JS)
   const iframeProbe = await _probeLcListingViaIframe(searchUrl);
   let lastDiagnostic = iframeProbe?.diagnostic || _finalizeLcDiagnostic();
 
@@ -688,7 +771,7 @@ export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpr
         diagnostic: _finalizeLcDiagnostic({
           ...iframeProbe.diagnostic,
           reasonTag: 'ok',
-          reason: `Extraction DOM iframe réussie (${iframeProbe.ads.length} annonces)`,
+          reason: `Extraction DOM iframe r\u00e9ussie (${iframeProbe.ads.length} annonces)`,
           fetchMode: 'iframe',
         }),
       };
@@ -703,6 +786,7 @@ export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpr
     });
   }
 
+  // Fallback : fetch HTML classique
   const fetchResult = await _fetchLcListingHtml(searchUrl);
   const html = fetchResult?.body || null;
   if (!html) {
@@ -712,8 +796,8 @@ export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpr
         ...lastDiagnostic,
         reasonTag: fetchResult?.status === 403 ? 'anti_bot_403' : (lastDiagnostic.reasonTag || 'html_unavailable'),
         reason: fetchResult?.status === 403
-          ? 'Réponse 403 sans HTML exploitable renvoyée par La Centrale'
-          : (fetchResult?.error || lastDiagnostic.reason || 'Aucun HTML récupéré pour la recherche La Centrale'),
+          ? 'R\u00e9ponse 403 sans HTML exploitable renvoy\u00e9e par La Centrale'
+          : (fetchResult?.error || lastDiagnostic.reason || 'Aucun HTML r\u00e9cup\u00e9r\u00e9 pour la recherche La Centrale'),
         fetchMode: fetchResult?.fetchMode || lastDiagnostic.fetchMode,
         httpStatus: fetchResult?.status,
         antiBotDetected: fetchResult?.status === 403 || lastDiagnostic.antiBotDetected,
@@ -736,15 +820,14 @@ export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpr
     };
   }
 
-  // Strategy 1: __NEXT_DATA__ JSON
+  // Extraction en cascade depuis le HTML
   let ads = _extractAdsFromNextData(html);
 
-  // Strategy 2: inline JSON (window.__INITIAL_STATE__ or similar)
   if (!ads || ads.length === 0) {
     ads = _extractAdsFromInlineJson(html);
   }
 
-  // Strategy 3: regex fallback (price tags in HTML)
+  // Dernier recours : regex sur les prix dans le HTML brut
   if (!ads || ads.length === 0) {
     ads = _extractPricesFromHtml(html);
   }
@@ -764,13 +847,12 @@ export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpr
     };
   }
 
-  // Filter by year tolerance and minimum price
   return {
     prices: _filterAds(ads, targetYear, yearSpread),
     diagnostic: _finalizeLcDiagnostic({
       ...lastDiagnostic,
       reasonTag: 'ok',
-      reason: `Extraction HTML réussie (${ads.length} annonces brutes)`,
+      reason: `Extraction HTML r\u00e9ussie (${ads.length} annonces brutes)`,
       fetchMode: fetchResult?.fetchMode,
       httpStatus: fetchResult?.status,
       bodyExcerpt: _extractLcBodyExcerpt(html),
@@ -780,13 +862,19 @@ export async function fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpr
   };
 }
 
+/** Version simplifiee qui retourne juste le tableau de prix */
 export async function fetchLcSearchPrices(searchUrl, targetYear, yearSpread) {
   const result = await fetchLcSearchPricesDetailed(searchUrl, targetYear, yearSpread);
   return result.prices;
 }
 
-// ── Internal extraction helpers ─────────────────────────────────
+// ── Helpers internes d'extraction ─────────────────────────────────
 
+/**
+ * Extrait les annonces depuis le __NEXT_DATA__ JSON blob.
+ * LC (Next.js) stocke les classifieds dans plusieurs chemins possibles
+ * selon la version de la page.
+ */
 function _extractAdsFromNextData(html) {
   const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!match) return null;
@@ -795,7 +883,7 @@ function _extractAdsFromNextData(html) {
     const data = JSON.parse(match[1]);
     const pp = data?.props?.pageProps || {};
 
-    // Try multiple known paths for LC listing data
+    // Essayer tous les chemins connus pour les classifieds LC
     const classifieds =
       pp?.searchData?.classifieds ||
       pp?.classifieds ||
@@ -808,7 +896,7 @@ function _extractAdsFromNextData(html) {
       return _mapLcClassifieds(classifieds);
     }
 
-    // Try to find ads nested in a results wrapper
+    // Essayer un wrapper results
     const results = pp?.searchData?.results || pp?.results || [];
     if (Array.isArray(results) && results.length > 0) {
       return _mapLcClassifieds(results);
@@ -822,8 +910,11 @@ function _extractAdsFromNextData(html) {
   }
 }
 
+/**
+ * Extrait les annonces depuis le JSON inline (window.__INITIAL_STATE__ ou similaire).
+ * Certaines pages LC utilisent cette alternative au __NEXT_DATA__.
+ */
 function _extractAdsFromInlineJson(html) {
-  // Some LC pages embed data in a window.__INITIAL_STATE__ or similar
   const patterns = [
     /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/,
     /window\.__DATA__\s*=\s*(\{[\s\S]*?\});?\s*<\/script>/,
@@ -838,26 +929,24 @@ function _extractAdsFromInlineJson(html) {
       if (Array.isArray(classifieds) && classifieds.length > 0) {
         return _mapLcClassifieds(classifieds);
       }
-    } catch { /* continue to next pattern */ }
+    } catch { /* continuer avec le pattern suivant */ }
   }
   return null;
 }
 
+/** Dernier recours : extraction de prix par regex dans le HTML brut */
 function _extractPricesFromHtml(html) {
-  // Last resort: extract prices from HTML via regex
-  // LC listing cards typically have price in structured elements
   const pricePattern = /(\d{1,3}(?:[\s\u00a0]\d{3})*)\s*\u20ac/g;
   const prices = [];
   let m;
   while ((m = pricePattern.exec(html)) !== null) {
     const raw = m[1].replace(/[\s\u00a0]/g, '');
     const price = parseInt(raw, 10);
-    // Only car-range prices
     if (price >= 500 && price <= 200000) {
       prices.push({ price, year: null, km: null });
     }
   }
-  // Deduplicate (same price = likely same element rendered twice)
+  // Deduplication (meme prix = probablement le meme element rendu 2x)
   const seen = new Set();
   return prices.filter((p) => {
     if (seen.has(p.price)) return false;
@@ -867,18 +956,17 @@ function _extractPricesFromHtml(html) {
 }
 
 /**
- * Map LC classified objects to our internal {price, year, km} format.
+ * Convertit les objets classified LC vers notre format interne {price, year, km}.
+ * Gere les multiples formes possibles des champs LC.
  */
 function _mapLcClassifieds(classifieds) {
   return classifieds
     .map((c) => {
-      // LC classifieds have various shapes. Try known fields:
       const price = c.price ?? c.priceListing ?? c.priceLabel ?? null;
       const priceInt = typeof price === 'number' ? price
         : typeof price === 'string' ? parseInt(price.replace(/[^\d]/g, ''), 10)
         : null;
 
-      // Year: from vehicle.year, year, or firstTrafficDate
       let year = c.year ?? c.vehicle?.year ?? null;
       if (!year && c.vehicle?.firstTrafficDate) {
         const ym = String(c.vehicle.firstTrafficDate).match(/^(\d{4})/);
@@ -889,7 +977,6 @@ function _mapLcClassifieds(classifieds) {
         if (ym) year = parseInt(ym[1], 10);
       }
 
-      // Mileage
       const km = c.mileage ?? c.vehicle?.mileage ?? c.km ?? null;
 
       return { price: priceInt, year, km };
@@ -897,9 +984,7 @@ function _mapLcClassifieds(classifieds) {
     .filter((a) => a.price && Number.isFinite(a.price) && a.price >= 500);
 }
 
-/**
- * Filter ads by year tolerance and minimum price.
- */
+/** Filtre les annonces par tolerance d'annee et prix minimum */
 function _filterAds(ads, targetYear, yearSpread) {
   return ads.filter((a) => {
     if (a.price < 500) return false;

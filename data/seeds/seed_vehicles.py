@@ -5,6 +5,9 @@ C'est la base de tout : les filtres, l'argus, la fiabilite moteur, les rappels..
 tout repose sur ce referentiel. Chaque vehicule a un ou plusieurs specs
 (motorisations) avec les infos de fiabilite et couts d'entretien.
 
+Ce seed est le premier a lancer car les autres seeds (argus, recalls, etc.)
+referencent les vehicules par brand+model.
+
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_vehicles.py
 """
@@ -1266,7 +1269,7 @@ def seed():
             created_vehicles = 0
             created_specs = 0
 
-            # Passe 1 : vehicules
+            # Passe 1 : creer les vehicules (dedup sur brand+model)
             for brand, model, generation, year_start, year_end in VEHICLES:
                 existing = Vehicle.query.filter_by(brand=brand, model=model).first()
                 if existing:
@@ -1288,7 +1291,7 @@ def seed():
 
             db.session.commit()
 
-            # Passe 2 : specs (motorisations)
+            # Passe 2 : creer les specs (dedup sur vehicle_id+fuel+engine)
             for brand, model, fuel, trans, engine, power, reliability, issues, costs in SPECS:
                 vehicle = Vehicle.query.filter_by(brand=brand, model=model).first()
                 if not vehicle:

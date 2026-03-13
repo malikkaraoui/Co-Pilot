@@ -1,7 +1,18 @@
+/**
+ * Panneau "Dimensions pneus" dans la popup de resultats.
+ * Affiche les tailles de pneus compatibles avec le vehicule
+ * en se basant sur la generation et l'annee du modele.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../utils/format.js';
 
+/**
+ * Formate une dimension brute (ex: "205/55R16") en version lisible ("205/55 R16").
+ * @param {string} raw - Dimension brute
+ * @returns {string} Dimension formatee
+ */
 function formatTireSize(raw) {
   const s = String(raw || '').trim();
   if (!s) return '';
@@ -9,6 +20,11 @@ function formatTireSize(raw) {
   return s.replace(/(\d{3}\/\d{2})R(\d{2})/i, '$1 R$2');
 }
 
+/**
+ * Construit une ligne complete : taille + indice de charge + indice de vitesse.
+ * @param {Object} dim - {size, load_index, speed_index, ...}
+ * @returns {string} Ligne formatee ou chaine vide
+ */
 function formatDimLine(dim) {
   if (!dim) return '';
   const size = formatTireSize(dim.size || dim.tire_full || dim.tire || '');
@@ -20,6 +36,13 @@ function formatDimLine(dim) {
   return `${size}${suffix}`.trim();
 }
 
+/**
+ * Panneau accordeon affichant les dimensions pneus compatibles.
+ * Si plusieurs dimensions correspondent, on previent l'utilisateur
+ * de verifier sur le flanc du pneu (la bonne dimension depend de la jante).
+ * @param {Object|null} tireSizes - {dimensions, generation, year_range, source, source_url}
+ * @returns {string} HTML du panneau ou chaine vide
+ */
 export function buildTiresPanel(tireSizes) {
   if (!tireSizes || !Array.isArray(tireSizes.dimensions) || tireSizes.dimensions.length === 0) {
     return '';
@@ -33,6 +56,7 @@ export function buildTiresPanel(tireSizes) {
 
   const count = dims.length;
   const icon = '\uD83D\uDEDE';
+  // Orange si plusieurs dimensions (ambiguite), vert si une seule
   const statusColor = count > 1 ? '#f59e0b' : '#16a34a';
   const summary = count > 1
     ? `${count} dimensions possibles`

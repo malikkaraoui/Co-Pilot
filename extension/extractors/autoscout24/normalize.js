@@ -1,11 +1,34 @@
 "use strict";
 
+/**
+ * Normalisation des donnees AutoScout24 vers le format ad_data du backend.
+ *
+ * AS24 fournit les donnees vehicule via deux sources :
+ * - RSC (React Server Components) : payload JS embarque dans les scripts
+ * - JSON-LD (schema.org) : donnees structurees dans <script type="application/ld+json">
+ *
+ * Ce module fusionne ces deux sources en un seul objet ad_data normalise,
+ * avec le RSC comme source prioritaire (plus riche) et le JSON-LD en fallback.
+ *
+ * Il genere aussi les "bonus signals" — signaux supplementaires affiches
+ * dans la popup (accident, CT, garantie, decote, note vendeur, import).
+ */
+
 import {
   TLD_TO_COUNTRY, TLD_TO_CURRENCY, TLD_TO_COUNTRY_CODE,
 } from './constants.js';
 import { getCantonFromZip, mapFuelType, mapTransmission } from './helpers.js';
 import { extractTld } from './search.js';
 
+/**
+ * Extraction recursive du token carburant depuis une structure quelconque.
+ * AS24 peut stocker le carburant sous forme de string, d'objet, de tableau...
+ * On descend recursivement jusqu'a trouver une string non vide.
+ *
+ * @param {*} value - Valeur a explorer
+ * @param {number} depth - Profondeur courante (securite anti-boucle)
+ * @returns {string|null} Token carburant ou null
+ */
 function _extractFuelToken(value, depth = 0) {
   if (depth > 5 || value == null) return null;
 
@@ -23,6 +46,7 @@ function _extractFuelToken(value, depth = 0) {
   }
 
   if (typeof value === 'object') {
+    // Essayer les cles les plus courantes d'abord
     const priorityKeys = [
       'label', 'name', 'value', 'type', 'text', 'displayValue',
       'fuelType', 'fuel', 'raw', 'slug',
@@ -43,14 +67,22 @@ function _extractFuelToken(value, depth = 0) {
   return null;
 }
 
-/** Extract 4-digit year from a date string like "2021-11-01" or "2021". */
+/**
+ * Extrait l'annee (4 chiffres) depuis une date ISO ou un string quelconque.
+ * @param {string} dateStr - Ex: "2021-11-01" ou "2021"
+ * @returns {string|null}
+ */
 export function _yearFromDate(dateStr) {
   if (!dateStr) return null;
   const m = String(dateStr).match(/^(\d{4})/);
   return m ? m[1] : dateStr;
 }
 
-/** Compute days since a given ISO date string. */
+/**
+ * Calcule le nombre de jours depuis une date ISO.
+ * @param {string} dateStr - Date ISO (ex: "2024-01-15T12:00:00Z")
+ * @returns {number|null}
+ */
 export function _daysOnline(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -58,7 +90,12 @@ export function _daysOnline(dateStr) {
   return Math.max(Math.floor((Date.now() - d.getTime()) / 86_400_000), 0);
 }
 
-/** Compute days since last refresh (index_date). */
+/**
+ * Calcule le nombre de jours depuis le dernier rafraichissement de l'annonce.
+ * @param {string} createdStr - Date de creation
+ * @param {string} modifiedStr - Date de derniere modification
+ * @returns {number|null}
+ */
 export function _daysSinceRefresh(createdStr, modifiedStr) {
   if (!createdStr || !modifiedStr) return null;
   const modified = new Date(modifiedStr);
@@ -66,7 +103,14 @@ export function _daysSinceRefresh(createdStr, modifiedStr) {
   return Math.max(Math.floor((Date.now() - modified.getTime()) / 86_400_000), 0);
 }
 
-/** Detect republication: created and modified differ by > 1 day. */
+/**
+ * Detecte si l'annonce a ete republiee (ecart > 1 jour entre creation et modification).
+ * Signe potentiel que le vendeur a relance l'annonce pour la remonter.
+ *
+ * @param {string} createdStr - Date de creation
+ * @param {string} modifiedStr - Date de derniere modification
+ * @returns {boolean}
+ */
 export function _isRepublished(createdStr, modifiedStr) {
   if (!createdStr || !modifiedStr) return false;
   const created = new Date(createdStr);
@@ -75,6 +119,15 @@ export function _isRepublished(createdStr, modifiedStr) {
   return Math.abs(modified.getTime() - created.getTime()) > 86_400_000;
 }
 
+/**
+ * Normalise les donnees RSC + JSON-LD en un objet ad_data unifie.
+ * Le RSC est prioritaire car il contient plus de champs (createdDate,
+ * images, description complete, etc.). Le JSON-LD sert de fallback.
+ *
+ * @param {object|null} rsc - Donnees RSC parsees
+ * @param {object|null} jsonLd - Donnees JSON-LD parsees
+ * @returns {object} ad_data normalise pour le backend
+ */
 export function normalizeToAdData(rsc, jsonLd) {
   const ld = jsonLd || {};
   const offers = ld.offers || {};
@@ -83,12 +136,14 @@ export function normalizeToAdData(rsc, jsonLd) {
   const rawEngine = ld.vehicleEngine || {};
   const engine = Array.isArray(rawEngine) ? (rawEngine[0] || {}) : rawEngine;
 
+  /** Pro si sellerId dans RSC ou AutoDealer dans JSON-LD */
   function resolveOwnerType() {
     if (rsc && rsc.sellerId) return 'pro';
     if (seller['@type'] === 'AutoDealer') return 'pro';
     return 'private';
   }
 
+  /** Priorite RSC > JSON-LD pour la marque */
   function resolveMake() {
     if (rsc) {
       const m = typeof rsc.make === 'string' ? rsc.make : rsc.make?.name;
@@ -104,6 +159,7 @@ export function normalizeToAdData(rsc, jsonLd) {
     return ld.model || null;
   }
 
+  /** Description : RSC full > RSC teaser > JSON-LD description */
   function resolveDescription() {
     if (rsc) {
       const full = typeof rsc.description === 'string' ? rsc.description.trim() : '';
@@ -116,6 +172,11 @@ export function normalizeToAdData(rsc, jsonLd) {
     return null;
   }
 
+  /**
+   * Resolution du carburant : on essaie toutes les sources RSC d'abord,
+   * puis JSON-LD. Le carburant peut etre sous des cles differentes
+   * selon la version du RSC payload.
+   */
   function resolveFuel() {
     const rscCandidates = [
       rsc?.fuelType,
@@ -145,6 +206,7 @@ export function normalizeToAdData(rsc, jsonLd) {
   const zipcode = sellerAddress.postalCode || null;
   const tld = typeof window !== 'undefined' ? extractTld(window.location.href) : null;
   const countryCode = tld ? (TLD_TO_COUNTRY_CODE[tld] || null) : null;
+  // En Suisse, on derive le canton depuis le code postal pour la granularite regionale
   const derivedRegion = (tld === 'ch' && zipcode)
     ? getCantonFromZip(zipcode)
     : (tld ? (TLD_TO_COUNTRY[tld] || null) : null);
@@ -153,6 +215,7 @@ export function normalizeToAdData(rsc, jsonLd) {
     || (tld ? (TLD_TO_CURRENCY[tld] || null) : null)
     || null;
 
+  // Quand on a le RSC, on l'utilise comme source principale
   if (rsc) {
     return {
       title: rsc.versionFullName || ld.name || null,
@@ -205,7 +268,7 @@ export function normalizeToAdData(rsc, jsonLd) {
     };
   }
 
-  // JSON-LD only (no RSC)
+  // JSON-LD only (pas de RSC) — donnees plus limitees
   return {
     title: ld.name || null,
     price_eur: offers.price ?? null,
@@ -255,6 +318,14 @@ export function normalizeToAdData(rsc, jsonLd) {
   };
 }
 
+/**
+ * Construit les signaux bonus affiches dans la section dediee de la popup.
+ * Ces signaux ne sont pas envoyes au backend — ils sont uniquement visuels.
+ *
+ * @param {object|null} rsc - Donnees RSC parsees
+ * @param {object|null} jsonLd - Donnees JSON-LD parsees
+ * @returns {Array<{label: string, value: string, status: string}>}
+ */
 export function buildBonusSignals(rsc, jsonLd) {
   const signals = [];
   if (!rsc) return signals;
@@ -283,6 +354,7 @@ export function buildBonusSignals(rsc, jsonLd) {
     });
   }
 
+  // Decote par rapport au prix catalogue (neuf)
   if (rsc.listPrice && rsc.price) {
     signals.push({
       label: 'Prix catalogue',
@@ -297,6 +369,7 @@ export function buildBonusSignals(rsc, jsonLd) {
     });
   }
 
+  // Note Google du concessionnaire (depuis JSON-LD)
   const ld = jsonLd || {};
   const seller = ld.offers?.seller || ld.offers?.offeredBy || {};
   const rating = seller.aggregateRating;

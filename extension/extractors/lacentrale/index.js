@@ -1,6 +1,9 @@
 "use strict";
 
-// Barrel re-export — every public symbol from the La Centrale extractor modules.
+/**
+ * Barrel re-export — point d'entree unique pour tous les symboles publics
+ * du module La Centrale.
+ */
 
 export {
   LC_URL_PATTERNS, LC_AD_PAGE_PATTERN,

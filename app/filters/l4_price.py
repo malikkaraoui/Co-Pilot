@@ -32,6 +32,16 @@ class L4PriceFilter(BaseFilter):
         return self.MARKET_MIN_SAMPLES
 
     def run(self, data: dict[str, Any]) -> FilterResult:
+        """Compare le prix de l'annonce a une reference de marche.
+
+        Cascade de sources (du plus fiable au moins fiable) :
+        1. MarketPrice crowdsource (LBC/AS24) -- stats IQR robustes
+        2. ArgusPrice seed (notre base) -- donnees manuelles
+        3. Estimation LeBonCoin (fourchette affichee sur le site)
+        4. Cote La Centrale (quotation extraite du DOM)
+
+        Le delta_pct est attenue pour les sources 3 et 4 (moins fiables).
+        """
         price = data.get("price_eur")
         if price is None:
             return self.skip("Prix non disponible dans l'annonce")

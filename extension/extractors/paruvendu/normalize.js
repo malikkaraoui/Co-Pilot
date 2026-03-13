@@ -1,49 +1,67 @@
 "use strict";
 
+/**
+ * ParuVendu — normalisation des donnees vers le format ad_data du backend.
+ *
+ * Fusionne deux sources :
+ * - JSON-LD (schema.org/Vehicle) : donnees structurees du vehicule
+ * - domData (parseAdPage) : complement scrape depuis le DOM
+ *   (titre, description, type vendeur, localisation, etc.)
+ */
+
 import { FUEL_MAP, TRANSMISSION_MAP } from './constants.js';
 
+/** Normalise les espaces et trim */
 function normalizeSpace(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+/** Convertit en cle de lookup minuscule */
 function toKey(value) {
   return normalizeSpace(value).toLowerCase();
 }
 
+/** Extrait un entier depuis une valeur (supprime tout sauf les chiffres) */
 function toInt(value) {
   if (value == null) return null;
   const digits = String(value).replace(/[^\d]/g, '');
   return digits ? parseInt(digits, 10) : null;
 }
 
+/** Extrait l'annee (4 chiffres) depuis le debut d'une date */
 function yearFromDate(value) {
   const match = String(value || '').match(/^(\d{4})/);
   return match ? match[1] : null;
 }
 
+/** Resout la marque depuis le JSON-LD (peut etre string ou objet {name}) */
 function resolveBrand(vehicle) {
   if (!vehicle) return null;
   if (typeof vehicle.brand === 'string') return vehicle.brand;
   return vehicle.brand?.name || null;
 }
 
+/** Normalise le carburant via le FUEL_MAP */
 function resolveFuel(vehicle) {
   const raw = vehicle?.fuelType || vehicle?.vehicleEngine?.fuelType || null;
   const key = toKey(raw);
   return FUEL_MAP[key] || normalizeSpace(raw) || null;
 }
 
+/** Normalise la boite de vitesses via le TRANSMISSION_MAP */
 function resolveTransmission(vehicle) {
   const raw = vehicle?.vehicleTransmission || null;
   const key = toKey(raw);
   return TRANSMISSION_MAP[key] || normalizeSpace(raw) || null;
 }
 
+/** Compte les images depuis le JSON-LD ou le DOM */
 function resolveImageCount(vehicle, domData) {
   if (Array.isArray(vehicle?.image)) return vehicle.image.length;
   return domData?.photo_count || 0;
 }
 
+/** Construit les attributs bruts supplementaires (non normalises) */
 function buildRawAttributes(vehicle, domData) {
   return {
     body_type: vehicle?.bodyType || null,
@@ -54,6 +72,14 @@ function buildRawAttributes(vehicle, domData) {
   };
 }
 
+/**
+ * Construit les signaux bonus depuis les donnees DOM de ParuVendu.
+ * PV a peu de donnees structurees — on affiche les liens cote/fiche
+ * et les infos vendeur quand elles sont disponibles.
+ *
+ * @param {object} domData - Donnees extraites du DOM
+ * @returns {Array<{label: string, value: string, status: string}>}
+ */
 export function buildBonusSignals(domData = {}) {
   const signals = [];
 
@@ -73,6 +99,14 @@ export function buildBonusSignals(domData = {}) {
   return signals;
 }
 
+/**
+ * Normalise les donnees ParuVendu en un objet ad_data unifie.
+ *
+ * @param {object} vehicle - JSON-LD parse (schema.org/Vehicle)
+ * @param {object} domData - Donnees extraites du DOM
+ * @param {string} url - URL de l'annonce
+ * @returns {object|null} ad_data normalise pour /api/analyze
+ */
 export function normalizeToAdData(vehicle, domData, url) {
   if (!vehicle && !domData) return null;
 

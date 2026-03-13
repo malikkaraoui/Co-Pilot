@@ -1,4 +1,14 @@
-"""Service de génération de rapport PDF pour un scan OKazCar."""
+"""Service de generation de rapport PDF pour un scan OKazCar.
+
+Genere un PDF complet a partir d'un ScanLog : score circulaire, mini-cards resume,
+insight prix/km, fiches filtres, infos vehicule, pneus, fiabilite moteur, email.
+
+Le PDF suit la charte graphique OKazCar (navy/bleu/orange) et utilise fpdf2.
+La classe OKazCarPDF herite de FPDF pour gerer les headers/footers personnalises.
+
+Contrainte fpdf2 : tout le texte doit etre compatible latin-1, d'ou _safe_str()
+qui remplace les caracteres Unicode problematiques avant injection.
+"""
 
 import logging
 import re
@@ -20,6 +30,8 @@ logger = logging.getLogger(__name__)
 # Constantes
 # ---------------------------------------------------------------------------
 
+# Verdict textuel affiche sous le score circulaire dans le PDF.
+# Les seuils sont alignes sur ceux de l'extension Chrome.
 VERDICTS = {
     range(80, 101): "Excellente annonce",
     range(60, 80): "Bonne annonce",
@@ -27,6 +39,9 @@ VERDICTS = {
     range(0, 40): "Annonce risquée",
 }
 
+# Labels humains pour chaque status de filtre, affiches dans les badges PDF.
+# Plusieurs status internes ("skip", "neutral", "missing", "skipped") sont
+# regroupes sous "Manquant" pour simplifier la lecture utilisateur.
 STATUS_LABELS = {
     "pass": "OK",
     "warning": "Attention",
@@ -38,6 +53,8 @@ STATUS_LABELS = {
     "error": "Erreur",
 }
 
+# Noms lisibles des filtres pour l'affichage dans les cards du rapport.
+# Doit rester synchronise avec les filter_id du moteur (engine.py).
 FILTER_NAMES = {
     "L1": "Extraction des données",
     "L2": "Véhicule reconnu",
@@ -52,8 +69,10 @@ FILTER_NAMES = {
     "L11": "Rappels constructeur",
 }
 
+# Ordre d'affichage garanti L1 -> L11 dans le PDF
 FILTER_SEQUENCE = tuple(f"L{i}" for i in range(1, 12))
 
+# Labels humains pour les sources de prix (affiches dans la section marche)
 SOURCE_LABELS = {
     "marche_leboncoin": "LeBonCoin",
     "marche_autoscout24": "AutoScout24",
@@ -64,6 +83,8 @@ SOURCE_LABELS = {
     "wheel-size": "Wheel-Size",
 }
 
+# Sites officiels des constructeurs -- utilises pour le lien "site officiel"
+# dans le rapport et pour generer l'URL du logo via Clearbit.
 BRAND_WEBSITES = {
     "alfa romeo": "https://www.alfaromeo.com",
     "audi": "https://www.audi.com",
@@ -114,7 +135,8 @@ COLOR_SOFT_AMBER = (255, 251, 235)
 COLOR_SOFT_RED = (254, 242, 242)
 COLOR_SOFT_BLUE = (239, 246, 255)
 
-# Mapping filtre -> infos pour les mini-cards résumé
+# Filtres affiches dans la grille 2x3 de mini-cards en page 1.
+# On ne met que les filtres les plus parlants pour l'utilisateur.
 _SUMMARY_CARD_FILTERS = [
     ("L4", "Prix marche"),
     ("L3", "Kilometrage"),
@@ -126,6 +148,7 @@ _SUMMARY_CARD_FILTERS = [
 
 
 def _verdict_for_score(score: int | None) -> str:
+    """Retourne le verdict textuel correspondant au score (0-100)."""
     if score is None:
         return "Score indisponible"
     for rng, label in VERDICTS.items():
@@ -135,6 +158,7 @@ def _verdict_for_score(score: int | None) -> str:
 
 
 def _verdict_color(score: int | None) -> tuple[int, int, int]:
+    """Couleur RGB associee au score -- vert/bleu/ambre/rouge selon les seuils."""
     if score is None:
         return COLOR_GRAY_TEXT
     if score >= 80:
@@ -147,6 +171,7 @@ def _verdict_color(score: int | None) -> tuple[int, int, int]:
 
 
 def _status_color(status: str) -> tuple[int, int, int]:
+    """Retourne la couleur RGB du dot de status dans les mini-cards."""
     mapping = {
         "pass": COLOR_GREEN,
         "warning": COLOR_AMBER,
@@ -161,6 +186,7 @@ def _status_color(status: str) -> tuple[int, int, int]:
 
 
 def _status_palette(status: str) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """Retourne (couleur_accent, couleur_fond) pour un status -- sert aux cards teintees."""
     if status == "pass":
         return COLOR_GREEN, COLOR_SOFT_GREEN
     if status == "fail":
@@ -195,6 +221,7 @@ def _safe_str(value: object) -> str:
 
 
 def _filter_sort_key(filter_id: str) -> tuple[int, str]:
+    """Cle de tri pour afficher les filtres dans l'ordre L1..L11."""
     if filter_id in FILTER_SEQUENCE:
         return FILTER_SEQUENCE.index(filter_id), filter_id
 
@@ -206,6 +233,7 @@ def _filter_sort_key(filter_id: str) -> tuple[int, str]:
 
 
 def _format_number(value: object) -> str:
+    """Formate un nombre avec separateur de milliers (espace). Ex: 12500 -> '12 500'."""
     try:
         return f"{int(float(value)):,}".replace(",", " ")
     except (TypeError, ValueError):
@@ -213,18 +241,21 @@ def _format_number(value: object) -> str:
 
 
 def _format_price(value: object, currency: str = "EUR") -> str:
+    """Formate un prix avec devise. Ex: 15000 -> '15 000 EUR'."""
     if value in (None, ""):
         return ""
     return f"{_format_number(value)} {currency}"
 
 
 def _source_label(source: str | None) -> str:
+    """Convertit un identifiant source interne en label lisible."""
     if not source:
         return ""
     return SOURCE_LABELS.get(source, source.replace("_", " ").title())
 
 
 def _brand_website(brand: str | None) -> str | None:
+    """Retourne l'URL du site officiel du constructeur, ou None."""
     if not brand:
         return None
     from app.services.vehicle_lookup import normalize_brand
@@ -234,6 +265,7 @@ def _brand_website(brand: str | None) -> str | None:
 
 
 def _brand_logo_url(brand: str | None) -> str | None:
+    """Genere l'URL du logo constructeur via l'API Clearbit (gratuite, basee sur le domaine)."""
     website = _brand_website(brand)
     if not website:
         return None
@@ -246,6 +278,7 @@ def _brand_logo_url(brand: str | None) -> str | None:
 
 
 def _brand_display(brand: str | None) -> str:
+    """Forme d'affichage canonique de la marque (ex: 'bmw' -> 'BMW')."""
     if not brand:
         return ""
     from app.services.vehicle_lookup import display_brand
@@ -254,6 +287,7 @@ def _brand_display(brand: str | None) -> str:
 
 
 def _model_display(model: str | None) -> str:
+    """Forme d'affichage canonique du modele (ex: 'chr' -> 'C-HR')."""
     if not model:
         return ""
     from app.services.vehicle_lookup import display_model
@@ -262,6 +296,7 @@ def _model_display(model: str | None) -> str:
 
 
 def _find_filter_result(results: list[FilterResultDB], filter_id: str) -> FilterResultDB | None:
+    """Cherche un FilterResultDB par filter_id dans la liste."""
     for result in results:
         if result.filter_id == filter_id:
             return result
@@ -282,7 +317,12 @@ def _get_tire_sizes_safe(make: str, model: str, year: int | None) -> dict | None
 
 
 def _get_engine_reliability_safe(raw_data: dict | None, make: str | None, model: str | None):
-    """Appel best-effort au service de fiabilité moteur."""
+    """Appel best-effort au service de fiabilite moteur.
+
+    Cherche le vehicule, itere sur ses specs pour trouver un engine code
+    avec des donnees de fiabilite. Retourne None silencieusement en cas d'echec
+    pour ne jamais bloquer la generation du PDF.
+    """
     if not raw_data or not make or not model:
         return None
     try:
@@ -363,7 +403,13 @@ def _summary_km_label(fr: FilterResultDB | None) -> str:
 
 
 class OKazCarPDF(FPDF):
-    """PDF personnalisé avec header/footer OKazCar."""
+    """PDF personnalise avec header/footer OKazCar.
+
+    Herite de FPDF (fpdf2) pour surcharger header() et footer().
+    Page 1 : header complet (bande navy, logo OKaz/Car, badge marque).
+    Pages 2+ : header light (fine bande, numero de page).
+    Footer : ligne de separation + horodatage + scan ID.
+    """
 
     def __init__(
         self,
@@ -497,6 +543,7 @@ class OKazCarPDF(FPDF):
         self.ln(5)
 
     def info_row(self, label: str, value: str, bold_value: bool = False):
+        """Affiche une ligne label/valeur dans la section infos vehicule."""
         if not value:
             return
         self.set_font("Helvetica", "B", 9)
@@ -513,6 +560,14 @@ class OKazCarPDF(FPDF):
 
 
 def generate_scan_report_pdf(scan_id: int) -> bytes:
+    """Point d'entree principal : genere le PDF complet pour un scan.
+
+    Architecture du rapport :
+    - Page 1 : score circulaire, grille resume 2x3, insight prix, insight km
+    - Page 2+ : fiche vehicule, cards filtres L1-L11, pneus, fiabilite, email
+
+    Retourne le PDF sous forme de bytes (pret a servir en reponse HTTP).
+    """
     scan = db.session.get(ScanLog, scan_id)
     if not scan:
         raise ValueError(f"Scan {scan_id} introuvable")
@@ -533,16 +588,16 @@ def generate_scan_report_pdf(scan_id: int) -> bytes:
         brand_logo_url=_brand_logo_url(scan.vehicle_make),
     )
 
-    # --- Task 11: Page 1 ---
+    # -- Page 1 : vue d'ensemble rapide --
     pdf.add_page()
     _render_score_box(pdf, scan.score)
     _render_summary_cards(pdf, filter_results)
     _render_market_insight(pdf, scan, filter_results)
     _render_km_insight(pdf, filter_results)
 
-    # --- Task 11: Page 2+ ---
+    # -- Pages suivantes : details complets --
     # Saut de page seulement si on est encore sur la page 1
-    # (le contenu km peut déjà avoir déclenché un saut automatique)
+    # (le contenu km peut deja avoir declenche un saut automatique)
     if pdf.page == 1:
         pdf.add_page()
     _render_vehicle_info(pdf, scan, raw)
@@ -573,6 +628,11 @@ def generate_scan_report_pdf(scan_id: int) -> bytes:
 
 
 def _render_score_box(pdf: OKazCarPDF, score: int | None):
+    """Dessine le cercle de score avec arc colore proportionnel + verdict texte a droite.
+
+    Le cercle gris de fond represente 100%, l'arc colore la portion atteinte.
+    L'arc est dessine dans le sens horaire en partant de 12h (90 degres en coordonnees fpdf).
+    """
     color = _verdict_color(score)
     verdict = _verdict_for_score(score)
     y_start = pdf.get_y()
@@ -703,6 +763,11 @@ def _draw_info_card(
     accent_color: tuple[int, int, int],
     background_color: tuple[int, int, int],
 ):
+    """Dessine une card arrondie avec titre de section, headline et sous-texte.
+
+    Reutilisee par les sections prix marche et km pour un rendu uniforme.
+    La couleur d'accent et le fond sont choisis selon le status du filtre.
+    """
     pdf.section_title(title)
     x = 10
     y = pdf.get_y()
@@ -723,12 +788,19 @@ def _draw_info_card(
 
 
 def _body_multi_cell(pdf: OKazCarPDF, text: str) -> None:
+    """Ecrit un bloc de texte multi-ligne sur toute la largeur utile."""
     content_width = pdf.w - pdf.l_margin - pdf.r_margin
     pdf.set_x(pdf.l_margin)
     pdf.multi_cell(content_width, 5, _safe_str(text))
 
 
 def _render_market_insight(pdf: OKazCarPDF, scan: ScanLog, results: list[FilterResultDB]):
+    """Section prix marche : card info + barre de positionnement + details Argus.
+
+    Affiche une barre horizontale avec le prix marche au centre et le prix annonce
+    positionne en fonction de l'ecart en %. Le dot de couleur (vert/ambre/rouge)
+    indique visuellement si le prix est bon, acceptable ou risque.
+    """
     l4 = _find_filter_result(results, "L4")
     details = l4.details if l4 and isinstance(l4.details, dict) else None
     if not l4 or not details:
@@ -768,19 +840,25 @@ def _render_market_insight(pdf: OKazCarPDF, scan: ScanLog, results: list[FilterR
         background_color,
     )
 
+    # -- Barre de positionnement prix --
+    # Barre grise horizontale avec le prix marche au centre (trait navy)
+    # et le prix annonce positionne en % de l'ecart (dot colore)
     bar_y = pdf.get_y() + 2
     line_x1 = 25
     line_x2 = 185
     center_x = (line_x1 + line_x2) / 2
 
+    # Fond gris de la barre
     pdf.set_draw_color(210, 214, 220)
     pdf.set_line_width(1.4)
     pdf.line(line_x1, bar_y, line_x2, bar_y)
 
+    # Trait vertical navy = prix de reference marche
     pdf.set_draw_color(*COLOR_NAVY)
     pdf.set_line_width(0.8)
     pdf.line(center_x, bar_y - 5, center_x, bar_y + 5)
 
+    # Position du dot annonce : borne a +/- 50% pour eviter de sortir de la barre
     announce_x = center_x
     try:
         delta_pct_float = float(delta_pct or 0)
@@ -789,9 +867,11 @@ def _render_market_insight(pdf: OKazCarPDF, scan: ScanLog, results: list[FilterR
     except (TypeError, ValueError):
         announce_x = center_x
 
+    # Dot colore = prix de l'annonce
     pdf.set_fill_color(*accent_color)
     pdf.ellipse(announce_x - 2.3, bar_y - 2.3, 4.6, 4.6, style="F")
 
+    # Labels sous la barre
     pdf.set_xy(16, bar_y + 5)
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*accent_color)
@@ -815,7 +895,8 @@ def _render_market_insight(pdf: OKazCarPDF, scan: ScanLog, results: list[FilterR
             source_line += f" - base sur {sample_count} annonces"
         _body_multi_cell(pdf, source_line.strip(" -"))
 
-    # Task 6: Argus sub-section en card arrondie grise
+    # Sous-section Argus : card grise arrondie avec la fourchette de cote
+    # Affichee uniquement si le filtre L4 a trouve une reference Argus
     if details.get("price_argus_mid"):
         low = details.get("price_argus_low")
         mid = details.get("price_argus_mid")
@@ -845,6 +926,7 @@ def _render_market_insight(pdf: OKazCarPDF, scan: ScanLog, results: list[FilterR
         pdf.cell(140, 5, _safe_str(argus_line))
         pdf.set_y(argus_y + 18)
 
+    # References secondaires (ex: estimation LBC, cote La Centrale)
     secondary = details.get("reference_secondary") or []
     if isinstance(secondary, list):
         for reference in secondary:
@@ -862,6 +944,11 @@ def _render_market_insight(pdf: OKazCarPDF, scan: ScanLog, results: list[FilterR
 
 
 def _render_km_insight(pdf: OKazCarPDF, results: list[FilterResultDB]):
+    """Section km : card info + barre de positionnement km reel vs attendu.
+
+    Meme logique visuelle que la section prix : barre horizontale avec seuil
+    attendu au centre et km reel positionne proportionnellement.
+    """
     l3 = _find_filter_result(results, "L3")
     details = l3.details if l3 and isinstance(l3.details, dict) else None
     if not l3 or not details:
@@ -890,6 +977,9 @@ def _render_km_insight(pdf: OKazCarPDF, results: list[FilterResultDB]):
         background_color,
     )
 
+    # -- Barre de positionnement km --
+    # Echelle adaptative : le max de la barre = 125% du plus grand entre reel et attendu
+    # Ca garantit que les deux points sont toujours visibles sur la barre
     bar_y = pdf.get_y() + 2
     line_x1 = 25
     line_x2 = 185
@@ -899,6 +989,7 @@ def _render_km_insight(pdf: OKazCarPDF, results: list[FilterResultDB]):
     actual_x = line_x1 + (min(float(actual_km), scale_max) / scale_max) * (line_x2 - line_x1)
     page_right = pdf.w - pdf.r_margin
 
+    # Fond gris de la barre
     pdf.set_draw_color(210, 214, 220)
     pdf.set_line_width(1.4)
     pdf.line(line_x1, bar_y, line_x2, bar_y)
@@ -1011,6 +1102,11 @@ def _render_filter_cards(pdf: OKazCarPDF, results: list[FilterResultDB]):
 
 
 def _render_vehicle_info(pdf: OKazCarPDF, scan: ScanLog, raw: dict):
+    """Section infos vehicule : titre, grille 2 colonnes, champs pleine largeur, URL.
+
+    Les donnees viennent du ScanLog (prix, source, pays) et du raw_data (tous les
+    champs extraits par L1). La grille 2 colonnes evite que la page soit trop longue.
+    """
     pdf.section_title("Informations du vehicule")
 
     make = _brand_display(scan.vehicle_make or raw.get("make", ""))
@@ -1122,6 +1218,11 @@ def _render_vehicle_info(pdf: OKazCarPDF, scan: ScanLog, raw: dict):
 
 
 def _render_tire_section(pdf: OKazCarPDF, tire_data: dict):
+    """Section pneus : card arrondie verte pale avec les dimensions recommandees.
+
+    Affiche jusqu'a 6 dimensions (au-dela c'est du bruit). La source est
+    indiquee en italique en bas de la card (Allopneus ou Wheel-Size).
+    """
     dimensions = tire_data.get("dimensions", [])
     if not dimensions:
         return
@@ -1164,6 +1265,11 @@ def _render_tire_section(pdf: OKazCarPDF, tire_data: dict):
 
 
 def _render_reliability_section(pdf: OKazCarPDF, reliability):
+    """Section fiabilite moteur : card arrondie jaune pale avec score et note.
+
+    Affiche le code moteur, la marque, le score /5 et une note textuelle.
+    Hauteur dynamique calculee selon les champs presents.
+    """
     pdf.section_title("Fiabilite moteur")
 
     x = pdf.l_margin
@@ -1241,6 +1347,7 @@ def _render_reliability_section(pdf: OKazCarPDF, reliability):
 
 
 def _render_email_section(pdf: OKazCarPDF, email_draft: EmailDraft):
+    """Section email : affiche le brouillon genere par Gemini (tronque a 1500 chars)."""
     pdf.section_title("Email suggere au vendeur")
 
     pdf.set_fill_color(*COLOR_LIGHT_GRAY)

@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """Synchronise une base SQLite canonique vers le disque persistant Render.
 
-Usage typique au demarrage Render via variables d'environnement :
+Execute au demarrage de l'app sur Render (avant le serveur Flask).
+Le but : avoir toujours la meme base SQLite en prod qu'en local.
 
+Workflow :
+1. Lire le manifeste JSON distant (version, sha256, URL du .db)
+2. Comparer avec la version deja appliquee (fichier d'etat local)
+3. Si nouvelle version : telecharger, verifier SHA256, valider l'integrite SQLite
+4. Backup de l'ancienne base, remplacement atomique, mise a jour de l'etat
+
+Variables d'environnement :
     RENDER_DB_SYNC_URL=https://.../okazcar.db
     RENDER_DB_SYNC_METADATA_URL=https://.../okazcar.json
     RENDER_DB_SYNC_VERSION=2026-03-11-canonique
     RENDER_DB_SYNC_SHA256=<sha256 optionnel>
-
-Le script :
-- peut lire un manifeste JSON distant pour recuperer version / SHA / URL ;
-- telecharge la base vers un fichier temporaire ;
-- verifie optionnellement le SHA256 ;
-- valide l'integrite SQLite ;
-- sauvegarde la base existante ;
-- remplace atomiquement la base cible ;
-- memorise la version deja appliquee pour eviter les reimports inutiles.
 """
 
 from __future__ import annotations
@@ -36,6 +35,7 @@ from urllib.request import Request, urlopen
 DEFAULT_TARGET_DB = Path("/app/data/okazcar.db")
 DEFAULT_STATE_FILE = Path("/app/data/.render-db-sync.json")
 DEFAULT_BACKUP_DIR = Path("/app/data/backups")
+# Tables minimales pour que l'app fonctionne -- si elles manquent, le snapshot est invalide
 REQUIRED_TABLES = ("vehicles", "vehicle_specs")
 
 
@@ -77,6 +77,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _load_state(path: Path) -> dict:
+    """Charge l'etat de la derniere synchro (version appliquee, sha256, etc.)."""
     if not path.exists():
         return {}
     try:
@@ -86,6 +87,7 @@ def _load_state(path: Path) -> dict:
 
 
 def _write_state(path: Path, payload: dict) -> None:
+    """Ecrit l'etat de synchro de facon atomique (ecriture tmp + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -93,6 +95,7 @@ def _write_state(path: Path, payload: dict) -> None:
 
 
 def _download_to_temp(source_url: str, timeout: int, target_dir: Path) -> tuple[Path, str, int]:
+    """Telecharge le snapshot dans un fichier temporaire, retourne (path, sha256, size)."""
     target_dir.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix="render-db-sync-", suffix=".db", dir=target_dir)
     os.close(fd)
@@ -140,6 +143,12 @@ def _resolve_sync_inputs(
     expected_sha: str,
     timeout: int,
 ) -> tuple[str, str, str, dict]:
+    """Resout les parametres de synchro depuis le manifeste distant et/ou les args.
+
+    Le manifeste JSON distant est la source de verite : il contient l'URL
+    de telechargement, la version et le SHA256 attendu. Les args CLI
+    servent d'override si besoin.
+    """
     remote_metadata: dict = {}
     if metadata_url:
         _log(f"Lecture du manifeste distant: {metadata_url}")
@@ -160,6 +169,12 @@ def _resolve_sync_inputs(
 
 
 def _validate_sqlite(db_path: Path) -> None:
+    """Verifie l'integrite du snapshot SQLite avant de l'utiliser.
+
+    On fait un PRAGMA integrity_check + on verifie que les tables
+    critiques existent et contiennent des donnees. Ca evite de deployer
+    un fichier corrompu ou vide.
+    """
     conn = sqlite3.connect(str(db_path))
     try:
         cur = conn.cursor()
@@ -184,6 +199,7 @@ def _validate_sqlite(db_path: Path) -> None:
 
 
 def _backup_existing_db(target_db: Path, backup_dir: Path, sync_version: str) -> Path | None:
+    """Sauvegarde la base actuelle avant remplacement. Retourne le path du backup."""
     if not target_db.exists():
         return None
 
@@ -195,6 +211,7 @@ def _backup_existing_db(target_db: Path, backup_dir: Path, sync_version: str) ->
 
 
 def main() -> int:
+    """Point d'entree : telecharge et applique le snapshot si nouvelle version."""
     args = _parse_args()
     source_url, sync_version, expected_sha, remote_metadata = _resolve_sync_inputs(
         source_url=args.source_url.strip(),
@@ -219,6 +236,7 @@ def main() -> int:
         _log("La synchro est configuree mais aucune version n'a pu etre resolue.")
         return 1
 
+    # Verifier si on a deja cette version en local pour eviter un re-telechargement
     state = _load_state(state_file)
     already_applied = state.get("version") == sync_version and target_db.exists()
     if already_applied:
@@ -231,6 +249,8 @@ def main() -> int:
 
     try:
         if expected_sha and actual_sha != expected_sha and args.metadata_url.strip():
+            # Le CDN GitHub peut servir un ancien manifeste cache
+            # On attend 5s et on re-fetch pour avoir le bon SHA
             _log("SHA256 mismatch (CDN cache probable). Re-fetch du manifeste dans 5s...")
             time.sleep(5)
             fresh_metadata = _download_json(args.metadata_url.strip(), args.timeout)

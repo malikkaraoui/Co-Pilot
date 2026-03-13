@@ -1,7 +1,18 @@
+/**
+ * L4 — Analyse du prix par rapport au marche.
+ * C'est le filtre le plus complexe cote UI : barre visuelle prix annonce vs reference,
+ * verdict textuel, source de prix (marche LBC/AS24, Argus, cote LC), references
+ * secondaires, et detection des annonces stagnantes a prix bas.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Detecte si on est sur LBC ou AS24 pour adapter le label "marche externe".
+ * @returns {string|null} 'autoscout24', 'leboncoin' ou null
+ */
 function _detectCurrentSite() {
   try {
     const host = String(window.location.hostname || '').toLowerCase();
@@ -11,6 +22,11 @@ function _detectCurrentSite() {
   return null;
 }
 
+/**
+ * Mappe un identifiant de source vers ses metadonnees d'affichage.
+ * @param {string} src - Identifiant source (ex: "marche_leboncoin", "argus_seed")
+ * @returns {{label: string, className: string, marker: string}} Metadonnees
+ */
 function _mapReferenceSourceMeta(src) {
   if (src === "marche_leboncoin") return { label: "LBC", className: "okazcar-l4-src-lbc", marker: "Marché" };
   if (src === "marche_autoscout24") return { label: "AS24", className: "okazcar-l4-src-as24", marker: "Marché" };
@@ -20,6 +36,13 @@ function _mapReferenceSourceMeta(src) {
   return { label: "Référence", className: "okazcar-l4-src-default", marker: "Réf." };
 }
 
+/**
+ * Barre de prix visuelle avec verdict, source, et references secondaires.
+ * Gere la conversion devise pour les annonces hors zone euro.
+ * @param {Object} details - Details L4 {price_annonce, price_reference, delta_eur, source, ...}
+ * @param {Object} vehicle - Donnees vehicule {currency, price, price_original}
+ * @returns {string} HTML du composant prix ou chaine vide
+ */
 export function buildPriceBarHTML(details, vehicle) {
   const priceAnnonce = details.price_annonce;
   const priceRef = details.price_reference;
@@ -30,6 +53,7 @@ export function buildPriceBarHTML(details, vehicle) {
     ? details.delta_pct
     : Math.round(((priceAnnonce - priceRef) / priceRef) * 100);
 
+  // Conversion devise : si l'annonce est en CHF/GBP/etc., on affiche en devise locale
   const isLocal = vehicle?.currency && vehicle.currency !== "EUR";
   const eurToLocal = isLocal && vehicle.price_original && vehicle.price
     ? vehicle.price_original / vehicle.price : 1;
@@ -41,6 +65,8 @@ export function buildPriceBarHTML(details, vehicle) {
   const absPct = Math.abs(Math.round(deltaPct));
   const fmtD = displayDelta.toLocaleString("fr-FR");
 
+  // Verdict textuel selon l'ecart au marche :
+  // <= 10% : prix marche / 10-25% : bonne affaire ou a negocier / > 25% : suspect ou trop cher
   let verdictClass, verdictEmoji, line1, line2;
   if (absPct <= 10) {
     verdictClass = "verdict-fair";
@@ -78,6 +104,7 @@ export function buildPriceBarHTML(details, vehicle) {
   const color = statusColors[verdictClass] || "#16a34a";
   const fillBg = fillOpacities[verdictClass] || "rgba(22,163,74,0.15)";
 
+  // Calcul de l'echelle de la barre : on centre les deux prix avec du padding
   const minP = Math.min(displayAnnonce, displayRef);
   const maxP = Math.max(displayAnnonce, displayRef);
   const gap = (maxP - minP) || maxP * 0.1;
@@ -97,6 +124,7 @@ export function buildPriceBarHTML(details, vehicle) {
   let srcLabel = sourceMeta.label;
   let srcClass = sourceMeta.className;
 
+  // Si la source de prix vient d'un autre site que celui ou on est, on le signale
   const currentSite = _detectCurrentSite();
   const marketSite = src === 'marche_leboncoin'
     ? 'leboncoin'
@@ -118,6 +146,7 @@ export function buildPriceBarHTML(details, vehicle) {
     precisionStars = "\u2605".repeat(full) + (half ? "\u00BD" : "") + "\u2606".repeat(empty);
   }
 
+  // References secondaires : cote LC, estimation LBC, etc. pour croiser les sources
   let secondaryRefs = Array.isArray(details.reference_secondary)
     ? details.reference_secondary.filter((entry) => entry && entry.price)
     : [];

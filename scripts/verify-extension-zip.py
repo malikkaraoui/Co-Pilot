@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Verify a Chrome Web Store extension ZIP before submission.
+"""Verification pre-soumission du ZIP extension Chrome Web Store.
 
-This is a lightweight, deterministic preflight tool meant to prevent
-shipping a broken bundle (e.g. wrong API URL injected).
+Outil de preflight leger et deterministe pour eviter de publier
+un bundle casse (mauvaise URL API, version incoherente, etc.).
 
-Usage:
+Verifications effectuees :
+- Le ZIP contient manifest.json et dist/content.bundle.js
+- La version du manifest.json correspond a celle de package.json
+- Le bundle contient une URL de production injectee (https://.../api/analyze)
+
+Note : le bundle peut encore contenir le fallback localhost en string,
+on exige juste qu'une URL de prod soit presente et bien injectee.
+
+Usage :
   .venv/bin/python scripts/verify-extension-zip.py releases/okazcar-v1.1.0.zip
-
-Checks:
-- ZIP contains manifest.json and dist/content.bundle.js
-- manifest version matches package.json version
-- bundle contains an injected https?://.../api/analyze URL (release branch)
-
-Note: The bundle may still contain the localhost fallback string; we only
-require that a production URL is present and normalized.
 """
 
 from __future__ import annotations
@@ -24,15 +24,19 @@ import re
 import sys
 import zipfile
 
+# Pattern qui matche l'injection de l'URL de prod par le build RELEASE=1
+# Dans le bundle, ca ressemble a : var API_URL = true ? "https://okazcar.../api/analyze"
 API_URL_PATTERN = re.compile(r'var\s+API_URL\s*=\s*true\s*\?\s*"(https?://[^"]+/api/analyze)"')
 
 
 def die(msg: str, code: int = 1) -> None:
+    """Affiche une erreur et quitte le script."""
     print(f"ERROR: {msg}")
     raise SystemExit(code)
 
 
 def main(argv: list[str]) -> int:
+    """Verifie le ZIP de l'extension et retourne 0 si tout est OK."""
     if len(argv) != 2:
         print("Usage: python scripts/verify-extension-zip.py <path/to/zip>")
         return 2
@@ -51,6 +55,7 @@ def main(argv: list[str]) -> int:
     if not expected_version:
         die("package.json has no version")
 
+    # Ouvrir le ZIP et verifier son contenu
     with zipfile.ZipFile(zip_path) as z:
         names = set(z.namelist())
 
@@ -59,6 +64,7 @@ def main(argv: list[str]) -> int:
         if "dist/content.bundle.js" not in names:
             die("ZIP missing dist/content.bundle.js")
 
+        # Verifier la coherence de version entre manifest.json et package.json
         manifest = json.loads(z.read("manifest.json"))
         manifest_version = str(manifest.get("version") or "").strip()
         if manifest_version != expected_version:
@@ -66,6 +72,7 @@ def main(argv: list[str]) -> int:
                 f"Version mismatch: manifest.json={manifest_version!r} vs package.json={expected_version!r}"
             )
 
+        # Verifier que l'URL de prod est bien injectee dans le bundle
         bundle = z.read("dist/content.bundle.js").decode("utf-8", errors="ignore")
         m = API_URL_PATTERN.search(bundle)
         if not m:

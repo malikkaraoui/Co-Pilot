@@ -1,15 +1,31 @@
 "use strict";
 
+/**
+ * La Centrale — normalisation des donnees vers le format ad_data du backend.
+ *
+ * Fusionne quatre sources :
+ * - CLASSIFIED_GALLERY (gallery) : donnees principales du vehicule
+ * - tc_vars : variables de tracking avec complements (garantie, badges)
+ * - cote : cotation La Centrale extraite du DOM
+ * - JSON-LD : fallback schema.org/Car
+ *
+ * Produit aussi les bonus signals specifiques a LC :
+ * badge bonne affaire, kilometrage, nombre de proprietaires, etc.
+ */
+
 import { LC_FUEL_MAP, LC_GEARBOX_MAP } from './constants.js';
 
 /**
- * Normalize La Centrale data into the ad_data contract expected by the backend.
+ * Normalise les donnees La Centrale en un objet ad_data unifie.
  *
- * @param {object} gallery  — parsed CLASSIFIED_GALLERY (from extractGallery)
- * @param {object} tcVars   — parsed tc_vars
- * @param {object} cote     — {quotation, trustIndex} from extractCoteFromDom
- * @param {object} jsonLd   — JSON-LD Car object (fallback)
- * @returns {object} ad_data compatible with /api/analyze
+ * Les champs prefixes lc_ sont specifiques a La Centrale et passes
+ * au backend pour un eventuel usage L4 (cotation, badges, etc.).
+ *
+ * @param {object} gallery - Donnees CLASSIFIED_GALLERY parsees
+ * @param {object} tcVars - Variables tc_vars
+ * @param {object} cote - {quotation, trustIndex} depuis le DOM
+ * @param {object} jsonLd - JSON-LD Car en fallback
+ * @returns {object} ad_data normalise pour /api/analyze
  */
 export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
   const classified = gallery?.classified || {};
@@ -73,7 +89,7 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
     republished: false,
     lbc_estimation: null,
 
-    // La Centrale specifics (passed through ad_data for potential L4 use)
+    // Champs specifiques La Centrale — transmis au backend pour usage potentiel
     lc_quotation: cote?.quotation ?? null,
     lc_trust_index: cote?.trustIndex ?? null,
     lc_good_deal_badge: classified.goodDealBadge || null,
@@ -96,7 +112,13 @@ export function normalizeToAdData(gallery, tcVars, cote, jsonLd) {
 }
 
 /**
- * Build bonus signals from La Centrale data for the popup display.
+ * Construit les signaux bonus affiches dans la popup pour La Centrale.
+ * Ces signaux exploitent les donnees riches de LC (badges, cotation, Crit'Air).
+ *
+ * @param {object} gallery - Donnees CLASSIFIED_GALLERY parsees
+ * @param {object} tcVars - Variables tc_vars
+ * @param {object} cote - {quotation, trustIndex}
+ * @returns {Array<{label: string, value: string, status: string}>}
  */
 export function buildBonusSignals(gallery, tcVars, cote) {
   const signals = [];
@@ -104,7 +126,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
   const vehicle = gallery?.vehicle || {};
   const tc = tcVars || {};
 
-  // Good deal badge
+  // Badge "bonne affaire" de La Centrale
   if (classified.goodDealBadge) {
     const badgeLabels = {
       'VERY_GOOD_DEAL': 'Très bonne affaire',
@@ -119,7 +141,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Mileage badge
+  // Badge kilometrage (au-dessus ou en-dessous de la moyenne)
   if (classified.mileageBadge) {
     signals.push({
       label: 'Kilométrage',
@@ -128,7 +150,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Number of owners
+  // Nombre de proprietaires
   if (vehicle.nbOfOwners != null) {
     signals.push({
       label: 'Propriétaires',
@@ -137,7 +159,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // La Cote quotation
+  // Cotation La Centrale
   if (cote?.quotation) {
     signals.push({
       label: 'Cote La Centrale',
@@ -146,7 +168,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Price variation
+  // Tendance de prix (en baisse = bon signe pour l'acheteur)
   if (classified.priceVariation?.prices?.isDropping) {
     signals.push({
       label: 'Prix',
@@ -155,7 +177,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Import flag
+  // Vehicule importe
   if (vehicle.international === true) {
     signals.push({
       label: 'Import',
@@ -164,7 +186,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Warranty
+  // Garantie
   if (tc.warranty_duration) {
     signals.push({
       label: 'Garantie',
@@ -173,7 +195,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Maintenance badge
+  // Badge entretien
   if (tc.badge_maintenance) {
     const labels = Array.isArray(tc.badge_maintenance) ? tc.badge_maintenance : [tc.badge_maintenance];
     for (const badge of labels) {
@@ -185,7 +207,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     }
   }
 
-  // Crit'Air
+  // Vignette Crit'Air
   if (vehicle.critair?.critairLevel) {
     signals.push({
       label: "Crit'Air",
@@ -194,7 +216,7 @@ export function buildBonusSignals(gallery, tcVars, cote) {
     });
   }
 
-  // Seller rating
+  // Note vendeur
   if (tc.rating_satisfaction && tc.rating_count) {
     signals.push({
       label: 'Avis vendeur',
@@ -206,27 +228,33 @@ export function buildBonusSignals(gallery, tcVars, cote) {
   return signals;
 }
 
-// ── Internal helpers ─────────────────────────────────────────
+// ── Helpers internes ─────────────────────────────────────────
 
+/** Normalise le carburant LC vers un token standard */
 function _normalizeFuel(energy) {
   if (!energy) return null;
   return LC_FUEL_MAP[energy.toUpperCase()] || energy.toLowerCase();
 }
 
+/** Normalise la boite de vitesses LC vers un token standard */
 function _normalizeGearbox(gearbox) {
   if (!gearbox) return null;
   return LC_GEARBOX_MAP[gearbox.toUpperCase()] || gearbox.toLowerCase();
 }
 
+/**
+ * Determine si le vendeur est pro ou particulier.
+ * Priorite : classified.customerType > tc_vars.owner_category > defaut.
+ */
 function _resolveOwnerType(classified, tc) {
   if (classified.customerType === 'PRO') return 'pro';
   if (classified.customerType === 'PART' || classified.customerType === 'PARTICULIER') return 'private';
   if (tc.owner_category === 'professionnel') return 'pro';
   if (tc.owner_category === 'particulier') return 'private';
-  // Default: if isPro flag in config
   return 'private';
 }
 
+/** Extrait l'annee depuis les differentes sources disponibles */
 function _resolveYear(classified, vehicle, ld) {
   if (classified.year) return String(classified.year);
   if (vehicle.firstTrafficDate) {
@@ -237,20 +265,23 @@ function _resolveYear(classified, vehicle, ld) {
   return null;
 }
 
+/** Compte les images — gere les deux structures possibles de l'objet images */
 function _resolveImageCount(images) {
-  // images can be {v1: {pictures: [...]}} or {pictures: [...]}
   const pics = images?.v1?.pictures || images?.pictures;
   if (Array.isArray(pics)) return pics.length;
   return 0;
 }
 
+/**
+ * Resout la description du vehicule.
+ * LC a souvent pas de description libre — on synthetise une description
+ * depuis les caracteristiques structurees quand c'est le cas.
+ */
 function _resolveDescription(classified, vehicle) {
-  // 1. Real text description if available
   if (classified.description?.content) return classified.description.content;
   if (typeof classified.description === 'string' && classified.description.length > 0) return classified.description;
 
-  // 2. Build a synthetic description from structured vehicle data
-  // LC often has no free-text description — characteristics are structured
+  // Description synthetique depuis les donnees structurees
   const parts = [];
   if (vehicle?.make && vehicle?.model) parts.push(`${vehicle.make} ${vehicle.model}`);
   if (vehicle?.energy) parts.push(vehicle.energy);
@@ -264,13 +295,14 @@ function _resolveDescription(classified, vehicle) {
   return parts.length > 0 ? parts.join(' — ') : null;
 }
 
+/** Extrait le nombre de jours en ligne depuis priceVariation.displayedAge */
 function _resolveDisplayedAge(classified) {
-  // priceVariation.displayedAge = days online on La Centrale
   const age = classified.priceVariation?.displayedAge;
   if (typeof age === 'number' && age >= 0) return age;
   return null;
 }
 
+/** Nettoie et valide un numero de telephone francais */
 function _cleanPhone(phone) {
   if (!phone) return null;
   const raw = String(phone).trim();
@@ -279,6 +311,10 @@ function _cleanPhone(phone) {
   return null;
 }
 
+/**
+ * Resout le telephone depuis toutes les sources possibles.
+ * LC stocke le telephone sous des cles differentes selon la version du payload.
+ */
 function _resolvePhone(classified, ld, tc) {
   const candidates = [
     classified?.contactPhone,
@@ -298,11 +334,10 @@ function _resolvePhone(classified, ld, tc) {
 }
 
 /**
- * Very basic department→region mapping for French departments.
- * La Centrale provides the department number (e.g., "88" for Vosges).
+ * Mapping departement → region.
+ * Ici on passe directement le departement — le backend gere le mapping complet.
  */
 function _departmentToRegion(dept) {
   if (!dept) return null;
-  // Return the department as-is — the backend handles region mapping
   return dept;
 }

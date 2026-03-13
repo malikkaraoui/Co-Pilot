@@ -1,7 +1,20 @@
+/**
+ * L10 — Anciennete de l'annonce en ligne.
+ * Affiche une timeline avec le nombre de jours en ligne,
+ * un seuil adaptatif (base sur le marche ou le prix),
+ * et detecte les republications (remise en ligne pour paraitre recent).
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Rendu du filtre L10 : big number + timeline + verdict + detection republication.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {days_online, threshold_days, ratio, republished, market_median_days, ...}
+ * @returns {string} HTML du body L10
+ */
 export function buildL10Body(f, d) {
   const days = d.days_online;
   const threshold = d.threshold_days || 35;
@@ -14,6 +27,7 @@ export function buildL10Body(f, d) {
     return '<p class="okazcar-filter-message">Ancienneté non disponible</p>';
   }
 
+  // Verdict selon le ratio jours_en_ligne / seuil : < 1 = normal, > 2 = stagnante
   let barColor, verdictText;
   if (ratio <= 0.3) {
     barColor = "#22c55e";
@@ -29,6 +43,7 @@ export function buildL10Body(f, d) {
     verdictText = "Annonce stagnante — pourquoi personne n'a acheté ?";
   }
 
+  // Echelle de la timeline : 2.5x le seuil, curseur clamp entre 2% et 98%
   const maxDisplay = threshold * 2.5;
   const cursorPct = Math.min(Math.max((days / maxDisplay) * 100, 2), 98);
   const thresholdPct = Math.min((threshold / maxDisplay) * 100, 95);

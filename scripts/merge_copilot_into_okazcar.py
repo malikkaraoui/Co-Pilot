@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Fusion one-shot : copilot.db → okazcar.db.
+"""Fusion one-shot : copilot.db -> okazcar.db.
 
-Absorbe les données terrain de copilot.db dans la base canonique okazcar.db,
-puis génère un rapport détaillé.
+Absorbe les donnees terrain de copilot.db dans la base canonique okazcar.db,
+puis genere un rapport detaille. Utilise quand on a accumule des donnees
+dans l'ancienne base copilot.db et qu'on veut tout consolider.
+
+Le script gere :
+- Le remapping des IDs entre les deux bases (vehicle_id, scan_id, video_id)
+- La deduplication sur chaque table (pas de doublons)
+- Les conflits de donnees (on garde la version la plus recente)
+- La generation d'un rapport markdown de synthese
 
 Usage:
     python scripts/merge_copilot_into_okazcar.py --dry-run
@@ -38,6 +45,10 @@ def _dict_factory(cursor: sqlite3.Cursor, row: tuple) -> dict:
 
 
 def _connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
+    """Ouvre une connexion SQLite avec row_factory dict.
+
+    En ecriture, on active WAL pour eviter les locks pendant la fusion.
+    """
     if readonly:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     else:
@@ -60,7 +71,12 @@ def _norm(val: str | None) -> str:
 # Vehicle ID mapping  (copilot vehicle_id → okazcar vehicle_id)
 # ---------------------------------------------------------------------------
 def _build_vehicle_map(src: sqlite3.Connection, tgt: sqlite3.Connection) -> dict[int, int | None]:
-    """Mappe les vehicle IDs de copilot vers okazcar via brand+model."""
+    """Mappe les vehicle IDs de copilot vers okazcar via brand+model.
+
+    C'est la cle de voute de la fusion : toutes les tables qui referencent
+    un vehicle_id doivent passer par ce mapping pour pointer vers le bon
+    vehicule dans la base cible.
+    """
     src_vehicles = src.execute("SELECT id, brand, model FROM vehicles").fetchall()
     tgt_vehicles = tgt.execute("SELECT id, brand, model FROM vehicles").fetchall()
 
@@ -84,7 +100,11 @@ def _build_vehicle_map(src: sqlite3.Connection, tgt: sqlite3.Connection) -> dict
 
 
 class MergeStats:
-    """Compteurs par table."""
+    """Compteurs par table pour le rapport de fusion.
+
+    Chaque table a ses propres compteurs : lus, importes, doublons ignores,
+    sans mapping vehicule, et conflits detectes.
+    """
 
     def __init__(self) -> None:
         self.tables: dict[str, dict] = {}
@@ -132,7 +152,12 @@ def _merge_scan_logs(
     stats: MergeStats,
     dry_run: bool,
 ) -> dict[int, int]:
-    """Importe scan_logs. Retourne mapping old_id → new_id."""
+    """Importe scan_logs. Retourne mapping old_id -> new_id.
+
+    Les scan_logs sont la table pivot : filter_results et email_drafts
+    referencent un scan_id, donc on doit conserver le mapping old->new
+    pour les tables dependantes.
+    """
     table = "scan_logs"
     stats.init_table(table)
     scan_map: dict[int, int] = {}
@@ -140,7 +165,8 @@ def _merge_scan_logs(
     src_rows = src.execute("SELECT * FROM scan_logs ORDER BY id").fetchall()
     stats.tables[table]["read"] = len(src_rows)
 
-    # Index des scans existants dans target pour dédup
+    # Dedup sur le tuple (url, source, make, model, price, created_at)
+    # pour eviter d'importer deux fois le meme scan
     existing = set()
     for row in tgt.execute(
         "SELECT url, source, vehicle_make, vehicle_model, price_eur, created_at FROM scan_logs"
@@ -210,7 +236,11 @@ def _merge_filter_results(
     stats: MergeStats,
     dry_run: bool,
 ) -> None:
-    """Importe filter_results avec remap de scan_id."""
+    """Importe filter_results avec remap de scan_id.
+
+    Chaque filter_result pointe vers un scan_log via scan_id.
+    On utilise scan_map pour relier au bon scan dans la base cible.
+    """
     table = "filter_results"
     stats.init_table(table)
 
@@ -262,14 +292,18 @@ def _merge_market_prices(
     stats: MergeStats,
     dry_run: bool,
 ) -> None:
-    """Importe market_prices avec dédup sur clé UNIQUE."""
+    """Importe market_prices avec dedup sur cle UNIQUE.
+
+    En cas de conflit (meme vehicule/annee/region), on garde
+    la version la plus recente (collected_at le plus recent).
+    """
     table = "market_prices"
     stats.init_table(table)
 
     src_rows = src.execute("SELECT * FROM market_prices ORDER BY id").fetchall()
     stats.tables[table]["read"] = len(src_rows)
 
-    # Index par clé UNIQUE
+    # Index par cle composite (make, model, year, region, fuel, hp_range, country)
     existing: dict[tuple, dict] = {}
     for row in tgt.execute("SELECT * FROM market_prices").fetchall():
         key = (
@@ -320,7 +354,7 @@ def _merge_market_prices(
             _norm(row.get("country") or "FR"),
         )
         if key in existing:
-            # Garder le plus récent par collected_at
+            # Conflit : on compare collected_at pour garder la donnee la plus fraiche
             ex = existing[key]
             if (row.get("collected_at") or "") > (ex.get("collected_at") or ""):
                 stats.tables[table]["conflicts"].append(
@@ -358,7 +392,11 @@ def _merge_collection_jobs(
     stats: MergeStats,
     dry_run: bool,
 ) -> None:
-    """Importe une table de collection jobs avec dédup sur clé UNIQUE."""
+    """Importe une table de collection jobs avec dedup sur cle UNIQUE.
+
+    Generique pour collection_jobs_lbc et collection_jobs_as24 qui ont
+    la meme structure mais des colonnes de dedup differentes.
+    """
     stats.init_table(table)
 
     src_rows = src.execute(f"SELECT * FROM [{table}] ORDER BY id").fetchall()  # noqa: S608
@@ -395,7 +433,11 @@ def _merge_youtube_videos(
     stats: MergeStats,
     dry_run: bool,
 ) -> dict[int, int]:
-    """Importe youtube_videos avec remap vehicle_id. Retourne mapping old_id → new_id."""
+    """Importe youtube_videos avec remap vehicle_id. Retourne mapping old_id -> new_id.
+
+    Meme logique que scan_logs : on retourne un mapping pour que
+    youtube_transcripts puisse pointer vers les bons video_db_id.
+    """
     table = "youtube_videos"
     stats.init_table(table)
     video_map: dict[int, int] = {}
@@ -691,7 +733,12 @@ def _merge_simple_table(
     vehicle_col: str = "vehicle_id",
     defaults: dict[str, object] | None = None,
 ) -> None:
-    """Import générique avec dédup et remap optionnel de vehicle_id."""
+    """Import generique avec dedup et remap optionnel de vehicle_id.
+
+    Fonction utilitaire pour les tables simples (observed_motorizations,
+    vehicle_observed_specs, failed_searches) qui suivent toutes le meme
+    pattern : dedup sur N colonnes + remap optionnel du vehicle_id.
+    """
     stats.init_table(table)
 
     src_rows = src.execute(f"SELECT * FROM [{table}] ORDER BY id").fetchall()  # noqa: S608
@@ -836,7 +883,12 @@ def _merge_gemini_config(
 
 
 def merge(source_path: Path, target_path: Path, *, dry_run: bool) -> MergeStats:
-    """Exécute la fusion complète."""
+    """Execute la fusion complete de toutes les tables.
+
+    L'ordre d'import est important : les tables parent (scan_logs, youtube_videos)
+    doivent etre importees avant les tables enfant (filter_results, youtube_transcripts)
+    car on a besoin des mappings d'IDs.
+    """
     stats = MergeStats()
 
     src = _connect(source_path, readonly=True)
@@ -844,7 +896,7 @@ def merge(source_path: Path, target_path: Path, *, dry_run: bool) -> MergeStats:
 
     print(f"{'[DRY RUN] ' if dry_run else ''}Fusion {source_path.name} → {target_path.name}")
 
-    # 1. Vehicle mapping
+    # Etape 1 : construire le mapping vehicle_id source -> cible
     vehicle_map = _build_vehicle_map(src, tgt)
     mapped = sum(1 for v in vehicle_map.values() if v is not None)
     unmapped = sum(1 for v in vehicle_map.values() if v is None)
@@ -1076,7 +1128,7 @@ def main() -> None:
         print(f"ERREUR: {args.target_db} introuvable")
         sys.exit(1)
 
-    # Backups
+    # Backup de securite avant toute ecriture
     if not args.dry_run:
         for db_path in [args.source_db, args.target_db]:
             backup = db_path.parent / f"{db_path.name}.backup-{TODAY}"

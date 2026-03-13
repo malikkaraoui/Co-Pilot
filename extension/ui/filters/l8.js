@@ -1,7 +1,20 @@
+/**
+ * L8 — Detection d'import (vehicule importe de l'etranger).
+ * Analyse plusieurs signaux (plaque etrangere, description, prix anormal)
+ * et les classe en forts/faibles pour determiner la probabilite d'import.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Rendu du filtre L8 : alerte import + liste des signaux detectes.
+ * Affichage booleen : clean (aucun signal) ou alerte avec indices.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {signals, strong_count}
+ * @returns {string} HTML du body L8
+ */
 export function buildL8Body(f, d) {
   const signals = d.signals || [];
   const strongCount = d.strong_count || 0;

@@ -144,7 +144,13 @@ def normalize_transmission(raw: str) -> str:
 
 
 def import_csv(dry_run: bool = False):
-    """Importe les vehicules et specs depuis le CSV."""
+    """Importe les vehicules et specs depuis le CSV.
+
+    Strategie : on parcourt chaque ligne du CSV, on cree le Vehicle
+    s'il n'existe pas encore, puis on cree la VehicleSpec associee.
+    Deux caches memoire (vehicle_cache, existing_specs) evitent
+    les requetes DB repetitives et garantissent l'idempotence.
+    """
     if not CSV_PATH.exists():
         logger.error("Fichier CSV introuvable : %s", CSV_PATH)
         sys.exit(1)
@@ -182,6 +188,7 @@ def import_csv(dry_run: bool = False):
                     # Mercedes-Benz → Mercedes, MINI → Mini, SEAT → Seat
                     make = display_brand(make)
 
+                    # "Modle" pas "Model" -- c'est le nom reel de la colonne dans le CSV Kaggle
                     model = row.get("Modle", "").strip()
                     generation = row.get("Generation", "").strip()
                     trim = row.get("Trim", "").strip()
@@ -228,6 +235,7 @@ def import_csv(dry_run: bool = False):
                         skipped_specs += 1
                         continue
 
+                    # Mapper les colonnes CSV vers les champs VehicleSpec
                     spec = VehicleSpec(
                         vehicle_id=vehicle.id,
                         fuel_type=normalize_fuel(row.get("engine_type", "")),

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Seed des donnees argus geolocalisees -- prix de reference pour 5+ modeles dans 3 regions.
 
+Alimente le filtre L1 (analyse prix) avec des fourchettes de prix
+par modele, annee et region. Permet de detecter les annonces
+sous-evaluees ou sur-evaluees par rapport au marche.
+
 Script idempotent : ne cree pas de doublons si relance.
 Usage : python data/seeds/seed_argus.py
 """
@@ -87,7 +91,12 @@ ARGUS_DATA = [
 
 
 def seed():
-    """Insere les donnees argus en base. Idempotent."""
+    """Insere les donnees argus en base. Idempotent.
+
+    Pour chaque entree, on cherche le vehicule correspondant
+    (qui doit exister via seed_vehicles), puis on insere la
+    fourchette de prix si elle n'existe pas deja.
+    """
     app = create_app()
 
     with app.app_context():

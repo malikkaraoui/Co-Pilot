@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Initialize the database -- create all tables.
+"""Initialisation de la base de donnees -- creation de toutes les tables.
 
 Script de bootstrap : cree toutes les tables SQLAlchemy dans la DB SQLite.
 A lancer une seule fois apres un clone, ou apres un ajout de model.
 Les seeds (seed_vehicles, seed_argus, etc.) doivent etre lances ensuite
 pour peupler les tables avec les donnees de reference.
+
+Usage : python scripts/init_db.py
 """
 
 import sys
 from pathlib import Path
 
-# Ensure project root is on sys.path
+# Ajouter la racine du projet au path pour les imports app.*
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import create_app  # noqa: E402
 from app.extensions import db  # noqa: E402
-from app.models import *  # noqa: E402, F401, F403
+from app.models import *  # noqa: E402, F401, F403  # wildcard pour que SQLAlchemy decouvre tous les models
 
 app = create_app()
 

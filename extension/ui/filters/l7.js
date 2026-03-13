@@ -1,7 +1,19 @@
+/**
+ * L7 — Verification SIRET / identite du vendeur professionnel.
+ * Plusieurs cas : particulier (neutre), pro verifie plateforme, pro SIRET valide,
+ * pro non identifie (warning), pro suspect (fail).
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Rendu du filtre L7 : badge vendeur + denomination + SIRET + avis.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {owner_type, platform_verified, dealer_rating, siret, ...}
+ * @returns {string} HTML du body L7
+ */
 export function buildL7Body(f, d) {
   const ownerType = (d.owner_type || "").toLowerCase();
 

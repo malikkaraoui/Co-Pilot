@@ -76,7 +76,13 @@ def logout():
 @admin_bp.route("/dashboard")
 @login_required
 def dashboard():
-    """Page principale du tableau de bord avec statistiques et graphiques."""
+    """Page principale du tableau de bord avec statistiques et graphiques.
+
+    Agregge toutes les metriques cles en une seule page :
+    scans du jour, score moyen, taux d'echec, distribution des scores,
+    performance par filtre, top vehicules, couverture par pays, etc.
+    Les dates sont en UTC naive car SQLite ne conserve pas le tzinfo.
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -263,7 +269,15 @@ def dashboard():
 @admin_bp.route("/car")
 @login_required
 def car():
-    """Modeles vehicules les plus demandes mais non reconnus."""
+    """Gestion du referentiel vehicules : non reconnus, referentiel, couverture marques.
+
+    Cette page fait beaucoup de choses :
+    1. Liste les vehicules scannes mais non reconnus (L2 warning)
+    2. Auto-promotion : si un vehicule est demande 3+ fois et a des specs, on le cree
+    3. Tendance 7j : compare semaine courante vs precedente pour detecter les urgences
+    4. Couverture marques : croise scans vs referentiel vs prix marche
+    5. Liste paginee du referentiel existant
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     seven_days_ago = now - timedelta(days=7)
     fourteen_days_ago = now - timedelta(days=14)
@@ -678,7 +692,11 @@ def delete_vehicle():
 @admin_bp.route("/database")
 @login_required
 def database():
-    """Exploration de la base vehicules importee depuis le CSV Kaggle."""
+    """Exploration de la base vehicules importee depuis le CSV Kaggle.
+
+    Permet de filtrer par marque, modele, carburant, generation, puissance, annee.
+    Affiche aussi les stats des motorisations crowdsourcees (ObservedMotorization).
+    """
     from app.models.vehicle import VehicleSpec
 
     # Parametres de filtrage
@@ -1405,7 +1423,12 @@ def filters():
 @admin_bp.route("/argus")
 @login_required
 def argus():
-    """Vue dediee de l'argus maison : tous les prix crowdsources par les extensions."""
+    """Vue dediee de l'argus maison : tous les prix crowdsources par les extensions.
+
+    Inclut : stats resume, tableau pagine avec validation LBC, argus insuffisant,
+    seuils dynamiques par vehicule, et carte choropleth Europe (Plotly) pour
+    comparer les prix moyens par pays.
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Filtres
@@ -2291,7 +2314,13 @@ def youtube_fine_search_run():
 
 
 def _run_synthesis_pipeline(app, job: dict) -> None:
-    """Execute le pipeline YouTube+LLM dans un thread background."""
+    """Execute le pipeline YouTube+LLM dans un thread background.
+
+    Etapes : vehicule → query YouTube → recherche + extraction → detail videos
+    → synthese LLM → sauvegarde VehicleSynthesis. Chaque etape met a jour
+    le dict job pour le polling temps reel cote frontend.
+    Annulable a tout moment via job["cancelled"].
+    """
     from app.services.llm_service import generate_synthesis
     from app.services.youtube_service import build_search_query, search_and_extract_custom
 
@@ -2611,7 +2640,11 @@ def youtube_synthesis_validate(synthesis_id: int):
 @admin_bp.route("/issues")
 @login_required
 def issues():
-    """File d'attente des collectes argus (CollectionJob queue) -- onglets LBC / AS24 / La Centrale."""
+    """File d'attente des collectes argus (CollectionJob queue) -- onglets LBC / AS24 / La Centrale.
+
+    Utilise un modele dynamique (CollectionJobLBC, AS24, ou Lacentrale) selon l'onglet
+    selectionne. Affiche les stats (pending/assigned/done/failed) et permet le filtrage.
+    """
     from app.models.collection_job import CollectionJobLBC
     from app.models.collection_job_as24 import CollectionJobAS24
     from app.models.collection_job_lacentrale import CollectionJobLacentrale
@@ -2694,7 +2727,14 @@ def purge_failed_jobs():
 @admin_bp.route("/failed-searches")
 @login_required
 def failed_searches():
-    """Dashboard de monitoring des recherches echouees (inspire Sentry/Datadog)."""
+    """Dashboard de monitoring des recherches echouees (inspire Sentry/Datadog).
+
+    Regroupe les echecs par vehicule (make+model) pour identifier les patterns :
+    - KPIs : total, new, investigating, resolus, taux de resolution
+    - Trend 30 jours (Plotly)
+    - Filtrage par status, severite, marque, pays, periode
+    - Diagnostic automatique La Centrale (anti-bot, parser, etc.)
+    """
     import json
 
     from sqlalchemy import func as sqla_func
@@ -3033,7 +3073,12 @@ def add_failed_search_note(fs_id):
 @admin_bp.route("/failed-searches/bulk-action", methods=["POST"])
 @login_required
 def bulk_failed_search_action():
-    """Action en masse sur les recherches echouees."""
+    """Action en masse sur les recherches echouees.
+
+    Supporte : resolve, wont_fix, investigating, retry_lacentrale.
+    Les selecteurs peuvent etre soit un id unique, soit "make|model" pour
+    selectionner toutes les occurrences d'un vehicule.
+    """
 
     from app.models.failed_search import FailedSearch
     from app.services.collection_job_lc_service import expand_collection_jobs_lc
@@ -3151,7 +3196,11 @@ def resolve_failed_search(fs_id):
 @admin_bp.route("/llm")
 @login_required
 def llm_config():
-    """Page de configuration et monitoring du LLM Google Gemini."""
+    """Page de configuration et monitoring du LLM Google Gemini.
+
+    Affiche les stats d'usage du jour (requetes, tokens, cout),
+    un health check de l'API, la config editable, et l'historique 7 jours.
+    """
     from sqlalchemy import func
 
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -3407,7 +3456,11 @@ def email_archive(draft_id):
 
 
 def ensure_admin_user():
-    """Cree l'utilisateur admin s'il n'existe pas encore."""
+    """Cree l'utilisateur admin s'il n'existe pas encore.
+
+    Appele au demarrage de l'app (create_app). En dev, genere un hash par defaut
+    si ADMIN_PASSWORD_HASH n'est pas defini. En prod, la variable est obligatoire.
+    """
     username = current_app.config.get("ADMIN_USERNAME", "malik")
     password_hash = current_app.config.get("ADMIN_PASSWORD_HASH", "")
 

@@ -1,4 +1,12 @@
-"""FilterEngine -- orchestre l'execution des filtres en parallele."""
+"""FilterEngine -- orchestre l'execution des filtres en parallele.
+
+Le moteur est le point d'entree principal de l'analyse. Il recoit les donnees
+normalisees d'une annonce, lance tous les filtres enregistres en parallele
+(un thread par filtre), et collecte les resultats dans une liste triee.
+
+La parallelisation est importante car certains filtres font des appels reseau
+(L7 SIRET, L4 market stats) qui bloqueraient sinon l'ensemble de la chaine.
+"""
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,6 +20,8 @@ from app.filters.base import BaseFilter, FilterResult
 
 logger = logging.getLogger(__name__)
 
+# Plafonne a 11 threads car on a 11 filtres max.
+# Au-dela, on gaspille des threads pour rien.
 MAX_WORKERS = 11
 
 
@@ -26,6 +36,7 @@ class FilterEngine:
     """
 
     def __init__(self):
+        """Initialise le moteur avec une liste vide de filtres a enregistrer."""
         self._filters: list[BaseFilter] = []
 
     def register(self, filter_instance: BaseFilter) -> None:
@@ -35,10 +46,16 @@ class FilterEngine:
 
     @property
     def filter_count(self) -> int:
+        """Nombre de filtres enregistres (utile pour les tests)."""
         return len(self._filters)
 
     def _execute_filter(self, filt: BaseFilter, data: dict[str, Any], app=None) -> FilterResult:
-        """Execute un filtre avec gestion d'erreur et contexte Flask."""
+        """Execute un filtre avec gestion d'erreur et contexte Flask.
+
+        Deux niveaux de catch :
+        - FilterError = erreur metier attendue (API down, data manquante)
+        - Autres exceptions = bug inattendu, on log et on skip le filtre
+        """
         try:
             # Propager le contexte Flask dans les threads pour les filtres
             # qui font des requetes en base (L2, L4, L5)
@@ -95,6 +112,7 @@ class FilterEngine:
         workers = min(MAX_WORKERS, len(self._filters))
 
         # Capturer l'app Flask pour la passer aux threads
+        # (RuntimeError si on est hors contexte Flask, ex: tests unitaires)
         try:
             app = current_app._get_current_object()
         except RuntimeError:
@@ -117,6 +135,8 @@ class FilterEngine:
                     OSError,
                     httpx.HTTPError,
                 ) as exc:
+                    # Filet de securite : si le thread crash malgre le try/except
+                    # dans _execute_filter, on catch ici aussi
                     logger.error(
                         "Filter %s thread crashed: %s: %s",
                         filt.filter_id,
@@ -133,7 +153,7 @@ class FilterEngine:
                         )
                     )
 
-        # Trier par filter_id pour un ordre constant
+        # Trier par filter_id pour un ordre constant dans le rapport
         results.sort(key=lambda r: r.filter_id)
         logger.info("Engine ran %d filters", len(results))
         return results

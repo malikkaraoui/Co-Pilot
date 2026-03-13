@@ -1,7 +1,19 @@
+/**
+ * L3 — Coherence du kilometrage par rapport a l'age du vehicule.
+ * Compare le km reel vs attendu (moyenne nationale ajustee pro/particulier).
+ * Detecte les compteurs remis a zero (ratio < 0.5) et l'usure acceleree (> 2.0).
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Rendu du filtre L3 : barres comparatives km reel vs attendu + verdict.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {km_per_year, expected_km, mileage_km, age, is_pro, km_ratio, ...}
+ * @returns {string} HTML du body L3
+ */
 export function buildL3Body(f, d) {
   const kmYear = d.km_per_year;
   const expectedKm = d.expected_km;
@@ -25,6 +37,7 @@ export function buildL3Body(f, d) {
     </div>
   `;
 
+  // Echelle : on prend 130% du max pour laisser de l'air a droite
   const maxKm = Math.max(mileage, expectedKm) * 1.3;
   const realPct = Math.min((mileage / maxKm) * 100, 100);
   const expectedPct = Math.min((expectedKm / maxKm) * 100, 100);

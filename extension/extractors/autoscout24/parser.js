@@ -1,10 +1,36 @@
 "use strict";
 
+/**
+ * Parsing des donnees AutoScout24.
+ *
+ * AS24 est une SPA Next.js qui stocke les donnees vehicule dans deux endroits :
+ * 1. RSC (React Server Components) — payload JS dans les <script> de la page,
+ *    contenant le maximum d'infos (dates, images, description, etc.)
+ * 2. JSON-LD (schema.org) — donnees structurees pour le SEO
+ *
+ * La difficulte principale est le SPA : quand l'utilisateur navigue entre
+ * annonces, les scripts peuvent contenir les donnees de PLUSIEURS vehicules.
+ * On utilise un systeme de scoring pour choisir le bon vehicule en comparant
+ * marque/modele avec le slug de l'URL courante.
+ *
+ * Contient aussi des extracteurs DOM fallback pour quand ni RSC ni JSON-LD
+ * ne sont exploitables (dates, images, description, carburant, couleur).
+ */
+
 import { toAs24Slug } from './search.js';
 import { _daysOnline, _daysSinceRefresh, _isRepublished } from './normalize.js';
 
 // ── RSC payload parsing ─────────────────────────────────────────────
 
+/**
+ * Generateur qui extrait les objets JSON top-level d'un texte brut.
+ * Parcourt le texte caractere par caractere en comptant les accolades
+ * pour isoler chaque objet JSON valide. Necessaire car le RSC de AS24
+ * contient plusieurs blobs JSON concatenes dans un meme <script>.
+ *
+ * @param {string} text - Texte brut contenant des objets JSON
+ * @yields {string} Chaque objet JSON sous forme de string
+ */
 function* extractJsonObjects(text) {
   let i = 0;
   while (i < text.length) {
@@ -34,6 +60,15 @@ function* extractJsonObjects(text) {
   }
 }
 
+/**
+ * Recherche recursive d'un noeud vehicule dans un objet JSON.
+ * Un "vehicule" est un objet avec make + model + au moins un signal
+ * supplementaire (vehicleCategory, price, firstRegistrationDate, mileage).
+ *
+ * @param {*} input - Objet a explorer
+ * @param {number} depth - Profondeur courante (securite anti-boucle infinie)
+ * @returns {object|null} Noeud vehicule trouve ou null
+ */
 function findVehicleNode(input, depth = 0) {
   if (!input || depth > 12) return null;
 
@@ -65,6 +100,10 @@ function findVehicleNode(input, depth = 0) {
   return null;
 }
 
+/**
+ * Recherche les dates createdDate/lastModifiedDate dans un objet RSC.
+ * Les dates peuvent etre dans un noeud different du vehicule lui-meme.
+ */
 function _findListingDates(input, depth = 0) {
   if (!input || depth > 12) return null;
 
@@ -92,6 +131,9 @@ function _findListingDates(input, depth = 0) {
   return null;
 }
 
+/**
+ * Parse du JSON-LD de maniere tolerante (gere les commentaires HTML autour).
+ */
 function parseLooselyJsonLd(text) {
   const cleaned = String(text || '')
     .trim()
@@ -107,6 +149,10 @@ function parseLooselyJsonLd(text) {
   }
 }
 
+/**
+ * Verifie si un noeud JSON-LD ressemble a un vehicule.
+ * Criteres : @type=Car, ou Vehicle+marque+modele, ou marque+modele+signaux.
+ */
 function isVehicleLikeLdNode(node) {
   if (!node || typeof node !== 'object') return false;
 
@@ -121,6 +167,10 @@ function isVehicleLikeLdNode(node) {
   return hasMake && hasModel && hasSignals;
 }
 
+/**
+ * Recherche recursive d'un noeud vehicule dans le JSON-LD.
+ * Gere aussi les cas ou le vehicule est dans offers.itemOffered ou @graph.
+ */
 function findVehicleLikeLdNode(input, depth = 0) {
   if (!input || depth > 12) return null;
 
@@ -135,6 +185,7 @@ function findVehicleLikeLdNode(input, depth = 0) {
   if (typeof input !== 'object') return null;
   if (isVehicleLikeLdNode(input)) return input;
 
+  // Le vehicule peut etre dans offers.itemOffered (structure OfferCatalog)
   const itemOffered = input.offers?.itemOffered;
   if (itemOffered && isVehicleLikeLdNode(itemOffered)) {
     return {
@@ -161,6 +212,13 @@ function findVehicleLikeLdNode(input, depth = 0) {
   return null;
 }
 
+/**
+ * Extrait marque et modele depuis le slug de l'URL AS24.
+ * Le slug a le format "marque-modele-XXXXX" (ex: "peugeot-308-12345678").
+ *
+ * @param {string} url - URL complete de l'annonce
+ * @returns {{make: string|null, model: string|null}}
+ */
 export function extractMakeModelFromUrl(url) {
   try {
     const u = new URL(url);
@@ -183,7 +241,13 @@ export function extractMakeModelFromUrl(url) {
 }
 
 // ── DOM extraction helpers ──────────────────────────────────────────
+// Fallbacks quand RSC et JSON-LD ne contiennent pas certaines infos.
 
+/**
+ * Extrait le nombre d'images depuis le __NEXT_DATA__ du DOM.
+ * @param {Document} doc
+ * @returns {number}
+ */
 export function _extractImageCountFromNextData(doc) {
   const el = doc.getElementById('__NEXT_DATA__');
   if (!el) return 0;
@@ -194,12 +258,20 @@ export function _extractImageCountFromNextData(doc) {
   } catch (_) { return 0; }
 }
 
+/**
+ * Extrait les dates de creation/modification depuis les scripts du DOM.
+ * Cherche d'abord dans les scripts RSC (self.__next_f), puis dans __NEXT_DATA__.
+ *
+ * @param {Document} doc
+ * @returns {{createdDate: string|null, lastModifiedDate: string|null}}
+ */
 export function _extractDatesFromDom(doc) {
   const scripts = doc.querySelectorAll('script');
   for (const script of scripts) {
     const text = script.textContent || '';
     if (!text.includes('createdDate')) continue;
 
+    // Les scripts RSC echappent les guillemets differemment
     const searchText = text.includes('self.__next_f')
       ? text.replace(/\\+"/g, '"')
       : text;
@@ -230,8 +302,16 @@ function _normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Extrait le type de carburant depuis le DOM visible de la page.
+ * Utilise quand le RSC et le JSON-LD ne fournissent pas cette info.
+ * Supporte les labels multilingues (Carburant, Kraftstoff, Fuel, etc.).
+ *
+ * @param {Document} doc
+ * @returns {string|null}
+ */
 export function _extractFuelFromDom(doc) {
-  // 1) Prefer structured script hints when available.
+  // Chercher d'abord dans les scripts (fuelType en JSON)
   const scripts = doc.querySelectorAll('script');
   for (const script of scripts) {
     const text = script.textContent || '';
@@ -241,7 +321,7 @@ export function _extractFuelFromDom(doc) {
     if (fuelTypeMatch && fuelTypeMatch[1]) return _normalizeText(fuelTypeMatch[1]);
   }
 
-  // 2) Fallback to page visible text (multi-locale labels).
+  // Fallback : texte visible de la page (multi-locale)
   const fullText = _normalizeText(doc.body?.textContent || '');
   if (!fullText) return null;
 
@@ -258,26 +338,29 @@ export function _extractFuelFromDom(doc) {
   return cleaned.split(' ').slice(0, 3).join(' ').trim();
 }
 
+/**
+ * Extrait la couleur du vehicule depuis le DOM visible.
+ * Cherche les labels multilingues (Couleur, Farbe, Color, etc.)
+ * d'abord dans les elements structurels, puis en fallback dans le texte complet.
+ *
+ * @param {Document} doc
+ * @returns {string|null}
+ */
 export function _extractColorFromDom(doc) {
-  // 1) Prefer explicit UI labels in equipment/appearance sections
   const candidates = Array.from(doc.querySelectorAll('li, dt, dd, div, span'));
-  const labelRe = /(couleur originale|couleur|farbe|lackierung|color|colore)/i;
+  const labelRe = /(couleur originale|couleur|farbe|lackierung|color|colore)/i;
 
   for (const node of candidates) {
     const txt = _normalizeText(node.textContent);
     if (!txt || txt.length < 6 || txt.length > 200) continue;
     if (!labelRe.test(txt)) continue;
 
-    // Cases:
-    // - "Couleur originale Granite Métallisé + toit Volcano"
-    // - "Couleur: Noir Métallisé"
-    const inline = txt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\s*[:\-]?\s*(.{2,120})$/i);
+    const inline = txt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\s*[:\-]?\s*(.{2,120})$/i);
     if (inline?.[1]) {
       const c = _normalizeText(inline[1]).replace(/[;,|].*$/, '').trim();
       if (c && c.length >= 2) return c;
     }
 
-    // If this is only the label node, try next sibling/container text
     const parent = node.closest('li, dl, div, section, article') || node.parentElement;
     if (parent) {
       const ptxt = _normalizeText(parent.textContent || '');
@@ -289,7 +372,7 @@ export function _extractColorFromDom(doc) {
     }
   }
 
-  // 2) Fallback from description text
+  // Fallback texte complet
   const fullText = _normalizeText(doc.body?.textContent || '');
   if (!fullText) return null;
   const m = fullText.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\b\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9+\- ]{2,80})/i);
@@ -298,6 +381,14 @@ export function _extractColorFromDom(doc) {
   return color || null;
 }
 
+/**
+ * Extrait la description du vehicule depuis le DOM.
+ * Essaie les selecteurs data-cy/data-testid, puis les sections "equipement",
+ * puis les meta tags og:description et description.
+ *
+ * @param {Document} doc
+ * @returns {string|null}
+ */
 export function _extractDescriptionFromDom(doc) {
   const directSelectors = [
     '[data-cy*="description"]',
@@ -314,6 +405,7 @@ export function _extractDescriptionFromDom(doc) {
     }
   }
 
+  // Chercher la section equipements et lister les items
   const equipmentHeadingRe = /(équipement|equipement|ausstattung|equipment|dotazione|equipaggiamento|opzioni|options?)/i;
   const headings = doc.querySelectorAll('h1,h2,h3,h4,strong,span,div');
   for (const h of headings) {
@@ -333,6 +425,7 @@ export function _extractDescriptionFromDom(doc) {
     }
   }
 
+  // Meta tags en dernier recours
   const ogDesc = _normalizeText(doc.querySelector('meta[property="og:description"]')?.getAttribute('content'));
   if (ogDesc.length >= 50) return ogDesc.slice(0, 2000);
 
@@ -342,6 +435,15 @@ export function _extractDescriptionFromDom(doc) {
   return null;
 }
 
+/**
+ * Construit un ad_data minimal a partir du DOM quand RSC et JSON-LD sont absents.
+ * Utilise comme dernier recours — ne recupere que le titre, prix, et marque/modele
+ * depuis l'URL + les meta tags.
+ *
+ * @param {Document} doc
+ * @param {string} url - URL de l'annonce
+ * @returns {object} ad_data minimal
+ */
 export function fallbackAdDataFromDom(doc, url) {
   const h1 = doc.querySelector('h1')?.textContent?.trim() || null;
   const title = h1 || doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || doc.title || null;
@@ -396,7 +498,18 @@ export function fallbackAdDataFromDom(doc, url) {
 }
 
 // ── SPA scoring ─────────────────────────────────────────────────────
+// En SPA, plusieurs vehicules peuvent coexister dans les scripts.
+// On score chaque candidat contre le slug de l'URL pour trouver le bon.
 
+/**
+ * Score un vehicule candidat par rapport au slug de l'URL courante.
+ * Plus le score est eleve, plus le vehicule correspond a l'annonce affichee.
+ *
+ * @param {object} vehicle - Noeud vehicule candidat
+ * @param {string} urlSlug - Slug de l'URL (ex: "peugeot-308")
+ * @param {string|null} expectedMake - Marque attendue depuis l'URL
+ * @returns {number} Score de correspondance
+ */
 function _scoreVehicleAgainstUrl(vehicle, urlSlug, expectedMake = null) {
   if (!vehicle || !urlSlug) return 0;
 
@@ -417,6 +530,7 @@ function _scoreVehicleAgainstUrl(vehicle, urlSlug, expectedMake = null) {
     if (urlSlug.includes(modelSlug)) {
       score += 4;
     } else {
+      // Match partiel sur les tokens du modele (ex: "classe-a" dans "mercedes-classe-a")
       const tokenHit = modelSlug
         .split('-')
         .filter((t) => t.length >= 3)
@@ -430,11 +544,22 @@ function _scoreVehicleAgainstUrl(vehicle, urlSlug, expectedMake = null) {
 
 // ── Main parsing exports ────────────────────────────────────────────
 
+/**
+ * Parse le payload RSC (React Server Components) de la page AS24.
+ * Parcourt tous les <script> de la page, extrait les objets JSON,
+ * et cherche les noeuds vehicule. En contexte SPA, utilise le scoring
+ * pour choisir le vehicule qui correspond a l'URL courante.
+ *
+ * @param {Document} doc - Le document DOM
+ * @param {string|null} currentUrl - URL courante (pour le scoring SPA)
+ * @returns {object|null} Noeud vehicule RSC ou null
+ */
 export function parseRSCPayload(doc, currentUrl = null) {
   const scripts = doc.querySelectorAll('script');
   let lastFound = null;
   const candidates = [];
 
+  // Extraire le slug et la marque attendue depuis l'URL pour le scoring SPA
   let urlSlug = '';
   let expectedMake = null;
   const sourceUrl = currentUrl || (typeof window !== 'undefined' ? window.location?.href : null);
@@ -453,6 +578,8 @@ export function parseRSCPayload(doc, currentUrl = null) {
       continue;
     }
 
+    // Les scripts RSC utilisent un echappement specifique des guillemets
+    // qu'il faut decoder avant de pouvoir parser le JSON
     const candidateSources = [];
 
     if (text.includes('self.__next_f')) {
@@ -476,6 +603,7 @@ export function parseRSCPayload(doc, currentUrl = null) {
         const parsed = JSON.parse(candidate);
         const vehicle = findVehicleNode(parsed);
         if (vehicle) {
+          // Les dates peuvent etre dans un noeud parent du vehicule
           if (!vehicle.createdDate) {
             const dates = _findListingDates(parsed);
             if (dates) {
@@ -497,8 +625,10 @@ export function parseRSCPayload(doc, currentUrl = null) {
 
   if (!candidates.length) return null;
 
+  // Sans slug d'URL, on prend le dernier vehicule trouve (le plus recent dans le DOM)
   if (!urlSlug) return lastFound;
 
+  // Avec un slug, on score chaque candidat pour trouver le meilleur match
   let best = null;
   let bestScore = -1;
   for (const c of candidates) {
@@ -512,6 +642,13 @@ export function parseRSCPayload(doc, currentUrl = null) {
   return best?.vehicle || lastFound;
 }
 
+/**
+ * Parse le JSON-LD (schema.org) de la page AS24.
+ * Cherche le premier noeud vehicule valide dans tous les <script type="application/ld+json">.
+ *
+ * @param {Document} doc
+ * @returns {object|null} Noeud vehicule JSON-LD ou null
+ */
 export function parseJsonLd(doc) {
   const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
   for (const script of scripts) {
@@ -523,6 +660,17 @@ export function parseJsonLd(doc) {
   return null;
 }
 
+/**
+ * Cherche un JSON-LD correspondant a une marque specifique.
+ * Utilise en fallback SPA quand le RSC contient des donnees obsoletes :
+ * on cherche un JSON-LD qui matche la marque/modele de l'URL.
+ *
+ * @param {Document} doc
+ * @param {string} expectedMake - Marque attendue
+ * @param {string|null} expectedModel - Modele attendu
+ * @param {string} urlSlug - Slug de l'URL pour le scoring
+ * @returns {object|null} Noeud vehicule JSON-LD ou null
+ */
 export function _findJsonLdByMake(doc, expectedMake, expectedModel = null, urlSlug = '') {
   const target = (expectedMake || '').toLowerCase();
   if (!target) return null;

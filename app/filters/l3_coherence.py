@@ -64,6 +64,12 @@ class L3CoherenceFilter(BaseFilter):
             return None
 
     def run(self, data: dict[str, Any]) -> FilterResult:
+        """Analyse la coherence entre annee, km, prix et type de vendeur.
+
+        Le coeur du filtre est le ratio km_reel / km_attendu.
+        On adapte les attendus et le verdict selon le contexte :
+        sportive avec km bas = normal, pro avec km haut = probable deflottage, etc.
+        """
         year_str = data.get("year_model")
         mileage = data.get("mileage_km")
         price = data.get("price_eur")

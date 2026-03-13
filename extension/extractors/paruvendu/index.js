@@ -1,5 +1,10 @@
 "use strict";
 
+/**
+ * Barrel re-export — point d'entree unique pour tous les symboles publics
+ * du module ParuVendu.
+ */
+
 export {
   PV_URL_PATTERNS,
   AD_PAGE_PATTERN,

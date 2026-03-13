@@ -1,11 +1,26 @@
+/**
+ * L9 — Synthese globale de l'analyse.
+ * Resume les points forts et faibles de l'annonce,
+ * affiche le taux de couverture (combien de filtres ont pu etre evalues),
+ * et propose un lien de connexion LBC si le telephone est manquant.
+ */
+
 "use strict";
 
 import { escapeHTML } from '../../utils/format.js';
 
+/**
+ * Rendu du filtre L9 : couverture + points forts/faibles + hint connexion.
+ * @param {Object} f - Filtre {status, message}
+ * @param {Object} d - Details {points_forts, points_faibles, phone_login_hint}
+ * @param {Array} allFilters - Tous les filtres (pour calculer la couverture)
+ * @returns {string} HTML du body L9
+ */
 export function buildL9Body(f, d, allFilters) {
   const forts = d.points_forts || [];
   const faibles = d.points_faibles || [];
 
+  // Couverture : combien de filtres (hors L9 lui-meme) ont ete evalues
   const others = (allFilters || []).filter((x) => x.filter_id !== "L9");
   const total = others.length;
   const evaluated = others.filter((x) => x.status !== "skip").length;

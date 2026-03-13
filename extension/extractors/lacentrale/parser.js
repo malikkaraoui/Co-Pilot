@@ -1,18 +1,21 @@
 "use strict";
 
 /**
- * La Centrale — DOM/JS data extraction.
+ * La Centrale — extraction des donnees depuis le DOM et les scripts JS.
  *
- * Sources (in priority order):
- * 1. window.CLASSIFIED_GALLERY — main structured data (~9 KB)
- * 2. window.tc_vars — tracking variables (complements)
- * 3. Cote URL — quotation from DOM link
- * 4. JSON-LD — schema.org/Car (basic fallback)
+ * Sources de donnees (par ordre de priorite) :
+ * 1. window.CLASSIFIED_GALLERY — donnees structurees principales (~9 KB)
+ *    Contient le vehicule complet, les images, le vendeur, les badges LC.
+ * 2. window.tc_vars — variables de tracking (complements : garantie, badges, etc.)
+ * 3. Lien cote-auto dans le DOM — cotation et indice de confiance
+ * 4. JSON-LD (schema.org/Car) — fallback basique si les sources JS sont absentes
  */
 
 /**
- * Extract CLASSIFIED_GALLERY from the page.
- * Tolerates both `gallery.data.classified` and `gallery.classified` shapes.
+ * Extrait le CLASSIFIED_GALLERY depuis la page.
+ * Tolere deux structures differentes :
+ * - gallery.data.{classified, vehicle, images} (avec wrapper)
+ * - gallery.{classified, vehicle, images} (sans wrapper)
  *
  * @param {Window} win
  * @returns {{classified: object, vehicle: object, images: object, config: object}|null}
@@ -21,7 +24,7 @@ export function extractGallery(win) {
   const raw = win.CLASSIFIED_GALLERY;
   if (!raw || typeof raw !== 'object') return null;
 
-  // Shape 1: gallery.data.{classified, vehicle, images}
+  // Shape 1 : gallery.data.{classified, vehicle, images}
   if (raw.data && typeof raw.data === 'object') {
     const d = raw.data;
     if (d.classified || d.vehicle) {
@@ -34,7 +37,7 @@ export function extractGallery(win) {
     }
   }
 
-  // Shape 2: gallery.{classified, vehicle, images} (no wrapper)
+  // Shape 2 : gallery.{classified, vehicle, images} (pas de wrapper data)
   if (raw.classified || raw.vehicle) {
     return {
       classified: raw.classified || {},
@@ -48,7 +51,8 @@ export function extractGallery(win) {
 }
 
 /**
- * Extract tc_vars tracking variables.
+ * Extrait les variables de tracking tc_vars.
+ * Contient des complements utiles : garantie, badges entretien, note vendeur.
  *
  * @param {Window} win
  * @returns {object}
@@ -58,8 +62,9 @@ export function extractTcVars(win) {
 }
 
 /**
- * Extract the "La Cote" quotation from DOM link.
- * Looks for <a href="...cote-auto...?quotation=12380&trustIndex=2...">
+ * Extrait la cotation "La Cote" depuis un lien dans le DOM.
+ * Cherche un lien vers cote-auto avec les parametres quotation et trustIndex.
+ * Ex: <a href="...cote-auto...?quotation=12380&trustIndex=2...">
  *
  * @param {Document} doc
  * @returns {{quotation: number|null, trustIndex: number|null}}
@@ -82,7 +87,8 @@ export function extractCoteFromDom(doc) {
 }
 
 /**
- * Extract JSON-LD (schema.org/Car) from the page.
+ * Extrait le JSON-LD de type Car ou Vehicle depuis la page.
+ * Gere aussi le cas ou le JSON-LD est enveloppe dans un @graph.
  *
  * @param {Document} doc
  * @returns {object|null}
@@ -93,21 +99,20 @@ export function extractJsonLd(doc) {
     try {
       const data = JSON.parse(s.textContent);
       if (data['@type'] === 'Car' || data['@type'] === 'Vehicle') return data;
-      // Sometimes wrapped in @graph
       if (Array.isArray(data['@graph'])) {
         const car = data['@graph'].find((item) => item['@type'] === 'Car' || item['@type'] === 'Vehicle');
         if (car) return car;
       }
-    } catch { /* ignore malformed JSON-LD */ }
+    } catch { /* JSON-LD malformed, on passe */ }
   }
   return null;
 }
 
 /**
- * Extract Autoviza report URL from the DOM.
+ * Detecte un lien vers un rapport Autoviza gratuit dans le DOM.
  *
  * @param {Document} doc
- * @returns {string|null}
+ * @returns {string|null} URL du rapport ou null
  */
 export function extractAutovizaUrl(doc) {
   const link = doc.querySelector('a[href*="autoviza.fr"]');

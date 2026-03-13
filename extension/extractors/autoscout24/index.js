@@ -1,7 +1,12 @@
 "use strict";
 
-// Barrel re-export — every public symbol from the AutoScout24 extractor modules.
-// Consumers (extractors/index.js, tests) import from here.
+/**
+ * Barrel re-export — point d'entree unique pour tous les symboles publics
+ * du module AutoScout24.
+ *
+ * Les consommateurs (extractors/index.js, tests) importent depuis ici
+ * sans avoir a connaitre la structure interne des sous-modules.
+ */
 
 export {
   AS24_URL_PATTERNS, AD_PAGE_PATTERN,

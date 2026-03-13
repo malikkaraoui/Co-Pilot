@@ -133,14 +133,17 @@ WHEEL_SIZE_MODEL_MAP: dict[str, str] = {
 
 
 def _wheel_size_key() -> str:
+    """Recupere la cle API Wheel-Size depuis la config Flask."""
     return current_app.config.get("WHEEL_SIZE_API_KEY", "")
 
 
 def _wheel_size_base_url() -> str:
+    """URL de base de l'API Wheel-Size (configurable pour les tests)."""
     return current_app.config.get("WHEEL_SIZE_BASE_URL", "https://api.wheel-size.com/v2")
 
 
 def _wheel_size_daily_budget() -> int:
+    """Nombre max de requetes Wheel-Size par jour (defaut 50)."""
     try:
         return int(current_app.config.get("WHEEL_SIZE_DAILY_BUDGET", 50))
     except (TypeError, ValueError):
@@ -360,6 +363,7 @@ def _find_tire_size_in_db(make: str, model: str, year: int) -> TireSize | None:
 
 
 def _increment_request_count(tire: TireSize) -> None:
+    """Incremente le compteur de requetes pour prioriser le cache des vehicules populaires."""
     try:
         tire.request_count = (tire.request_count or 0) + 1
         db.session.commit()
@@ -396,6 +400,7 @@ def _store_negative_cache(make: str, model: str, year: int) -> None:
 
 
 def _to_payload(tire: TireSize) -> dict[str, Any]:
+    """Convertit un TireSize en dict de reponse API (dimensions, source, generation)."""
     dims = tire.get_dimensions_list()
     year_range = None
     if tire.year_start or tire.year_end:
@@ -492,6 +497,7 @@ def _scrape_allopneus(make: str, model: str, year: int) -> dict[str, Any] | None
 
 
 def _allopneus_make_slug(make: str) -> str:
+    """Convertit une marque en slug Allopneus (ex: 'alfa romeo' -> 'alfa-romeo')."""
     key = (make or "").strip().lower()
     if key in ALLOPNEUS_BRAND_SLUGS:
         return ALLOPNEUS_BRAND_SLUGS[key]
@@ -499,6 +505,7 @@ def _allopneus_make_slug(make: str) -> str:
 
 
 def _allopneus_model_slug(model: str) -> str:
+    """Convertit un modele en slug Allopneus (ex: 'serie 3' -> 'serie-3')."""
     key = (model or "").strip().lower()
     if key in ALLOPNEUS_MODEL_SLUGS:
         return ALLOPNEUS_MODEL_SLUGS[key]
@@ -580,6 +587,7 @@ def _extract_generation_for_year(
 
 
 def _parse_year_range(text: str) -> tuple[int, int] | None:
+    """Extrait une plage d'annees depuis un texte (ex: 'de 2018 a 2023' -> (2018, 2023))."""
     if not text:
         return None
     m = _YEAR_RANGE_RE.search(text)
@@ -596,6 +604,7 @@ def _parse_year_range(text: str) -> tuple[int, int] | None:
 
 
 def _clean_generation_label(text: str) -> str:
+    """Nettoie le label de generation Allopneus (espaces multiples, title case)."""
     if not text:
         return ""
     # Ex: "VOLKSWAGEN GOLF VII" -> "GOLF VII" (on enlève marque si répétée)
@@ -604,6 +613,7 @@ def _clean_generation_label(text: str) -> str:
 
 
 def _extract_tire_dimensions_from_generation_page(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    """Parse les dimensions de pneus depuis le HTML d'une page generation Allopneus."""
     dims: list[dict[str, Any]] = []
 
     # Scraper les <a> qui contiennent la dimension dans le texte
@@ -888,6 +898,7 @@ _RIM_RE = re.compile(r"R(\d{2})")
 
 
 def _rim_diameter(size: str) -> int:
+    """Extrait le diametre de jante en pouces depuis une taille (ex: '205/55R16' -> 16)."""
     m = _RIM_RE.search(size or "")
     if not m:
         return 0
