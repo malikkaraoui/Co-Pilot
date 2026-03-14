@@ -82,7 +82,7 @@ class L11RecallFilter(BaseFilter):
         year = data.get("year") or data.get("year_model")
 
         if not make or not model or not year:
-            return self.neutral("Donnees insuffisantes pour verifier les rappels")
+            return self.neutral("Données insuffisantes pour vérifier les rappels")
 
         try:
             year = int(year)
@@ -100,7 +100,7 @@ class L11RecallFilter(BaseFilter):
                 filter_id=self.filter_id,
                 status="pass",
                 score=1.0,
-                message="Aucun rappel constructeur connu pour ce vehicule",
+                message="Aucun rappel constructeur connu pour ce véhicule",
                 details=None,
             )
 
@@ -111,7 +111,7 @@ class L11RecallFilter(BaseFilter):
             filter_id=self.filter_id,
             status="fail",
             score=0.0,
-            message=f"Vehicule concerne par le rappel {recall['description']}",
+            message=f"Véhicule concerné par le rappel {recall['description']}",
             details={
                 "recall_type": recall["recall_type"],
                 "description": recall["description"],

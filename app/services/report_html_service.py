@@ -93,37 +93,6 @@ def _phone_link(phone: str) -> str:
     return f'<a class="phone-link" href="tel:{clean}">{_safe_str(phone)}</a>'
 
 
-def _filter_preview_items(filter_result: FilterResultDB) -> list[str]:
-    """Extrait jusqu'a 2 items de preview depuis les details d'un filtre."""
-    details = filter_result.details if isinstance(filter_result.details, dict) else {}
-    items: list[str] = []
-
-    # Cas generique : on essaie des cles connues
-    preview_keys = [
-        "mileage_km",
-        "expected_km",
-        "km_per_year",
-        "delta_eur",
-        "delta_pct",
-        "phone",
-        "phone_type",
-        "siret",
-        "company_name",
-        "etat_administratif",
-        "origin_country",
-        "import_risk",
-        "days_online",
-        "recall_count",
-        "takata_airbag",
-    ]
-    for key in preview_keys:
-        if key in details and len(items) < 2:
-            val = details[key]
-            items.append(f"{key}: {_safe_str(val)}")
-
-    return items
-
-
 def _md_to_html(text: str) -> str:
     """Convertit du Markdown en HTML via python-markdown."""
     return markdown.markdown(text, extensions=["tables"])
@@ -241,7 +210,7 @@ def _build_vehicle_info_section(scan: ScanLog, raw: dict) -> str:
     if not rows:
         return ""
 
-    md_lines = ["## Informations vehicule\n"]
+    md_lines = ["## Informations véhicule\n"]
     md_lines.append("| Champ | Valeur |")
     md_lines.append("|-------|--------|")
     for label, val in rows:
@@ -290,7 +259,7 @@ def _build_market_section(scan: ScanLog, l4: FilterResultDB | None) -> str:
         </p>"""
 
     return f"""
-<h2>Prix vs marche</h2>
+<h2>Prix vs marché</h2>
 <div class="card">
     <p>
         <strong>Delta :</strong>
@@ -301,10 +270,10 @@ def _build_market_section(scan: ScanLog, l4: FilterResultDB | None) -> str:
         <div class="progress-bar-marker" style="left: {bar_pct}%;"></div>
     </div>
     <p class="progress-bar-label">
-        Prix annonce : {_format_price(price_annonce)} | Reference : {_format_price(price_ref)}
+        Prix annonce : {_format_price(price_annonce)} | Référence : {_format_price(price_ref)}
     </p>
     {argus_html}
-    <p class="text-small text-gray">Source : {_safe_str(source)} | Echantillon : {_safe_str(sample_count)}</p>
+    <p class="text-small text-gray">Source : {_safe_str(source)} | Échantillon : {_safe_str(sample_count)}</p>
 </div>
 """
 
@@ -331,7 +300,7 @@ def _build_km_section(l3: FilterResultDB | None) -> str:
     bar_class = "text-green" if km <= (expected or 0) else "text-amber"
 
     return f"""
-<h2>Kilometrage</h2>
+<h2>Kilométrage</h2>
 <div class="card">
     <p class="{bar_class}" style="font-size: 16pt; font-weight: 700;">
         {_format_number(km)} km
@@ -341,10 +310,10 @@ def _build_km_section(l3: FilterResultDB | None) -> str:
         <div class="progress-bar-marker" style="left: {bar_pct}%;"></div>
     </div>
     <p class="progress-bar-label">
-        Observe : {_format_number(km)} km | Attendu : {_format_number(expected)} km
+        Observé : {_format_number(km)} km | Attendu : {_format_number(expected)} km
     </p>
     <p class="text-small text-gray">
-        Age : {_safe_str(age)} ans | {_format_number(km_per_year)} km/an | Categorie : {_safe_str(category)}
+        Age : {_safe_str(age)} ans | {_format_number(km_per_year)} km/an | Catégorie : {_safe_str(category)}
     </p>
 </div>
 """
@@ -357,7 +326,7 @@ def _build_filters_section(results: list[FilterResultDB]) -> str:
 
     sorted_results = sorted(results, key=lambda r: _filter_sort_key(r.filter_id))
 
-    md_lines = ["## Resultats des filtres\n"]
+    md_lines = ["## Résultats des filtres\n"]
     md_lines.append("| Filtre | Statut | Message |")
     md_lines.append("|--------|--------|---------|")
 
@@ -386,7 +355,7 @@ def _build_reliability_section(reliability: object | None) -> str:
     stars = _stars_html(rating_float)
 
     return f"""
-<h2>Fiabilite moteur</h2>
+<h2>Fiabilité moteur</h2>
 <div class="card">
     <p class="stars">{stars}</p>
     <p><strong>Score :</strong> {rating_float:.1f} / 5</p>
@@ -444,15 +413,6 @@ def _build_signals_section(warnings: list[FilterResultDB]) -> str:
         if is_takata and details.get("severite") == "critical":
             card_class = "card-danger"
 
-        preview_items = _filter_preview_items(fr)
-        preview_html = ""
-        if preview_items:
-            items_p = "".join(
-                f'<p class="text-small text-gray" style="margin:2px 0;">• {_safe_str(item)}</p>'
-                for item in preview_items[:2]
-            )
-            preview_html = items_p
-
         takata_warning = ""
         if is_takata:
             takata_warning = (
@@ -466,7 +426,6 @@ def _build_signals_section(warnings: list[FilterResultDB]) -> str:
     <p><strong>{_safe_str(name)}</strong> {badge}</p>
     {takata_warning}
     <p>{message}</p>
-    {preview_html}
 </div>
 """)
 
@@ -490,7 +449,7 @@ def _build_email_section(email_draft: EmailDraft | None) -> str:
         quoted_lines.append(f"> {line}" if line.strip() else ">")
     md_text = "\n".join(quoted_lines)
 
-    header = "## Email vendeur\n\n*Email genere automatiquement par Gemini*\n\n"
+    header = "## Email vendeur\n\n*Email généré automatiquement par Gemini*\n\n"
     return _md_to_html(header + md_text)
 
 
