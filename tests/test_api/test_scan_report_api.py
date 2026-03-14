@@ -8,7 +8,7 @@ class TestScanReportApi:
         """POST /api/scan-report retourne un PDF telechargeable."""
         with app.app_context():
             with patch(
-                "app.services.report_service.generate_scan_report_pdf",
+                "app.services.report_html_service.generate_scan_report_pdf",
                 return_value=b"%PDF-1.4\nmock\n",
             ):
                 resp = client.post("/api/scan-report", json={"scan_id": 42})
@@ -32,7 +32,7 @@ class TestScanReportApi:
         """POST /api/scan-report retourne 404 si le scan n'existe pas."""
         with app.app_context():
             with patch(
-                "app.services.report_service.generate_scan_report_pdf",
+                "app.services.report_html_service.generate_scan_report_pdf",
                 side_effect=ValueError("Scan introuvable: 99999"),
             ):
                 resp = client.post("/api/scan-report", json={"scan_id": 99999})

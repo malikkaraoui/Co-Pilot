@@ -15,7 +15,6 @@ from typing import Any
 
 import httpx
 from flask import current_app, jsonify, make_response, request
-from fpdf.errors import FPDFException
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api import api_bp
@@ -558,7 +557,7 @@ def email_draft():
 def scan_report():
     """Genere et retourne le rapport PDF d'un scan existant.
 
-    Le PDF est genere a la volee via fpdf2 et renvoye en attachment.
+    Le PDF est genere a la volee via WeasyPrint et renvoye en attachment.
     L'extension le telecharge directement cote navigateur.
     """
     data = request.get_json(silent=True) or {}
@@ -587,7 +586,7 @@ def scan_report():
         ), 400
 
     try:
-        from app.services.report_service import generate_scan_report_pdf
+        from app.services.report_html_service import generate_scan_report_pdf
 
         pdf_bytes = generate_scan_report_pdf(scan_id_int)
     except ValueError as exc:
@@ -599,7 +598,7 @@ def scan_report():
                 "data": None,
             }
         ), 404
-    except (RuntimeError, FPDFException) as exc:
+    except (RuntimeError, OSError) as exc:
         logger.error("PDF generation failed for scan_id=%s: %s", scan_id_int, exc)
         return jsonify(
             {

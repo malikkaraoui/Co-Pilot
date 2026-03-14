@@ -171,9 +171,12 @@ def _build_hero_section(scan: ScanLog, raw: dict, filter_results: list[FilterRes
         siret = l7.details.get("siret", "")
         company = l7.details.get("company_name") or l7.details.get("nom_complet", "")
         if siret or company:
-            siret_html = (
-                f'<div class="siret-info">SIRET {_safe_str(siret)} — {_safe_str(company)}</div>'
-            )
+            parts = []
+            if siret:
+                parts.append(f"SIRET {_safe_str(siret)}")
+            if company:
+                parts.append(_safe_str(company))
+            siret_html = f'<div class="siret-info">{" — ".join(parts)}</div>'
 
     return f"""
 <div class="hero">
@@ -444,8 +447,11 @@ def _build_signals_section(warnings: list[FilterResultDB]) -> str:
         preview_items = _filter_preview_items(fr)
         preview_html = ""
         if preview_items:
-            items_li = "".join(f"<li>{_safe_str(item)}</li>" for item in preview_items[:2])
-            preview_html = f"<ul>{items_li}</ul>"
+            items_p = "".join(
+                f'<p class="text-small text-gray" style="margin:2px 0;">• {_safe_str(item)}</p>'
+                for item in preview_items[:2]
+            )
+            preview_html = items_p
 
         takata_warning = ""
         if is_takata:
@@ -476,8 +482,12 @@ def _build_email_section(email_draft: EmailDraft | None) -> str:
     if not text.strip():
         return ""
 
-    # Convertir en blockquote Markdown
-    quoted_lines = [f"> {line}" for line in text.strip().splitlines()]
+    # Nettoyer le texte (retirer bullets/puces parasites en fin de texte)
+    clean = text.strip().rstrip("•·\u2022\u2023\u25cf\u25cb -")
+    # Convertir en blockquote Markdown (garder les lignes vides pour les paragraphes)
+    quoted_lines = []
+    for line in clean.strip().splitlines():
+        quoted_lines.append(f"> {line}" if line.strip() else ">")
     md_text = "\n".join(quoted_lines)
 
     header = "## Email vendeur\n\n*Email genere automatiquement par Gemini*\n\n"
@@ -633,7 +643,15 @@ def generate_scan_report_pdf(scan_id: int) -> bytes:
             from app.services.email_service import generate_email_draft
 
             email_draft = generate_email_draft(scan_id)
-        except (ConnectionError, ValueError, RuntimeError, OSError, TypeError):
+        except (
+            ConnectionError,
+            ValueError,
+            RuntimeError,
+            OSError,
+            TypeError,
+            ImportError,
+            AttributeError,
+        ):
             logger.warning("Auto-generation email echouee pour scan %s", scan_id, exc_info=True)
 
     # Construction des sections

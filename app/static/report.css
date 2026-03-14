@@ -85,13 +85,11 @@ a {
    -------------------------------------------------------------------------- */
 .running-header {
   position: running(running-header);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   background: var(--navy);
   padding: 8px 16px;
   border-radius: 0 0 6px 6px;
   width: 100%;
+  text-align: center;
 }
 
 .running-header .logo-text {
@@ -112,11 +110,7 @@ a {
   color: var(--gray-text);
   font-size: 7pt;
   font-weight: 500;
-  margin-left: 8px;
-}
-
-.running-header .brand-logo {
-  height: 20px;
+  margin-left: 6px;
 }
 
 /* --------------------------------------------------------------------------
@@ -126,24 +120,10 @@ a {
   position: running(running-footer);
   border-top: 1px solid var(--gray-border);
   padding-top: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   font-size: 7pt;
   color: var(--gray-text);
   width: 100%;
-}
-
-.running-footer .footer-left {
-  text-align: left;
-}
-
-.running-footer .footer-center {
   text-align: center;
-}
-
-.running-footer .footer-right {
-  text-align: right;
 }
 
 .running-footer .page-counter::after {
