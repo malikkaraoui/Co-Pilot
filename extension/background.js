@@ -73,8 +73,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     fetch(url, opts)
       .then(async (resp) => {
-        const body = await resp.text();
-        sendResponse({ ok: resp.ok, status: resp.status, body });
+        const contentType = resp.headers.get("Content-Type") || "";
+        const isBinary = contentType.includes("application/pdf")
+          || contentType.includes("application/octet-stream")
+          || contentType.includes("image/");
+
+        if (isBinary) {
+          const buf = await resp.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          const bodyBase64 = btoa(binary);
+          sendResponse({ ok: resp.ok, status: resp.status, body: "", bodyBase64, contentType });
+        } else {
+          const body = await resp.text();
+          sendResponse({ ok: resp.ok, status: resp.status, body });
+        }
       })
       .catch((err) => {
         sendResponse({ ok: false, status: 0, body: null, error: err.message });
