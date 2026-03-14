@@ -305,7 +305,7 @@ def _find_filter_result(results: list[FilterResultDB], filter_id: str) -> Filter
 
 def _get_tire_sizes_safe(make: str, model: str, year: int | None) -> dict | None:
     """Récupère les pneus depuis le cache uniquement, sans appel réseau."""
-    if not make or not model or not year:
+    if not make or not model:
         return None
     try:
         from app.services.tire_service import get_cached_tire_sizes

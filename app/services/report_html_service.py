@@ -365,29 +365,52 @@ def _build_reliability_section(reliability: object | None) -> str:
 """
 
 
+def _format_tire_dim(size: dict | str) -> str:
+    """Formate une dimension pneu : '205/55R16 91V'."""
+    if isinstance(size, str):
+        return _safe_str(size)
+    dim = size.get("dimension") or size.get("size", "")
+    load = size.get("load_index", "")
+    speed = size.get("speed_index", "")
+    parts = [_safe_str(dim)]
+    if load or speed:
+        parts.append(f"{load}{speed}")
+    return " ".join(parts).strip()
+
+
 def _build_tire_section(tire_data: dict | None) -> str:
-    """Section 8 — Pneus."""
+    """Section 8 — Dimensions pneus.
+
+    Utilise du HTML brut (pas de markdown list) pour eviter les bullets
+    parasites dans le rendu WeasyPrint.
+    """
     if not tire_data:
         return ""
 
     sizes = tire_data.get("sizes") or tire_data.get("dimensions") or []
     source = tire_data.get("source", "")
+    generation = tire_data.get("generation", "")
+    year_range = tire_data.get("year_range", "")
 
     if not sizes:
         return ""
 
-    md_lines = ["## Pneus\n"]
+    html_parts = ["<h2>Dimensions pneus</h2>", '<div class="card">']
+
+    if generation or year_range:
+        info = _safe_str(generation)
+        if year_range:
+            info += f" ({_safe_str(year_range)})"
+        html_parts.append(f'<p class="text-small text-gray"><em>{info.strip()}</em></p>')
+
     for size in sizes:
-        if isinstance(size, dict):
-            dim = size.get("dimension") or size.get("size", "")
-            md_lines.append(f"- {_safe_str(dim)}")
-        else:
-            md_lines.append(f"- {_safe_str(size)}")
+        html_parts.append(f'<p class="text-small">{_format_tire_dim(size)}</p>')
 
     if source:
-        md_lines.append(f"\n*Source : {_safe_str(source)}*")
+        html_parts.append(f'<p class="text-small text-gray">Source : {_safe_str(source)}</p>')
 
-    return _md_to_html("\n".join(md_lines))
+    html_parts.append("</div>")
+    return "\n".join(html_parts)
 
 
 def _build_signals_section(warnings: list[FilterResultDB]) -> str:
