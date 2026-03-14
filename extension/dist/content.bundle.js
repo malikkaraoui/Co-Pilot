@@ -430,6 +430,16 @@
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+  function decodeBase64ToBytes(base64) {
+    if (typeof atob === "function") {
+      const binary = atob(base64);
+      return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    }
+    if (typeof Buffer !== "undefined") {
+      return Uint8Array.from(Buffer.from(base64, "base64"));
+    }
+    throw new Error("Base64 decode unavailable");
+  }
   async function backendFetch(url, options = {}) {
     const isLocalBackend = isLocalBackendUrl(url);
     if (!isChromeRuntimeAvailable()) {
@@ -444,14 +454,6 @@
     }
     return new Promise((resolve, reject) => {
       try {
-        const decodeBase64ToBytes = (base64) => {
-          const binary = atob(base64);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i += 1) {
-            bytes[i] = binary.charCodeAt(i);
-          }
-          return bytes;
-        };
         chrome.runtime.sendMessage(
           {
             action: "backend_fetch",
@@ -477,47 +479,40 @@
               });
               return;
             }
-            const getTextBody = () => {
-              if (typeof resp.body === "string") {
-                return resp.body;
-              }
-              if (resp.bodyBase64) {
-                return new TextDecoder().decode(decodeBase64ToBytes(resp.bodyBase64));
-              }
-              return "";
-            };
+            const textBody = typeof resp.body === "string" ? resp.body : "";
+            const hasBinaryBody = typeof resp.bodyBase64 === "string" && resp.bodyBase64.length > 0;
+            const binaryBytes = hasBinaryBody ? decodeBase64ToBytes(resp.bodyBase64) : null;
             let parsed;
             try {
-              parsed = JSON.parse(getTextBody());
+              parsed = JSON.parse(textBody);
             } catch {
               parsed = null;
             }
             resolve({
               ok: resp.ok,
               status: resp.status,
-              headers: {
-                get: (name) => {
-                  if (!name) return null;
-                  if (String(name).toLowerCase() === "content-type") {
-                    return resp.contentType || null;
-                  }
-                  return null;
-                }
-              },
               json: async () => {
                 if (parsed !== null) return parsed;
                 throw new SyntaxError("Invalid JSON");
               },
-              text: async () => getTextBody(),
-              blob: async () => {
-                if (resp.bodyBase64) {
-                  return new Blob([decodeBase64ToBytes(resp.bodyBase64)], {
-                    type: resp.contentType || "application/octet-stream"
-                  });
+              text: async () => {
+                if (hasBinaryBody) {
+                  return new TextDecoder().decode(binaryBytes);
                 }
-                return new Blob([getTextBody()], {
-                  type: resp.contentType || "text/plain;charset=utf-8"
-                });
+                return textBody;
+              },
+              blob: async () => new Blob(
+                [hasBinaryBody ? binaryBytes : textBody],
+                { type: resp.contentType || "application/octet-stream" }
+              ),
+              arrayBuffer: async () => {
+                if (hasBinaryBody) {
+                  return binaryBytes.buffer.slice(
+                    binaryBytes.byteOffset,
+                    binaryBytes.byteOffset + binaryBytes.byteLength
+                  );
+                }
+                return new TextEncoder().encode(textBody).buffer;
               }
             });
           }
@@ -1442,6 +1437,10 @@
     isAdPage(url) {
       return url.includes("leboncoin.fr/ad/") || url.includes("leboncoin.fr/voitures/");
     }
+    /**
+     * Extrait le __NEXT_DATA__ de LBC et en derive les infos vehicule.
+     * On renvoie le payload brut car le backend sait le parser plus finement.
+     */
     async extract() {
       const nextData = await extractNextData();
       if (!nextData) return null;
@@ -1453,9 +1452,11 @@
       if (!this._vehicle) return null;
       return { make: this._vehicle.make, model: this._vehicle.model, year: this._vehicle.year };
     }
+    /** Acces direct au vehicule extrait (utilise par collect.js) */
     getExtractedVehicle() {
       return this._vehicle;
     }
+    /** Acces direct au nextData brut */
     getNextData() {
       return this._nextData;
     }
@@ -1464,12 +1465,20 @@
       if (!loc) return null;
       return { city: loc.city || "", zipcode: loc.zipcode || "", department: "" };
     }
+    /**
+     * LBC expose has_phone dans le JSON de l'annonce.
+     * Pas besoin de scraper le DOM pour savoir si le telephone est disponible.
+     */
     hasPhone() {
       return !!this._nextData?.props?.pageProps?.ad?.has_phone;
     }
     isLoggedIn() {
       return isUserLoggedIn();
     }
+    /**
+     * Revele le telephone et le stocke dans le nextData pour que
+     * le backend le retrouve au meme endroit que les autres champs.
+     */
     async revealPhone() {
       const ad = this._nextData?.props?.pageProps?.ad;
       if (!ad?.has_phone || !isUserLoggedIn()) return null;
@@ -1483,6 +1492,10 @@
     async detectFreeReport() {
       return detectAutovizaUrl(this._nextData);
     }
+    /**
+     * Lance la collecte de prix du marche.
+     * On verifie d'abord qu'on a un vehicule exploitable (marque + modele + annee).
+     */
     async collectMarketPrices(progress) {
       if (!this._vehicle?.make || !this._vehicle?.model || !this._vehicle?.year) {
         return { submitted: false };
@@ -1886,7 +1899,9 @@
       sort: "standard",
       desc: "0",
       atype: "C",
+      // voitures classiques (pas utilitaires)
       ustate: "N,U"
+      // neuves et occasions
     });
     if (fuel) params.set("fuel", fuel);
     if (gear) params.set("gear", gear);
@@ -2559,12 +2574,12 @@
   }
   function _extractColorFromDom(doc) {
     const candidates = Array.from(doc.querySelectorAll("li, dt, dd, div, span"));
-    const labelRe = /(couleur originale|couleur|farbe|lackierung|color|colore)/i;
+    const labelRe = /(couleur originale|couleur|farbe|lackierung|color|colore)/i;
     for (const node of candidates) {
       const txt = _normalizeText(node.textContent);
       if (!txt || txt.length < 6 || txt.length > 200) continue;
       if (!labelRe.test(txt)) continue;
-      const inline = txt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\s*[:\-]?\s*(.{2,120})$/i);
+      const inline = txt.match(/(?:couleur originale|couleur|farbe|lackierung|color|colore)\s*[:\-]?\s*(.{2,120})$/i);
       if (inline?.[1]) {
         const c = _normalizeText(inline[1]).replace(/[;,|].*$/, "").trim();
         if (c && c.length >= 2) return c;
@@ -2807,15 +2822,26 @@
   var AutoScout24Extractor = class extends SiteExtractor {
     static SITE_ID = "autoscout24";
     static URL_PATTERNS = AS24_URL_PATTERNS;
-    /** @type {object|null} Cached RSC data */
+    /** @type {object|null} Donnees RSC en cache */
     _rsc = null;
-    /** @type {object|null} Cached JSON-LD data */
+    /** @type {object|null} Donnees JSON-LD en cache */
     _jsonLd = null;
-    /** @type {object|null} Cached ad_data */
+    /** @type {object|null} ad_data normalise en cache */
     _adData = null;
     isAdPage(url) {
       return AD_PAGE_PATTERN.test(url);
     }
+    /**
+     * Extrait les donnees de l'annonce AS24 courante.
+     *
+     * Strategie en cascade :
+     * 1. RSC payload (le plus riche) + JSON-LD
+     * 2. Si aucun des deux n'est dispo → fallback DOM pur
+     * 3. Verification anti-SPA : on cross-valide marque/modele avec l'URL
+     *    pour detecter les donnees perimees d'une navigation SPA
+     * 4. Enrichissement final : dates, images, description, carburant, couleur
+     *    depuis le DOM si le RSC/JSON-LD etait incomplet
+     */
     async extract() {
       this._rsc = parseRSCPayload(document, window.location.href);
       this._jsonLd = parseJsonLd(document);
@@ -2909,9 +2935,11 @@
         year: String(this._adData.year_model || "")
       };
     }
+    /** AS24 n'a pas de mur de connexion */
     isLoggedIn() {
       return true;
     }
+    /** Le telephone est deja dans les donnees structurees (pas de clic necessaire) */
     async revealPhone() {
       return this._adData?.phone || null;
     }
@@ -2924,6 +2952,19 @@
     getLocation() {
       return this._adData?.location || null;
     }
+    /**
+     * Collecte les prix marche pour le vehicule courant (ou un autre via next-job).
+     *
+     * Pipeline complet :
+     * 1. Appel next-job → le backend decide quel vehicule collecter
+     * 2. Construction d'une cascade de strategies de recherche
+     * 3. Execution sequentielle des strategies (avec dedup progressive)
+     * 4. Soumission des prix au backend (ou rapport d'echec)
+     * 5. Execution des bonus jobs en attente
+     *
+     * @param {object} progress - Tracker UI pour afficher l'avancement
+     * @returns {Promise<{submitted: boolean, isCurrentVehicle: boolean}>}
+     */
     async collectMarketPrices(progress) {
       if (!this._adData?.make || !this._adData?.model || !this._adData?.year_model) {
         return { submitted: false, isCurrentVehicle: false };
@@ -3305,6 +3346,17 @@
       }
       return { submitted, isCurrentVehicle };
     }
+    /**
+     * Execute les bonus jobs (collectes de prix pour d'autres vehicules en attente).
+     *
+     * Meme logique de cascade que collectMarketPrices mais simplifiee :
+     * pas de filtres CV/km, juste carburant+boite puis elargissement.
+     *
+     * @param {Array} bonusJobs - Liste de jobs depuis next-job
+     * @param {string} tld - TLD du site AS24 (fr, de, ch, etc.)
+     * @param {object} progress - Tracker UI
+     * @param {string|null} lang - Code langue pour les URL
+     */
     async _executeBonusJobs(bonusJobs, tld, progress, lang = null) {
       const marketUrl = this._apiUrl.replace("/analyze", "/market-prices");
       const jobDoneUrl = this._apiUrl.replace("/analyze", "/market-prices/job-done");
@@ -3564,6 +3616,7 @@
       }
       if (progress) progress.update("bonus", "done");
     }
+    /** Signale au backend qu'un job bonus est termine (succes ou echec) */
     async _reportJobDone(jobDoneUrl, jobId, success) {
       if (!jobId) return;
       try {
@@ -3758,7 +3811,7 @@
       days_since_refresh: null,
       republished: false,
       lbc_estimation: null,
-      // La Centrale specifics (passed through ad_data for potential L4 use)
+      // Champs specifiques La Centrale — transmis au backend pour usage potentiel
       lc_quotation: cote?.quotation ?? null,
       lc_trust_index: cote?.trustIndex ?? null,
       lc_good_deal_badge: classified.goodDealBadge || null,
@@ -4008,7 +4061,7 @@
     return match ? _clipLcText(match[1], 140) : null;
   }
   function _looksLikeZeroResultsPage(html) {
-    return /\b0\s*(?:resultat|résultat|annonce)s?\b|aucun\s+(?:resultat|résultat|vehicule|véhicule|annonce)|pas de resultats|pas de résultats/i.test(html || "");
+    return /\b0\s*(?:resultat|r\u00e9sultat|annonce)s?\b|aucun\s+(?:resultat|r\u00e9sultat|vehicule|v\u00e9hicule|annonce)|pas de resultats|pas de r\u00e9sultats/i.test(html || "");
   }
   function _hasLcAdSignals(html) {
     return /occasion-annonce-|"classifieds"|__NEXT_DATA__|application\/ld\+json|ItemList|ListItem|moteur de recherche|searchData/i.test(html || "");
@@ -4070,7 +4123,7 @@
   }
   function _parseLcPrice(text) {
     const norm = _normalizeText2(text);
-    const withEuro = norm.match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*€/i);
+    const withEuro = norm.match(/(\d{1,3}(?:[\s\u00a0]\d{3})+|\d{4,6})\s*\u20ac/i);
     if (withEuro) {
       const price = parseInt(withEuro[1].replace(/[\s\u00a0]/g, ""), 10);
       if (Number.isFinite(price) && price >= 500) return price;
@@ -4113,7 +4166,7 @@
     let node = link;
     while (node && node !== node.ownerDocument?.body) {
       const text = _normalizeText2(node.textContent);
-      if (text && text.length >= 20 && text.length < 2e3 && /(?<!\d)(?:19|20)\d{2}(?!\d)/.test(text) && (/€/.test(text) || /\d{4,6}/.test(text))) {
+      if (text && text.length >= 20 && text.length < 2e3 && /(?<!\d)(?:19|20)\d{2}(?!\d)/.test(text) && (/\u20ac/.test(text) || /\d{4,6}/.test(text))) {
         return node;
       }
       node = node.parentElement;
@@ -4919,15 +4972,15 @@
     const targetFuel = isCurrentVehicle ? fuel : target.fuel || null;
     const targetGearbox = isCurrentVehicle ? gearbox : target.gearbox || null;
     const strategies = [
-      // S1: Full filters (model + fuel + gearbox + km) ±1 year
+      // S1 : Tous filtres (modele + carburant + boite + km) ±1an
       { model: target.model, fuel: targetFuel, gearbox: targetGearbox, mileage: mileageRange, yearSpread: 1, precision: 5 },
-      // S2: Model + fuel ±2 years (drop gearbox + km)
+      // S2 : Modele + carburant ±2ans (sans boite ni km)
       { model: target.model, fuel: targetFuel, gearbox: null, mileage: null, yearSpread: 2, precision: 4 },
-      // S3: Model only ±2 years (drop all sub-filters)
+      // S3 : Modele seul ±2ans
       { model: target.model, fuel: null, gearbox: null, mileage: null, yearSpread: 2, precision: 3 },
-      // S4: Model only ±3 years
+      // S4 : Modele seul ±3ans
       { model: target.model, fuel: null, gearbox: null, mileage: null, yearSpread: 3, precision: 2 },
-      // S5: Brand only ±2 years (last resort)
+      // S5 : Marque seule ±2ans (dernier recours)
       { model: null, fuel: targetFuel, gearbox: null, mileage: null, yearSpread: 2, precision: 1 }
     ];
     if (progress) progress.update("collect", "running");
@@ -5255,15 +5308,15 @@
   var LaCentraleExtractor = class extends SiteExtractor {
     static SITE_ID = "lacentrale";
     static URL_PATTERNS = LC_URL_PATTERNS;
-    /** @type {object|null} Cached gallery data */
+    /** @type {object|null} Donnees gallery en cache */
     _gallery = null;
-    /** @type {object} Cached tc_vars */
+    /** @type {object} Variables tc_vars en cache */
     _tcVars = {};
-    /** @type {object} Cached cote data */
+    /** @type {object} Donnees cotation en cache */
     _cote = { quotation: null, trustIndex: null };
-    /** @type {object|null} Cached JSON-LD */
+    /** @type {object|null} JSON-LD en cache */
     _jsonLd = null;
-    /** @type {object|null} Cached ad_data */
+    /** @type {object|null} ad_data normalise en cache */
     _adData = null;
     isAdPage(url) {
       return LC_AD_PAGE_PATTERN.test(url);
@@ -5271,6 +5324,7 @@
     hasPhone() {
       return _hasPhoneButtonLC();
     }
+    /** LC n'a pas de mur de connexion pour voir les annonces */
     isLoggedIn() {
       return true;
     }
@@ -5282,6 +5336,13 @@
       }
       return phone;
     }
+    /**
+     * Extrait les donnees de l'annonce La Centrale.
+     *
+     * CLASSIFIED_GALLERY et tc_vars vivent dans le monde MAIN.
+     * Le background script les bridge dans des elements DOM caches
+     * lisibles depuis le content script (monde ISOLATED).
+     */
     async extract() {
       const galleryWin = _readBridgedData("__okazcar_lc_gallery__", window, "CLASSIFIED_GALLERY");
       const tcVarsWin = _readBridgedData("__okazcar_lc_tcvars__", window, "tc_vars");
@@ -5322,9 +5383,9 @@
       return extractAutovizaUrl(document);
     }
     /**
-     * Market price collection for La Centrale.
-     * Builds search URLs from reverse-engineered listing params,
-     * fetches listing pages, extracts prices, submits to backend.
+     * Collecte de prix marche pour La Centrale.
+     * Delegue a collectMarketPricesLC qui gere la construction d'URL,
+     * le fetch des pages listing et l'extraction de prix.
      */
     async collectMarketPrices(progress) {
       if (!this._adData || !this._fetch || !this._apiUrl) {
@@ -5514,66 +5575,6 @@
   var _runAnalysis = null;
   var _apiUrl = null;
   var _lastScanIdGetter = null;
-  function bindReportDownloadButton(buttonId, loadingId, errorId) {
-    const reportBtn = document.getElementById(buttonId);
-    if (!reportBtn) {
-      return;
-    }
-    reportBtn.addEventListener("click", async () => {
-      const loading = document.getElementById(loadingId);
-      const errorDiv = document.getElementById(errorId);
-      const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
-      if (errorDiv) {
-        errorDiv.style.display = "none";
-      }
-      if (!scanId) {
-        if (errorDiv) {
-          errorDiv.textContent = "Rapport indisponible : analyse non sauvegard\xE9e.";
-          errorDiv.style.display = "block";
-        }
-        return;
-      }
-      reportBtn.disabled = true;
-      if (loading) {
-        loading.style.display = "flex";
-      }
-      try {
-        const reportUrl = _apiUrl.replace(/\/analyze$/, "/scan-report");
-        const resp = await backendFetch(reportUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scan_id: scanId })
-        });
-        if (!resp.ok) {
-          const payload = await resp.json().catch(() => null);
-          const msg = payload?.message || payload?.error || "Erreur de g\xE9n\xE9ration du PDF";
-          throw new Error(msg);
-        }
-        const pdfBlob = await resp.blob();
-        if (!(pdfBlob instanceof Blob) || pdfBlob.size === 0) {
-          throw new Error("PDF invalide ou vide");
-        }
-        const downloadUrl = URL.createObjectURL(pdfBlob);
-        const anchor = document.createElement("a");
-        anchor.href = downloadUrl;
-        anchor.download = `okazcar-rapport-${scanId}.pdf`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1e3);
-      } catch (err) {
-        if (errorDiv) {
-          errorDiv.textContent = err?.message || "Service PDF indisponible";
-          errorDiv.style.display = "block";
-        }
-      } finally {
-        if (loading) {
-          loading.style.display = "none";
-        }
-        reportBtn.disabled = false;
-      }
-    });
-  }
   function initDom({ runAnalysis: runAnalysis2, apiUrl, getLastScanId }) {
     _runAnalysis = runAnalysis2;
     _apiUrl = apiUrl;
@@ -5606,12 +5607,10 @@
     const closeBtn = document.getElementById("okazcar-close");
     if (closeBtn) closeBtn.addEventListener("click", removePopup);
     const retryBtn = document.getElementById("okazcar-retry");
-    if (retryBtn) {
-      retryBtn.addEventListener("click", () => {
-        removePopup();
-        if (_runAnalysis) _runAnalysis();
-      });
-    }
+    if (retryBtn) retryBtn.addEventListener("click", () => {
+      removePopup();
+      if (_runAnalysis) _runAnalysis();
+    });
     const premiumBtn = document.getElementById("okazcar-premium-btn");
     if (premiumBtn) {
       premiumBtn.addEventListener("click", () => {
@@ -5619,8 +5618,6 @@
         premiumBtn.disabled = true;
       });
     }
-    bindReportDownloadButton("okazcar-report-btn", "okazcar-report-loading", "okazcar-report-error");
-    bindReportDownloadButton("okazcar-progress-report-btn", "okazcar-progress-report-loading", "okazcar-progress-report-error");
     const emailBtn = document.getElementById("okazcar-email-btn");
     if (emailBtn) {
       emailBtn.addEventListener("click", async () => {
@@ -5634,11 +5631,7 @@
         try {
           const emailUrl = _apiUrl.replace("/analyze", "/email-draft");
           const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
-          const resp = await backendFetch(emailUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ scan_id: scanId })
-          });
+          const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: scanId }) });
           const data = await resp.json();
           if (data.success) {
             textArea.value = data.data.generated_text;
@@ -6464,9 +6457,6 @@
     if (!autovizaUrl) return "";
     return `<div class="okazcar-autoviza-banner"><a href="${escapeHTML(autovizaUrl)}" target="_blank" rel="noopener noreferrer" class="okazcar-autoviza-link"><span class="okazcar-autoviza-icon">&#x1F4CB;</span><span class="okazcar-autoviza-text"><strong>Rapport d'historique gratuit</strong><small>Offert par LeBonCoin via Autoviza (valeur 25 \u20AC)</small></span><span class="okazcar-autoviza-arrow">&rsaquo;</span></a></div>`;
   }
-  function buildReportBanner() {
-    return `<div class="okazcar-report-banner" id="okazcar-report-section"><button class="okazcar-report-btn" id="okazcar-report-btn">&#x1F4C4; T&eacute;l&eacute;charger le rapport PDF</button><div class="okazcar-report-loading" id="okazcar-report-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> Pr&eacute;paration du PDF...</div><div class="okazcar-report-error" id="okazcar-report-error" style="display:none;"></div></div>`;
-  }
   function buildEmailBanner() {
     return `<div class="okazcar-email-banner" id="okazcar-email-section"><button class="okazcar-email-btn" id="okazcar-email-btn">&#x2709; R\xE9diger un email au vendeur</button><div class="okazcar-email-result" id="okazcar-email-result" style="display:none;"><textarea class="okazcar-email-textarea" id="okazcar-email-text" rows="8" readonly></textarea><div class="okazcar-email-actions"><button class="okazcar-email-copy" id="okazcar-email-copy">&#x1F4CB; Copier</button><span class="okazcar-email-copied" id="okazcar-email-copied" style="display:none;">Copi\xE9 !</span></div></div><div class="okazcar-email-loading" id="okazcar-email-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> G\xE9n\xE9ration en cours...</div><div class="okazcar-email-error" id="okazcar-email-error" style="display:none;"></div></div>`;
   }
@@ -6616,8 +6606,7 @@
       bonusHTML = '<div style="margin:12px 0;padding:10px;background:#f0f4ff;border-radius:8px;border:1px solid #d0d8f0;">';
       bonusHTML += '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#334155;">Signaux exclusifs</div>';
       for (const signal of bonusSignals) {
-        let sIcon;
-        let sColor;
+        let sIcon, sColor;
         switch (signal.status) {
           case "pass":
             sIcon = "\u2713";
@@ -6680,9 +6669,8 @@
           <span class="okazcar-carvertical-arrow">&rsaquo;</span>
         </a>
       </div>
-      ${buildReportBanner()}
       ${buildEmailBanner()}
-      <div class="okazcar-popup-footer"><p>OKazCar v1.2 &middot; Analyse automatis\xE9e</p></div>
+      <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse automatis\xE9e</p></div>
     </div>
   `;
   }
@@ -7164,9 +7152,44 @@
           showPopup(buildResultsPopup(result.data, { autovizaUrl: freeReportUrl, bonusSignals }));
         });
       }
-      const progressReportSection = document.getElementById("okazcar-progress-report-section");
-      if (progressReportSection && lastScanId) {
-        progressReportSection.style.display = "block";
+      const reportSection = document.getElementById("okazcar-progress-report-section");
+      const reportBtn = document.getElementById("okazcar-progress-report-btn");
+      if (reportSection && reportBtn && lastScanId) {
+        reportSection.style.display = "block";
+        reportBtn.addEventListener("click", async function() {
+          const loadingEl = document.getElementById("okazcar-progress-report-loading");
+          const errorEl = document.getElementById("okazcar-progress-report-error");
+          reportBtn.style.display = "none";
+          if (loadingEl) loadingEl.style.display = "flex";
+          if (errorEl) errorEl.style.display = "none";
+          try {
+            const reportUrl = API_URL.replace(/\/analyze$/, "/scan-report");
+            const resp = await backendFetch(reportUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ scan_id: lastScanId })
+            });
+            if (!resp.ok) throw new Error("Erreur serveur " + resp.status);
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "okazcar-rapport-" + lastScanId + ".pdf";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            reportBtn.style.display = "inline-block";
+            if (loadingEl) loadingEl.style.display = "none";
+          } catch (e) {
+            reportBtn.style.display = "inline-block";
+            if (loadingEl) loadingEl.style.display = "none";
+            if (errorEl) {
+              errorEl.textContent = "Echec du telechargement. Reessayez.";
+              errorEl.style.display = "block";
+            }
+          }
+        });
       }
     } catch (err) {
       progress.update("analyze", "error", "Erreur inattendue");

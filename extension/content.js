@@ -214,6 +214,47 @@ async function runAnalysis(injectedExtractor) {
       detailsBtn.style.display = "inline-block";
       detailsBtn.addEventListener("click", function () { showPopup(buildResultsPopup(result.data, { autovizaUrl: freeReportUrl, bonusSignals })); });
     }
+
+    // Bouton "Telecharger le rapport PDF"
+    const reportSection = document.getElementById("okazcar-progress-report-section");
+    const reportBtn = document.getElementById("okazcar-progress-report-btn");
+    if (reportSection && reportBtn && lastScanId) {
+      reportSection.style.display = "block";
+      reportBtn.addEventListener("click", async function () {
+        const loadingEl = document.getElementById("okazcar-progress-report-loading");
+        const errorEl = document.getElementById("okazcar-progress-report-error");
+        reportBtn.style.display = "none";
+        if (loadingEl) loadingEl.style.display = "flex";
+        if (errorEl) errorEl.style.display = "none";
+        try {
+          const reportUrl = API_URL.replace(/\/analyze$/, "/scan-report");
+          const resp = await backendFetch(reportUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scan_id: lastScanId }),
+          });
+          if (!resp.ok) throw new Error("Erreur serveur " + resp.status);
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "okazcar-rapport-" + lastScanId + ".pdf";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          reportBtn.style.display = "inline-block";
+          if (loadingEl) loadingEl.style.display = "none";
+        } catch (e) {
+          reportBtn.style.display = "inline-block";
+          if (loadingEl) loadingEl.style.display = "none";
+          if (errorEl) {
+            errorEl.textContent = "Echec du telechargement. Reessayez.";
+            errorEl.style.display = "block";
+          }
+        }
+      });
+    }
   } catch (err) {
     progress.update("analyze", "error", "Erreur inattendue");
     showPopup(buildErrorPopup(getRandomErrorMessage()));
