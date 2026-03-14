@@ -2049,6 +2049,75 @@
   margin-top: 4px;
 }
 
+.okazcar-progress-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px 16px;
+}
+
+.okazcar-progress-actions > .okazcar-btn,
+.okazcar-progress-details-btn {
+  align-self: center;
+  min-width: 220px;
+}
+
+.okazcar-progress-actions > .okazcar-btn.okazcar-btn-retry {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.okazcar-report-banner {
+  width: 100%;
+  text-align: center;
+  margin: 8px 0;
+}
+
+.okazcar-report-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.okazcar-report-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.okazcar-report-btn:active {
+  transform: translateY(0);
+}
+
+.okazcar-report-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.okazcar-report-error {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #ef4444;
+  text-align: center;
+}
+
 @keyframes okazcar-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

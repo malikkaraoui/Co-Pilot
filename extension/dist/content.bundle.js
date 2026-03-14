@@ -5630,8 +5630,8 @@
         errorDiv.style.display = "none";
         try {
           const emailUrl = _apiUrl.replace("/analyze", "/email-draft");
-          const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
-          const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: scanId }) });
+          const scanId2 = _lastScanIdGetter ? _lastScanIdGetter() : null;
+          const resp = await backendFetch(emailUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scan_id: scanId2 }) });
           const data = await resp.json();
           if (data.success) {
             textArea.value = data.data.generated_text;
@@ -5651,6 +5651,44 @@
           emailBtn.style.display = "block";
         }
         loading.style.display = "none";
+      });
+    }
+    const popupReportSection = document.getElementById("okazcar-popup-report-section");
+    const popupReportBtn = document.getElementById("okazcar-popup-report-btn");
+    const scanId = _lastScanIdGetter ? _lastScanIdGetter() : null;
+    if (popupReportSection && popupReportBtn && scanId) {
+      popupReportSection.style.display = "block";
+      popupReportBtn.addEventListener("click", async () => {
+        const loading = document.getElementById("okazcar-popup-report-loading");
+        const errorDiv = document.getElementById("okazcar-popup-report-error");
+        popupReportBtn.style.display = "none";
+        if (loading) loading.style.display = "flex";
+        if (errorDiv) errorDiv.style.display = "none";
+        try {
+          const reportUrl = _apiUrl.replace("/analyze", "/scan-report");
+          const resp = await backendFetch(reportUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scan_id: scanId })
+          });
+          if (!resp.ok) throw new Error("Erreur serveur " + resp.status);
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "okazcar-rapport-" + scanId + ".pdf";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          if (errorDiv) {
+            errorDiv.textContent = "Echec du t\xE9l\xE9chargement. R\xE9essayez.";
+            errorDiv.style.display = "block";
+          }
+        }
+        popupReportBtn.style.display = "inline-flex";
+        if (loading) loading.style.display = "none";
       });
     }
     const copyBtn = document.getElementById("okazcar-email-copy");
@@ -6670,6 +6708,11 @@
         </a>
       </div>
       ${buildEmailBanner()}
+      <div class="okazcar-report-banner" id="okazcar-popup-report-section" style="display:none;">
+        <button class="okazcar-report-btn" id="okazcar-popup-report-btn">&#x1F4C4; T&eacute;l&eacute;charger le rapport PDF</button>
+        <div class="okazcar-report-loading" id="okazcar-popup-report-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> Pr&eacute;paration du PDF...</div>
+        <div class="okazcar-report-error" id="okazcar-popup-report-error" style="display:none;"></div>
+      </div>
       <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse automatis\xE9e</p></div>
     </div>
   `;

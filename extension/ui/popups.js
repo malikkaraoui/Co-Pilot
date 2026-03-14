@@ -201,6 +201,11 @@ export function buildResultsPopup(data, options = {}) {
         </a>
       </div>
       ${buildEmailBanner()}
+      <div class="okazcar-report-banner" id="okazcar-popup-report-section" style="display:none;">
+        <button class="okazcar-report-btn" id="okazcar-popup-report-btn">&#x1F4C4; T&eacute;l&eacute;charger le rapport PDF</button>
+        <div class="okazcar-report-loading" id="okazcar-popup-report-loading" style="display:none;"><span class="okazcar-mini-spinner"></span> Pr&eacute;paration du PDF...</div>
+        <div class="okazcar-report-error" id="okazcar-popup-report-error" style="display:none;"></div>
+      </div>
       <div class="okazcar-popup-footer"><p>OKazCar v1.0 &middot; Analyse automatisée</p></div>
     </div>
   `;
